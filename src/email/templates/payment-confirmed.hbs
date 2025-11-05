@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pago Confirmado</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #2196F3;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }
+        .content {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border: 1px solid #ddd;
+        }
+        .success-icon {
+            text-align: center;
+            font-size: 60px;
+            color: #4CAF50;
+            margin: 20px 0;
+        }
+        .order-info {
+            background-color: white;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 30px;
+            background-color: #2196F3;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #777;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>¡Pago Confirmado!</h1>
+    </div>
+
+    <div class="content">
+        <div class="success-icon">✓</div>
+
+        <p>Hola {{customerName}},</p>
+
+        <p>¡Excelentes noticias! Hemos verificado tu pago y tu orden está siendo procesada.</p>
+
+        <div class="order-info">
+            <h3>Detalles de la Orden</h3>
+            <p><strong>Número de Orden:</strong> {{orderNumber}}</p>
+            <p><strong>Estado:</strong> {{orderStatus}}</p>
+            <p><strong>Total Pagado:</strong> ${{total}}</p>
+        </div>
+
+        <p>Tu orden será enviada pronto. Te notificaremos cuando esté en camino.</p>
+
+        <center>
+            <a href="{{trackingUrl}}" class="button">Rastrear mi Orden</a>
+        </center>
+    </div>
+
+    <div class="footer">
+        <p>Gracias por tu compra.</p>
+        <p>Si tienes alguna pregunta, no dudes en contactarnos.</p>
+    </div>
+</body>
+</html>
