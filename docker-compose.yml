@@ -18,7 +18,7 @@ services:
     volumes:
       - ./public:/app/public
     networks:
-      - cambios-los-criollitos-be_default
+      - construir-network
     depends_on:
       - postgres
 
@@ -33,11 +33,11 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - cambios-los-criollitos-be_default
+      - construir-network
 
 volumes:
   postgres-data:
 
 networks:
-  cambios-los-criollitos-be_default:
-    external: true
+  construir-network:
+    driver: bridge
