@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: construir-be
+    restart: always
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=construir_user
+      - DATABASE_PASSWORD=construir_password_2025
+      - DATABASE_NAME=construir_db
+      - PORT=3000
+    volumes:
+      - ./public:/app/public
+    networks:
+      - cambios-los-criollitos-be_default
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: construir-postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=construir_user
+      - POSTGRES_PASSWORD=construir_password_2025
+      - POSTGRES_DB=construir_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - cambios-los-criollitos-be_default
+
+volumes:
+  postgres-data:
+
+networks:
+  cambios-los-criollitos-be_default:
+    external: true
