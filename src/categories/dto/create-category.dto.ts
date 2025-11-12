@@ -26,6 +26,16 @@ export class CreateCategoryDto {
     }
     return value;
   })
+  isFeatured?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      return ['true', '1'].includes(value.toLowerCase());
+    }
+    return value;
+  })
   isActive?: boolean;
 }
 

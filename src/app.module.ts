@@ -10,6 +10,7 @@ import { BannersModule } from './banners/banners.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CartModule } from './cart/cart.module';
 import { OrdersModule } from './orders/orders.module';
+import { DiscountsModule } from './discounts/discounts.module';
 import {
   databaseConfig,
   jwtConfig,
@@ -45,6 +46,7 @@ import {
     BannersModule,
     CartModule,
     OrdersModule,
+    DiscountsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

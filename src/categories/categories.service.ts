@@ -64,6 +64,16 @@ export class CategoriesService {
     });
   }
 
+  async findFeatured(): Promise<Category[]> {
+    return await this.categoriesRepository.find({
+      where: {
+        isActive: true,
+        isFeatured: true,
+      },
+      order: { name: 'ASC' },
+    });
+  }
+
   async findOne(id: number): Promise<Category> {
     const category = await this.categoriesRepository.findOne({ where: { id } });
 

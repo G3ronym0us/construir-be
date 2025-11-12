@@ -16,6 +16,8 @@ import { User, UserRole } from '../users/user.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { EmailService } from '../email/email.service';
+import { DiscountsService } from '../discounts/discounts.service';
+import { Discount } from '../discounts/discount.entity';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -36,6 +38,7 @@ export class OrdersService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly emailService: EmailService,
+    private readonly discountsService: DiscountsService,
   ) {}
 
   /**
@@ -147,7 +150,31 @@ export class OrdersService {
     }
 
     const tax = 0; // Implementar cálculo de impuestos si es necesario
-    const total = subtotal + tax + shippingCost;
+
+    // 3.5 Validar y aplicar descuento si existe
+    let discountAmount = 0;
+    let discount: Discount | null = null;
+    const orderTotalBeforeDiscount = subtotal + tax + shippingCost;
+
+    if (createOrderDto.discountCode) {
+      const discountValidation = await this.discountsService.validateDiscount(
+        createOrderDto.discountCode,
+        orderTotalBeforeDiscount,
+      );
+
+      if (!discountValidation.valid) {
+        throw new BadRequestException(
+          discountValidation.error || 'Invalid discount code',
+        );
+      }
+
+      discountAmount = discountValidation.discount?.discountAmount || 0;
+      discount = await this.discountsService.findByCode(
+        createOrderDto.discountCode,
+      );
+    }
+
+    const total = Math.max(0, orderTotalBeforeDiscount - discountAmount);
 
     // 4. Crear la información de pago
     const paymentInfo = this.paymentInfoRepository.create({
@@ -163,8 +190,7 @@ export class OrdersService {
     order.userId = userId || null;
     order.guestEmail =
       !userId
-        ? createOrderDto.shippingAddress?.email || createOrderDto.guestEmail || null
-        : null;
+        ? createOrderDto.shippingAddress?.email || createOrderDto.guestEmail || null : null;
     order.deliveryMethod = createOrderDto.deliveryMethod;
     order.shippingAddressId = shippingAddress?.id || null;
     order.paymentInfoId = paymentInfo.id;
@@ -172,6 +198,9 @@ export class OrdersService {
     order.subtotal = subtotal;
     order.tax = tax;
     order.shipping = shippingCost;
+    order.discountId = discount?.id || null;
+    order.discountCode = discount?.code || null;
+    order.discountAmount = discountAmount;
     order.total = total;
     order.notes = createOrderDto.notes || null;
 
@@ -234,11 +263,16 @@ export class OrdersService {
       await this.orderRepository.save(order);
     }
 
-    // 10. Enviar email de confirmación
+    // 10. Incrementar uso del cupón si se aplicó uno
+    if (discount) {
+      await this.discountsService.incrementUsage(discount.uuid);
+    }
+
+    // 11. Enviar email de confirmación
     const finalOrder = await this.findOne(order.id);
     await this.emailService.sendOrderConfirmation(finalOrder);
 
-    // 11. Retornar la orden completa
+    // 12. Retornar la orden completa
     return finalOrder;
   }
 

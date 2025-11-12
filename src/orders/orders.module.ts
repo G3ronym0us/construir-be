@@ -11,6 +11,7 @@ import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { S3Service } from '../products/s3.service';
 import { EmailService } from '../email/email.service';
+import { DiscountsModule } from '../discounts/discounts.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { EmailService } from '../email/email.service';
       Product,
       User,
     ]),
+    DiscountsModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, S3Service, EmailService],

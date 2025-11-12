@@ -13,6 +13,7 @@ import { User } from '../users/user.entity';
 import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
 import { PaymentInfo } from './payment-info.entity';
+import { Discount } from '../discounts/discount.entity';
 
 export enum OrderStatus {
   PENDING = 'pending', // Orden creada, esperando confirmación de pago
@@ -94,6 +95,19 @@ export class Order {
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   shipping: number;
+
+  @Column({ name: 'discount_id', nullable: true })
+  discountId: number | null;
+
+  @ManyToOne(() => Discount, { eager: true, nullable: true })
+  @JoinColumn({ name: 'discount_id' })
+  discount: Discount | null;
+
+  @Column({ name: 'discount_code', type: 'varchar', nullable: true })
+  discountCode: string | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'discount_amount' })
+  discountAmount: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   total: number;

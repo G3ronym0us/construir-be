@@ -144,6 +144,10 @@ export class CreateOrderDto {
   @IsOptional()
   notes?: string;
 
+  @IsString()
+  @IsOptional()
+  discountCode?: string;
+
   // Items del carrito (solo para usuarios guest sin autenticación)
   @IsArray()
   @ValidateNested({ each: true })

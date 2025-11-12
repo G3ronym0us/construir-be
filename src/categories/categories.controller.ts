@@ -40,6 +40,11 @@ export class CategoriesController {
     return this.categoriesService.findAllActive();
   }
 
+  @Get('featured')
+  findFeatured() {
+    return this.categoriesService.findFeatured();
+  }
+
   @Get('stats')
   getStats() {
     return this.categoriesService.getStats();

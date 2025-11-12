@@ -31,6 +31,8 @@ export class Category {
   @Column({ type: 'varchar', nullable: true })
   image: string;
 
+  @Column({ type: 'boolean', default: false })
+  isFeatured: boolean;
 
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
