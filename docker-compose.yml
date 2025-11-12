@@ -7,33 +7,40 @@ services:
     restart: always
     ports:
       - "3001:3000"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
-      - DATABASE_USER=construir_user
-      - DATABASE_PASSWORD=construir_password_2025
-      - DATABASE_NAME=construir_db
+      - DATABASE_USER=${DB_USERNAME}
+      - DATABASE_NAME=${DB_DATABASE}
       - PORT=3000
     volumes:
       - ./public:/app/public
     networks:
       - construir-network
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:15-alpine
     container_name: construir-postgres
     restart: always
     environment:
-      - POSTGRES_USER=construir_user
-      - POSTGRES_PASSWORD=construir_password_2025
-      - POSTGRES_DB=construir_db
+      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_DATABASE}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - construir-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres-data:
