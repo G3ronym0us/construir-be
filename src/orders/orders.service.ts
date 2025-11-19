@@ -18,6 +18,8 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { Discount } from '../discounts/discount.entity';
+import { BanksService } from '../banks/banks.service';
+import { GuestCustomersService } from './guest-customers.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -39,6 +41,8 @@ export class OrdersService {
     private readonly userRepository: Repository<User>,
     private readonly emailService: EmailService,
     private readonly discountsService: DiscountsService,
+    private readonly banksService: BanksService,
+    private readonly guestCustomersService: GuestCustomersService,
   ) {}
 
   /**
@@ -126,7 +130,14 @@ export class OrdersService {
       });
     }
 
-    // 3. Validar y crear la dirección de envío (solo para delivery)
+    // 3. Validar customerInfo para usuarios guest
+    if (!userId && !createOrderDto.customerInfo) {
+      throw new BadRequestException(
+        'Customer information is required for guest orders',
+      );
+    }
+
+    // 4. Validar y crear la dirección de envío (solo para delivery)
     let shippingAddress: ShippingAddress | null = null;
     let shippingCost = 0;
 
@@ -137,7 +148,17 @@ export class OrdersService {
         );
       }
 
+      // Combinar customerInfo con shippingAddress
       shippingAddress = this.shippingAddressRepository.create({
+        // Datos del cliente (desde customerInfo si es guest, sino desde shippingAddress)
+        identificationType: createOrderDto.customerInfo?.identificationType,
+        identificationNumber:
+          createOrderDto.customerInfo?.identificationNumber,
+        firstName: createOrderDto.customerInfo?.firstName,
+        lastName: createOrderDto.customerInfo?.lastName,
+        email: createOrderDto.customerInfo?.email,
+        phone: createOrderDto.customerInfo?.phone,
+        // Datos de dirección
         ...createOrderDto.shippingAddress,
         country: createOrderDto.shippingAddress.country || 'Venezuela',
         latitude: createOrderDto.shippingAddress.latitude || null,
@@ -147,6 +168,14 @@ export class OrdersService {
 
       // Calcular costo de envío si es necesario
       shippingCost = 0; // TODO: Implementar cálculo de envío basado en ubicación
+    }
+
+    // 5. Guardar/actualizar datos de guest customer para futuras compras
+    if (!userId && createOrderDto.customerInfo) {
+      await this.guestCustomersService.createOrUpdate(
+        createOrderDto.customerInfo,
+        createOrderDto.shippingAddress,
+      );
     }
 
     const tax = 0; // Implementar cálculo de impuestos si es necesario
@@ -180,17 +209,52 @@ export class OrdersService {
     const paymentInfo = this.paymentInfoRepository.create({
       method: createOrderDto.paymentMethod,
       status: PaymentStatus.PENDING,
-      ...createOrderDto.paymentDetails,
+      senderName: createOrderDto.paymentDetails.senderName,
+      senderBank: createOrderDto.paymentDetails.senderBank,
+      phoneNumber: createOrderDto.paymentDetails.phoneNumber,
+      cedula: createOrderDto.paymentDetails.cedula,
+      referenceCode: createOrderDto.paymentDetails.referenceCode,
+      accountName: createOrderDto.paymentDetails.accountName,
+      referenceNumber: createOrderDto.paymentDetails.referenceNumber,
+      notes: createOrderDto.paymentDetails.notes,
     });
+
+    // Buscar y asignar banco para PagoMóvil
+    if (createOrderDto.paymentDetails.bankCode) {
+      const bank = await this.banksService.findByCode(
+        createOrderDto.paymentDetails.bankCode,
+      );
+      if (!bank) {
+        throw new BadRequestException(
+          `Bank with code ${createOrderDto.paymentDetails.bankCode} not found`,
+        );
+      }
+      paymentInfo.bank = bank;
+      paymentInfo.bankId = bank.id;
+    }
+
+    // Buscar y asignar banco para Transferencia
+    if (createOrderDto.paymentDetails.transferBankCode) {
+      const transferBank = await this.banksService.findByCode(
+        createOrderDto.paymentDetails.transferBankCode,
+      );
+      if (!transferBank) {
+        throw new BadRequestException(
+          `Bank with code ${createOrderDto.paymentDetails.transferBankCode} not found`,
+        );
+      }
+      paymentInfo.transferBank = transferBank;
+      paymentInfo.transferBankId = transferBank.id;
+    }
+
     await this.paymentInfoRepository.save(paymentInfo);
 
-    // 5. Crear la orden
+    // 6. Crear la orden
     const order = new Order();
     order.orderNumber = this.generateOrderNumber();
     order.userId = userId || null;
     order.guestEmail =
-      !userId
-        ? createOrderDto.shippingAddress?.email || createOrderDto.guestEmail || null : null;
+      !userId ? createOrderDto.customerInfo?.email || null : null;
     order.deliveryMethod = createOrderDto.deliveryMethod;
     order.shippingAddressId = shippingAddress?.id || null;
     order.paymentInfoId = paymentInfo.id;
@@ -245,13 +309,18 @@ export class OrdersService {
     }
 
     // 9. Si el usuario invitado quiere crear cuenta
-    if (!userId && createOrderDto.createAccount && createOrderDto.password && createOrderDto.shippingAddress) {
+    if (
+      !userId &&
+      createOrderDto.createAccount &&
+      createOrderDto.password &&
+      createOrderDto.customerInfo
+    ) {
       const hashedPassword = await bcrypt.hash(createOrderDto.password, 10);
 
       const newUser = this.userRepository.create({
-        firstName: createOrderDto.shippingAddress.firstName,
-        lastName: createOrderDto.shippingAddress.lastName,
-        email: createOrderDto.shippingAddress.email,
+        firstName: createOrderDto.customerInfo.firstName,
+        lastName: createOrderDto.customerInfo.lastName,
+        email: createOrderDto.customerInfo.email,
         password: hashedPassword,
         role: UserRole.USER,
       });

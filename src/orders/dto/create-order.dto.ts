@@ -17,8 +17,17 @@ import {
 import { Type } from 'class-transformer';
 import { PaymentMethod } from '../payment-info.entity';
 import { DeliveryMethod } from '../order.entity';
+import { IdentificationType } from '../guest-customer.entity';
 
-export class ShippingAddressDto {
+export class CustomerInfoDto {
+  @IsEnum(IdentificationType)
+  @IsNotEmpty()
+  identificationType: IdentificationType;
+
+  @IsString()
+  @IsNotEmpty()
+  identificationNumber: string;
+
   @IsString()
   @IsNotEmpty()
   firstName: string;
@@ -28,12 +37,15 @@ export class ShippingAddressDto {
   lastName: string;
 
   @IsEmail()
+  @IsNotEmpty()
   email: string;
 
   @IsString()
   @IsNotEmpty()
   phone: string;
+}
 
+export class ShippingAddressDto {
   @IsString()
   @IsNotEmpty()
   address: string;
@@ -88,7 +100,7 @@ export class PaymentDetailsDto {
 
   @IsString()
   @IsOptional()
-  bank?: string;
+  bankCode?: string; // Código del banco (4 dígitos)
 
   @IsString()
   @IsOptional()
@@ -98,6 +110,10 @@ export class PaymentDetailsDto {
   @IsString()
   @IsOptional()
   accountName?: string;
+
+  @IsString()
+  @IsOptional()
+  transferBankCode?: string; // Código del banco (4 dígitos)
 
   @IsString()
   @IsOptional()
@@ -119,6 +135,12 @@ export class GuestCartItemDto {
 }
 
 export class CreateOrderDto {
+  // Información del cliente (requerido para guests, debe enviarse desde el frontend)
+  @ValidateNested()
+  @Type(() => CustomerInfoDto)
+  @IsOptional() // Opcional porque usuarios autenticados no lo necesitan
+  customerInfo?: CustomerInfoDto;
+
   @IsEnum(DeliveryMethod)
   deliveryMethod: DeliveryMethod;
 
@@ -126,12 +148,6 @@ export class CreateOrderDto {
   @ValidateNested()
   @Type(() => ShippingAddressDto)
   shippingAddress?: ShippingAddressDto;
-
-  // Email requerido para usuarios guest con pickup (ya que no tienen shippingAddress)
-  @ValidateIf((o) => o.deliveryMethod === DeliveryMethod.PICKUP && !o.shippingAddress)
-  @IsEmail()
-  @IsOptional()
-  guestEmail?: string;
 
   @IsEnum(PaymentMethod)
   paymentMethod: PaymentMethod;

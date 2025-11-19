@@ -4,11 +4,23 @@ import {
   Column,
   CreateDateColumn,
 } from 'typeorm';
+import { IdentificationType } from './guest-customer.entity';
 
 @Entity('shipping_addresses')
 export class ShippingAddress {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({
+    type: 'enum',
+    enum: IdentificationType,
+    name: 'identification_type',
+    nullable: true,
+  })
+  identificationType: IdentificationType;
+
+  @Column({ name: 'identification_number', length: 50, nullable: true })
+  identificationNumber: string;
 
   @Column({ name: 'first_name' })
   firstName: string;

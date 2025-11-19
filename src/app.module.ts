@@ -11,6 +11,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { CartModule } from './cart/cart.module';
 import { OrdersModule } from './orders/orders.module';
 import { DiscountsModule } from './discounts/discounts.module';
+import { BanksModule } from './banks/banks.module';
 import {
   databaseConfig,
   jwtConfig,
@@ -47,6 +48,7 @@ import {
     CartModule,
     OrdersModule,
     DiscountsModule,
+    BanksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

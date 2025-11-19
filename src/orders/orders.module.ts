@@ -6,12 +6,16 @@ import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
 import { PaymentInfo } from './payment-info.entity';
+import { GuestCustomer } from './guest-customer.entity';
 import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { S3Service } from '../products/s3.service';
 import { EmailService } from '../email/email.service';
 import { DiscountsModule } from '../discounts/discounts.module';
+import { BanksModule } from '../banks/banks.module';
+import { GuestCustomersService } from './guest-customers.service';
+import { GuestCustomersController } from './guest-customers.controller';
 
 @Module({
   imports: [
@@ -20,14 +24,16 @@ import { DiscountsModule } from '../discounts/discounts.module';
       OrderItem,
       ShippingAddress,
       PaymentInfo,
+      GuestCustomer,
       Cart,
       Product,
       User,
     ]),
     DiscountsModule,
+    BanksModule,
   ],
-  controllers: [OrdersController],
-  providers: [OrdersService, S3Service, EmailService],
-  exports: [OrdersService],
+  controllers: [OrdersController, GuestCustomersController],
+  providers: [OrdersService, GuestCustomersService, S3Service, EmailService],
+  exports: [OrdersService, GuestCustomersService],
 })
 export class OrdersModule {}

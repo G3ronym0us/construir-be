@@ -25,7 +25,10 @@
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
     "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
     "update-image-urls": "ts-node -r tsconfig-paths/register src/scripts/update-image-urls.ts",
-    "check-products": "ts-node -r tsconfig-paths/register src/scripts/check-products.ts"
+    "check-products": "ts-node -r tsconfig-paths/register src/scripts/check-products.ts",
+    "check-missing-images": "ts-node -r tsconfig-paths/register scripts/check-missing-images.ts",
+    "delete-missing-images": "ts-node -r tsconfig-paths/register scripts/delete-missing-images.ts",
+    "migrate-images-s3": "ts-node -r tsconfig-paths/register scripts/migrate-images-to-s3.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.901.0",
@@ -43,6 +46,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "handlebars": "^4.7.8",
+    "mime-types": "^3.0.1",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.10",
     "passport": "^0.7.0",
@@ -65,6 +69,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
+    "@types/mime-types": "^3.0.1",
     "@types/multer": "^2.0.0",
     "@types/node": "^22.10.7",
     "@types/passport-jwt": "^4.0.1",

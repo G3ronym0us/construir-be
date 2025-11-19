@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Bank } from '../banks/bank.entity';
 
 export enum PaymentMethod {
   ZELLE = 'zelle',
@@ -50,8 +53,12 @@ export class PaymentInfo {
   @Column({ nullable: true })
   cedula: string;
 
-  @Column({ nullable: true })
-  bank: string;
+  @ManyToOne(() => Bank, { nullable: true, eager: true })
+  @JoinColumn({ name: 'bank_id' })
+  bank: Bank;
+
+  @Column({ name: 'bank_id', nullable: true })
+  bankId: number;
 
   @Column({ name: 'reference_code', nullable: true })
   referenceCode: string;
@@ -59,6 +66,13 @@ export class PaymentInfo {
   // Campos para Transferencia
   @Column({ name: 'account_name', nullable: true })
   accountName: string;
+
+  @ManyToOne(() => Bank, { nullable: true, eager: true })
+  @JoinColumn({ name: 'transfer_bank_id' })
+  transferBank: Bank;
+
+  @Column({ name: 'transfer_bank_id', nullable: true })
+  transferBankId: number;
 
   @Column({ name: 'reference_number', nullable: true })
   referenceNumber: string;
