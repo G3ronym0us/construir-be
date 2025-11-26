@@ -112,6 +112,15 @@ export class Order {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   total: number;
 
+  @Column({ name: 'exchange_rate', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  exchangeRate: number | null;
+
+  @Column({ name: 'subtotal_ves', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  subtotalVes: number | null;
+
+  @Column({ name: 'total_ves', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  totalVes: number | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Generated,
 } from 'typeorm';
 import { Product } from './product.entity';
 
@@ -13,6 +14,10 @@ import { Product } from './product.entity';
 export class ProductImage {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ unique: true })
+  @Generated('uuid')
+  uuid: string;
 
   @Column()
   url: string;
@@ -25,6 +30,9 @@ export class ProductImage {
 
   @Column({ default: 0 })
   order: number;
+
+  @Column({ nullable: true })
+  alt: string;
 
   @ManyToOne(() => Product, (product) => product.images, {
     onDelete: 'CASCADE',

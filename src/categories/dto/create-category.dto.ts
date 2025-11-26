@@ -36,6 +36,6 @@ export class CreateCategoryDto {
     }
     return value;
   })
-  isActive?: boolean;
+  visible?: boolean;
 }
 

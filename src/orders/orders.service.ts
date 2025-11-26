@@ -20,6 +20,7 @@ import { DiscountsService } from '../discounts/discounts.service';
 import { Discount } from '../discounts/discount.entity';
 import { BanksService } from '../banks/banks.service';
 import { GuestCustomersService } from './guest-customers.service';
+import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -43,6 +44,7 @@ export class OrdersService {
     private readonly discountsService: DiscountsService,
     private readonly banksService: BanksService,
     private readonly guestCustomersService: GuestCustomersService,
+    private readonly exchangeRatesService: ExchangeRatesService,
   ) {}
 
   /**
@@ -205,6 +207,20 @@ export class OrdersService {
 
     const total = Math.max(0, orderTotalBeforeDiscount - discountAmount);
 
+    // 3.6 Obtener tipo de cambio actual y calcular precios en VES
+    let exchangeRate: number | null = null;
+    let subtotalVes: number | null = null;
+    let totalVes: number | null = null;
+
+    try {
+      exchangeRate = await this.exchangeRatesService.getRate();
+      subtotalVes = Number((subtotal * exchangeRate).toFixed(2));
+      totalVes = Number((total * exchangeRate).toFixed(2));
+    } catch (error) {
+      // Si no hay tipo de cambio disponible, continuar sin precios VES
+      console.warn('Exchange rate not available, continuing without VES prices');
+    }
+
     // 4. Crear la información de pago
     const paymentInfo = this.paymentInfoRepository.create({
       method: createOrderDto.paymentMethod,
@@ -266,6 +282,9 @@ export class OrdersService {
     order.discountCode = discount?.code || null;
     order.discountAmount = discountAmount;
     order.total = total;
+    order.exchangeRate = exchangeRate;
+    order.subtotalVes = subtotalVes;
+    order.totalVes = totalVes;
     order.notes = createOrderDto.notes || null;
 
     await this.orderRepository.save(order);
@@ -274,6 +293,10 @@ export class OrdersService {
     const createdOrderItems: OrderItem[] = [];
 
     for (const item of validatedItems) {
+      const itemSubtotal = Number(item.product.price) * item.quantity;
+      const itemPriceVes = exchangeRate ? Number((Number(item.product.price) * exchangeRate).toFixed(2)) : null;
+      const itemSubtotalVes = exchangeRate ? Number((itemSubtotal * exchangeRate).toFixed(2)) : null;
+
       const orderItem = this.orderItemRepository.create({
         orderId: order.id,
         productId: item.product.id,
@@ -281,7 +304,9 @@ export class OrdersService {
         productSku: item.product.sku,
         quantity: item.quantity,
         price: item.product.price,
-        subtotal: Number(item.product.price) * item.quantity,
+        subtotal: itemSubtotal,
+        priceVes: itemPriceVes,
+        subtotalVes: itemSubtotalVes,
       });
 
       createdOrderItems.push(orderItem);
@@ -582,6 +607,229 @@ export class OrdersService {
         shipped: shippedOrders,
         delivered: deliveredOrders,
       },
+    };
+  }
+
+  /**
+   * Obtiene estadísticas del dashboard con comparación mensual
+   */
+  async getDashboardStats(month?: string): Promise<any> {
+    // Determinar el mes actual o el especificado
+    const targetDate = month ? new Date(month + '-01') : new Date();
+    const startOfMonth = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      1,
+    );
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const endOfMonth = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth() + 1,
+      0,
+    );
+    endOfMonth.setHours(23, 59, 59, 999);
+
+    // Mes anterior
+    const startOfPrevMonth = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth() - 1,
+      1,
+    );
+    startOfPrevMonth.setHours(0, 0, 0, 0);
+
+    const endOfPrevMonth = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      0,
+    );
+    endOfPrevMonth.setHours(23, 59, 59, 999);
+
+    // Obtener órdenes confirmadas del mes actual
+    const currentMonthOrders = await this.orderRepository
+      .createQueryBuilder('order')
+      .where('order.createdAt >= :start', { start: startOfMonth })
+      .andWhere('order.createdAt <= :end', { end: endOfMonth })
+      .andWhere('order.status IN (:...statuses)', {
+        statuses: [
+          OrderStatus.CONFIRMED,
+          OrderStatus.PROCESSING,
+          OrderStatus.SHIPPED,
+          OrderStatus.DELIVERED,
+        ],
+      })
+      .getMany();
+
+    // Obtener órdenes confirmadas del mes anterior
+    const prevMonthOrders = await this.orderRepository
+      .createQueryBuilder('order')
+      .where('order.createdAt >= :start', { start: startOfPrevMonth })
+      .andWhere('order.createdAt <= :end', { end: endOfPrevMonth })
+      .andWhere('order.status IN (:...statuses)', {
+        statuses: [
+          OrderStatus.CONFIRMED,
+          OrderStatus.PROCESSING,
+          OrderStatus.SHIPPED,
+          OrderStatus.DELIVERED,
+        ],
+      })
+      .getMany();
+
+    // Calcular totales del mes actual
+    const currentRevenue = currentMonthOrders.reduce(
+      (sum, order) => sum + Number(order.total),
+      0,
+    );
+    const currentRevenueVes = currentMonthOrders.reduce(
+      (sum, order) => sum + (order.totalVes ? Number(order.totalVes) : 0),
+      0,
+    );
+    const currentSalesCount = currentMonthOrders.length;
+
+    // Calcular totales del mes anterior
+    const prevRevenue = prevMonthOrders.reduce(
+      (sum, order) => sum + Number(order.total),
+      0,
+    );
+    const prevRevenueVes = prevMonthOrders.reduce(
+      (sum, order) => sum + (order.totalVes ? Number(order.totalVes) : 0),
+      0,
+    );
+    const prevSalesCount = prevMonthOrders.length;
+
+    // Calcular porcentajes de cambio
+    const revenueChangePercent =
+      prevRevenue > 0
+        ? Number((((currentRevenue - prevRevenue) / prevRevenue) * 100).toFixed(2))
+        : 0;
+
+    const salesChangePercent =
+      prevSalesCount > 0
+        ? Number((((currentSalesCount - prevSalesCount) / prevSalesCount) * 100).toFixed(2))
+        : 0;
+
+    // Formatear período
+    const formatPeriod = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      return `${year}-${month}`;
+    };
+
+    return {
+      currentMonth: {
+        revenueUSD: Number(currentRevenue.toFixed(2)),
+        revenueVES: Number(currentRevenueVes.toFixed(2)),
+        salesCount: currentSalesCount,
+        period: formatPeriod(targetDate),
+      },
+      previousMonth: {
+        revenueUSD: Number(prevRevenue.toFixed(2)),
+        revenueVES: Number(prevRevenueVes.toFixed(2)),
+        salesCount: prevSalesCount,
+        period: formatPeriod(startOfPrevMonth),
+      },
+      comparison: {
+        revenueChangePercent,
+        salesChangePercent,
+      },
+    };
+  }
+
+  /**
+   * Obtiene productos más y menos vendidos
+   */
+  async getTopProducts(
+    month?: string,
+    limit: number = 10,
+  ): Promise<any> {
+    // Determinar el mes
+    const targetDate = month ? new Date(month + '-01') : new Date();
+    const startOfMonth = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      1,
+    );
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const endOfMonth = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth() + 1,
+      0,
+    );
+    endOfMonth.setHours(23, 59, 59, 999);
+
+    // Productos más vendidos
+    const topSelling = await this.orderItemRepository
+      .createQueryBuilder('item')
+      .select('item.productId', 'productId')
+      .addSelect('item.productName', 'productName')
+      .addSelect('SUM(item.quantity)', 'totalQuantity')
+      .addSelect('SUM(item.subtotal)', 'totalRevenue')
+      .addSelect('COUNT(DISTINCT item.orderId)', 'orderCount')
+      .innerJoin('item.order', 'order')
+      .where('order.createdAt >= :start', { start: startOfMonth })
+      .andWhere('order.createdAt <= :end', { end: endOfMonth })
+      .andWhere('order.status IN (:...statuses)', {
+        statuses: [
+          OrderStatus.CONFIRMED,
+          OrderStatus.PROCESSING,
+          OrderStatus.SHIPPED,
+          OrderStatus.DELIVERED,
+        ],
+      })
+      .groupBy('item.productId')
+      .addGroupBy('item.productName')
+      .orderBy('totalQuantity', 'DESC')
+      .limit(limit)
+      .getRawMany();
+
+    // Productos menos vendidos
+    const leastSelling = await this.orderItemRepository
+      .createQueryBuilder('item')
+      .select('item.productId', 'productId')
+      .addSelect('item.productName', 'productName')
+      .addSelect('SUM(item.quantity)', 'totalQuantity')
+      .addSelect('SUM(item.subtotal)', 'totalRevenue')
+      .addSelect('COUNT(DISTINCT item.orderId)', 'orderCount')
+      .innerJoin('item.order', 'order')
+      .where('order.createdAt >= :start', { start: startOfMonth })
+      .andWhere('order.createdAt <= :end', { end: endOfMonth })
+      .andWhere('order.status IN (:...statuses)', {
+        statuses: [
+          OrderStatus.CONFIRMED,
+          OrderStatus.PROCESSING,
+          OrderStatus.SHIPPED,
+          OrderStatus.DELIVERED,
+        ],
+      })
+      .groupBy('item.productId')
+      .addGroupBy('item.productName')
+      .orderBy('totalQuantity', 'ASC')
+      .limit(limit)
+      .getRawMany();
+
+    const formatPeriod = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      return `${year}-${month}`;
+    };
+
+    return {
+      topSelling: topSelling.map((p) => ({
+        productId: p.productId,
+        productName: p.productName,
+        totalQuantity: parseInt(p.totalQuantity),
+        totalRevenue: Number(Number(p.totalRevenue).toFixed(2)),
+        orderCount: parseInt(p.orderCount),
+      })),
+      leastSelling: leastSelling.map((p) => ({
+        productId: p.productId,
+        productName: p.productName,
+        totalQuantity: parseInt(p.totalQuantity),
+        totalRevenue: Number(Number(p.totalRevenue).toFixed(2)),
+        orderCount: parseInt(p.orderCount),
+      })),
+      period: formatPeriod(targetDate),
     };
   }
 

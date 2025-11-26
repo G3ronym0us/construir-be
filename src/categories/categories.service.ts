@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { Category } from './category.entity';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -53,21 +53,70 @@ export class CategoriesService {
 
   async findAll(): Promise<Category[]> {
     return await this.categoriesRepository.find({
+      relations: {
+        parent: true,
+        childrens: true,
+      },
       order: { name: 'ASC' },
     });
   }
 
-  async findAllActive(): Promise<Category[]> {
+  async findAllVisible(): Promise<Category[]> {
     return await this.categoriesRepository.find({
-      where: { isActive: true },
+      where: { visible: true },
+      relations: {
+        parent: true,
+        childrens: true,
+      },
       order: { name: 'ASC' },
     });
+  }
+
+  async findParentCategories(): Promise<Category[]> {
+    return await this.categoriesRepository.find({
+      where: { parent: IsNull() },
+      relations: {
+        childrens: true,
+      },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async findChildrenByParentUuid(parentUuid: string): Promise<Category[]> {
+    return await this.categoriesRepository.find({
+      where: { parent: { uuid: parentUuid } },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async setParent(childUuid: string, parentUuid: string | null): Promise<Category> {
+    const child = await this.findByUuid(childUuid);
+
+    if (parentUuid) {
+      const parent = await this.findByUuid(parentUuid);
+
+      // Validar que el parent no sea una subcategoría
+      if (parent.parent) {
+        throw new BadRequestException('Cannot assign a subcategory as parent. Only root categories can be parents.');
+      }
+
+      // Validar que no se esté intentando asignar a sí mismo
+      if (child.id === parent.id) {
+        throw new BadRequestException('A category cannot be its own parent');
+      }
+
+      child.parent = parent;
+    } else {
+      child.parent = null;
+    }
+
+    return await this.categoriesRepository.save(child);
   }
 
   async findFeatured(): Promise<Category[]> {
     return await this.categoriesRepository.find({
       where: {
-        isActive: true,
+        visible: true,
         isFeatured: true,
       },
       order: { name: 'ASC' },
@@ -163,14 +212,14 @@ export class CategoriesService {
 
   async getStats(): Promise<{
     total: number;
-    active: number;
-    inactive: number;
+    visible: number;
+    hidden: number;
   }> {
     const total = await this.categoriesRepository.count();
-    const active = await this.categoriesRepository.count({ where: { isActive: true } });
-    const inactive = await this.categoriesRepository.count({ where: { isActive: false } });
+    const visible = await this.categoriesRepository.count({ where: { visible: true } });
+    const hidden = await this.categoriesRepository.count({ where: { visible: false } });
 
-    return { total, active, inactive };
+    return { total, visible, hidden };
   }
 
   private async processCategoryImage(file: Express.Multer.File): Promise<string> {

@@ -150,6 +150,32 @@ export class OrdersController {
   }
 
   /**
+   * Dashboard con estadísticas mensuales y comparación (solo admin)
+   */
+  @Get('admin/dashboard-stats')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async getDashboardStats(@Query('month') month?: string) {
+    return this.ordersService.getDashboardStats(month);
+  }
+
+  /**
+   * Top productos más y menos vendidos (solo admin)
+   */
+  @Get('admin/top-products')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async getTopProducts(
+    @Query('month') month?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.ordersService.getTopProducts(
+      month,
+      limit ? parseInt(limit) : 10,
+    );
+  }
+
+  /**
    * Filtrar órdenes con opciones avanzadas (solo admin)
    */
   @Get('admin/filter')

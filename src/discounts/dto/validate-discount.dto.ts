@@ -21,6 +21,8 @@ export class ValidateDiscountResponseDto {
     value: number;
     discountAmount: number;
     finalTotal: number;
+    discountAmountVes?: number;
+    finalTotalVes?: number;
   };
   error?: string;
 }

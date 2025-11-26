@@ -10,12 +10,14 @@ import { Discount, DiscountType } from './discount.entity';
 import { CreateDiscountDto } from './dto/create-discount.dto';
 import { UpdateDiscountDto } from './dto/update-discount.dto';
 import { ValidateDiscountResponseDto } from './dto/validate-discount.dto';
+import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 
 @Injectable()
 export class DiscountsService {
   constructor(
     @InjectRepository(Discount)
     private discountsRepository: Repository<Discount>,
+    private exchangeRatesService: ExchangeRatesService,
   ) {}
 
   async create(createDiscountDto: CreateDiscountDto): Promise<Discount> {
@@ -186,6 +188,19 @@ export class DiscountsService {
       const discountAmount = this.calculateDiscountAmount(discount, orderTotal);
       const finalTotal = Math.max(0, orderTotal - discountAmount);
 
+      // Calcular valores en VES
+      let discountAmountVes: number | undefined;
+      let finalTotalVes: number | undefined;
+
+      try {
+        const exchangeRate = await this.exchangeRatesService.getRate();
+        discountAmountVes = Number((discountAmount * exchangeRate).toFixed(2));
+        finalTotalVes = Number((finalTotal * exchangeRate).toFixed(2));
+      } catch (error) {
+        // Si no hay tipo de cambio disponible, continuar sin valores VES
+        console.warn('Exchange rate not available for discount validation');
+      }
+
       return {
         valid: true,
         discount: {
@@ -196,6 +211,8 @@ export class DiscountsService {
           value: Number(discount.value),
           discountAmount: Number(discountAmount.toFixed(2)),
           finalTotal: Number(finalTotal.toFixed(2)),
+          discountAmountVes,
+          finalTotalVes,
         },
       };
     } catch (error) {

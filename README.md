@@ -57,6 +57,30 @@ $ yarn run test:e2e
 $ yarn run test:cov
 ```
 
+## API
+
+This project provides a RESTful API for managing products, orders, and customers.
+
+### API v1
+
+API v1 returns native TypeORM entities without transformation.
+
+- **Base URL**: `/api/v1`
+- **Authentication**: API Key (Bearer token)
+- **Documentation**: See [API_V1_DOCUMENTATION.md](./API_V1_DOCUMENTATION.md)
+
+**Key Endpoints:**
+- `GET /api/v1/products` - List products with pagination
+- `GET /api/v1/products/:uuid` - Get product by UUID
+- `POST /api/v1/products` - Create product
+- `PUT /api/v1/products/:uuid` - Update product
+- `DELETE /api/v1/products/:uuid` - Delete product
+- `GET /api/v1/orders` - List orders with pagination
+- `GET /api/v1/orders/:uuid` - Get order by UUID
+- `PUT /api/v1/orders/:uuid` - Update order status
+- `GET /api/v1/customers` - List customers with pagination
+- `GET /api/v1/customers/:id` - Get customer details
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

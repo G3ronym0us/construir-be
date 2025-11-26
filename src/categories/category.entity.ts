@@ -7,6 +7,9 @@ import {
   DeleteDateColumn,
   Generated,
   ManyToMany,
+  ManyToOne,
+  OneToMany,
+  JoinColumn,
 } from 'typeorm';
 import { Product } from '../products/product.entity';
 
@@ -35,7 +38,18 @@ export class Category {
   isFeatured: boolean;
 
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  visible: boolean;
+
+  // Relación padre-hijo para categorías jerárquicas
+  @ManyToOne(() => Category, (category) => category.childrens, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'parent_id' })
+  parent: Category | null;
+
+  @OneToMany(() => Category, (category) => category.parent)
+  childrens: Category[];
 
   @ManyToMany(() => Product, (product) => product.categories)
   products: Product[];

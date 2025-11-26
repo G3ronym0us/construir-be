@@ -41,8 +41,15 @@ export class CartItem {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  // Computed property
+  // Computed properties
   get subtotal(): number {
     return Number(this.price) * this.quantity;
+  }
+
+  get subtotalVes(): number | null {
+    if (!this.product || !this.product.priceVes) {
+      return null;
+    }
+    return Number(this.product.priceVes) * this.quantity;
   }
 }

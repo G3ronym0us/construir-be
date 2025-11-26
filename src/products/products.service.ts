@@ -1,6 +1,10 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, MoreThan } from 'typeorm';
 import { Product } from './product.entity';
 import { ProductImage } from './product-image.entity';
 import { Category } from '../categories/category.entity';
@@ -48,14 +52,18 @@ export class ProductsService {
   }
 
   async findAll(): Promise<Product[]> {
-    return await this.productsRepository.find();
+    return await this.productsRepository.find({
+      where: {
+        inventory: MoreThan(0),
+      },
+    });
   }
 
-  async findOne(id: number): Promise<Product> {
-    const product = await this.productsRepository.findOne({ where: { id } });
+  async findOne(uuid: string): Promise<Product> {
+    const product = await this.productsRepository.findOne({ where: { uuid } });
 
     if (!product) {
-      throw new NotFoundException(`Product with ID ${id} not found`);
+      throw new NotFoundException(`Product with UUID ${uuid} not found`);
     }
 
     return product;
@@ -71,15 +79,18 @@ export class ProductsService {
     return product;
   }
 
-  async update(id: number, updateProductDto: UpdateProductDto): Promise<Product> {
-    const product = await this.findOne(id);
+  async update(
+    uuid: string,
+    updateProductDto: UpdateProductDto,
+  ): Promise<Product> {
+    const product = await this.findOne(uuid);
 
     if (updateProductDto.sku && updateProductDto.sku !== product.sku) {
       const existingProduct = await this.productsRepository.findOne({
         where: { sku: updateProductDto.sku },
       });
 
-      if (existingProduct && existingProduct.id !== id) {
+      if (existingProduct && existingProduct.uuid !== uuid) {
         throw new ConflictException('SKU already exists');
       }
     }
@@ -102,8 +113,8 @@ export class ProductsService {
     return await this.productsRepository.save(product);
   }
 
-  async remove(id: number): Promise<void> {
-    const product = await this.findOne(id);
+  async remove(uuid: string): Promise<void> {
+    const product = await this.findOne(uuid);
 
     // Delete all images from S3 before soft deleting product
     if (product.images && product.images.length > 0) {
@@ -116,19 +127,19 @@ export class ProductsService {
   }
 
   async uploadImage(
-    productId: number,
+    productUuid: string,
     file: Express.Multer.File,
     isPrimary: boolean = false,
     order: number = 0,
   ): Promise<ProductImage> {
-    const product = await this.findOne(productId);
+    const product = await this.findOne(productUuid);
 
     const { url, key } = await this.s3Service.uploadFile(file, 'products');
 
     // If this is primary, unset all other images as primary
     if (isPrimary) {
       await this.productImagesRepository.update(
-        { productId },
+        { productId: product.id },
         { isPrimary: false },
       );
     }
@@ -144,32 +155,32 @@ export class ProductsService {
     return await this.productImagesRepository.save(productImage);
   }
 
-  async deleteImage(imageId: number): Promise<void> {
+  async deleteImage(imageUuid: string): Promise<void> {
     const image = await this.productImagesRepository.findOne({
-      where: { id: imageId },
+      where: { uuid: imageUuid },
     });
 
     if (!image) {
-      throw new NotFoundException(`Image with ID ${imageId} not found`);
+      throw new NotFoundException(`Image with UUID ${imageUuid} not found`);
     }
 
     await this.s3Service.deleteFile(image.key);
     await this.productImagesRepository.remove(image);
   }
 
-  async setPrimaryImage(imageId: number): Promise<ProductImage> {
+  async setPrimaryImage(imageUuid: string): Promise<ProductImage> {
     const image = await this.productImagesRepository.findOne({
-      where: { id: imageId },
-      relations: ['product'],
+      where: { uuid: imageUuid },
+      relations: { product: true },
     });
 
     if (!image) {
-      throw new NotFoundException(`Image with ID ${imageId} not found`);
+      throw new NotFoundException(`Image with UUID ${imageUuid} not found`);
     }
 
     // Unset all other images as primary for this product
     await this.productImagesRepository.update(
-      { productId: image.productId },
+      { product: { id: image.product.id } },
       { isPrimary: false },
     );
 
@@ -186,22 +197,33 @@ export class ProductsService {
     featured?: boolean,
     sortBy: string = 'createdAt',
     sortOrder: 'ASC' | 'DESC' = 'DESC',
-  ): Promise<{ data: Product[]; total: number; page: number; lastPage: number }> {
-    const queryBuilder = this.productsRepository.createQueryBuilder('product')
+  ): Promise<{
+    data: Product[];
+    total: number;
+    page: number;
+    lastPage: number;
+  }> {
+    const queryBuilder = this.productsRepository
+      .createQueryBuilder('product')
       .leftJoinAndSelect('product.images', 'images')
       .leftJoinAndSelect('product.categories', 'categories');
+
+    // Filter out products without stock
+    queryBuilder.andWhere('product.inventory > 0');
 
     // Search filter
     if (search) {
       queryBuilder.andWhere(
         '(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
-        { search: `%${search}%` }
+        { search: `%${search}%` },
       );
     }
 
     // Category filter by UUID
     if (categoryUuid) {
-      queryBuilder.andWhere('categories.uuid = :categoryUuid', { categoryUuid });
+      queryBuilder.andWhere('categories.uuid = :categoryUuid', {
+        categoryUuid,
+      });
     }
 
     // Published filter
@@ -239,24 +261,31 @@ export class ProductsService {
     lowStock: number;
   }> {
     const total = await this.productsRepository.count();
-    const published = await this.productsRepository.count({ where: { published: true } });
-    const unpublished = await this.productsRepository.count({ where: { published: false } });
-    const featured = await this.productsRepository.count({ where: { featured: true } });
+    const published = await this.productsRepository.count({
+      where: { published: true },
+    });
+    const unpublished = await this.productsRepository.count({
+      where: { published: false },
+    });
+    const featured = await this.productsRepository.count({
+      where: { featured: true },
+    });
     const lowStock = await this.productsRepository.count({
-      where: { inventory: 10 } as any
+      where: { inventory: 10 },
     });
 
     return { total, published, unpublished, featured, lowStock };
   }
 
-
   async search(query: string): Promise<Product[]> {
     return await this.productsRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.images', 'images')
-      .where('product.name ILIKE :query', { query: `%${query}%` })
-      .orWhere('product.sku ILIKE :query', { query: `%${query}%` })
-      .orWhere('product.barcode ILIKE :query', { query: `%${query}%` })
+      .where('product.inventory > 0')
+      .andWhere(
+        '(product.name ILIKE :query OR product.sku ILIKE :query OR product.barcode ILIKE :query)',
+        { query: `%${query}%` },
+      )
       .take(20)
       .getMany();
   }
@@ -271,17 +300,20 @@ export class ProductsService {
       .getMany();
   }
 
-  async updateInventory(id: number, inventory: number): Promise<Product> {
-    const product = await this.findOne(id);
+  async updateInventory(uuid: string, inventory: number): Promise<Product> {
+    const product = await this.findOne(uuid);
     product.inventory = inventory;
     return await this.productsRepository.save(product);
   }
 
-  async bulkUpdatePublished(ids: number[], published: boolean): Promise<void> {
-    await this.productsRepository.update(ids, { published });
+  async bulkUpdatePublished(
+    uuids: string[],
+    published: boolean,
+  ): Promise<void> {
+    await this.productsRepository.update(uuids, { published });
   }
 
-  async bulkUpdateFeatured(ids: number[], featured: boolean): Promise<void> {
-    await this.productsRepository.update(ids, { featured });
+  async bulkUpdateFeatured(uuids: string[], featured: boolean): Promise<void> {
+    await this.productsRepository.update(uuids, { featured });
   }
 }

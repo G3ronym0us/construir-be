@@ -48,4 +48,17 @@ export class Cart {
       this.items?.reduce((sum, item) => sum + item.subtotal, 0) || 0
     );
   }
+
+  get subtotalVes(): number | null {
+    if (!this.items || this.items.length === 0) {
+      return null;
+    }
+
+    const total = this.items.reduce((sum, item) => {
+      const itemSubtotalVes = item.subtotalVes;
+      return sum + (itemSubtotalVes || 0);
+    }, 0);
+
+    return total > 0 ? total : null;
+  }
 }

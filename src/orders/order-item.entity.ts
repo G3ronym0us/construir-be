@@ -43,6 +43,12 @@ export class OrderItem {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   subtotal: number;
 
+  @Column({ name: 'price_ves', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  priceVes: number | null;
+
+  @Column({ name: 'subtotal_ves', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  subtotalVes: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

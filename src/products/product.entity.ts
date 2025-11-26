@@ -34,6 +34,15 @@ export class Product {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   price: number;
 
+  @Column({
+    name: 'price_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  priceVes: number;
+
   @ManyToMany(() => Category, (category) => category.products, { eager: true })
   @JoinTable({
     name: 'product_categories',
@@ -43,10 +52,10 @@ export class Product {
   categories: Category[];
 
   @Column({ type: 'text', nullable: true })
-  description: string;
+  description: string | null;
 
   @Column({ type: 'text', nullable: true })
-  shortDescription: string;
+  shortDescription: string | null;
 
   @Column({ type: 'varchar', length: 20, default: 'simple' })
   type: string;

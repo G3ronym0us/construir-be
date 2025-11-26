@@ -11,6 +11,7 @@ import {
   UploadedFile,
   ParseIntPipe,
   Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ProductsService } from './products.service';
@@ -63,7 +64,9 @@ export class ProductsController {
 
   @Get('admin/low-stock')
   getLowStock(@Query('threshold') threshold?: string) {
-    return this.productsService.getLowStock(threshold ? parseInt(threshold) : 10);
+    return this.productsService.getLowStock(
+      threshold ? parseInt(threshold) : 10,
+    );
   }
 
   @Get('search')
@@ -71,29 +74,32 @@ export class ProductsController {
     return this.productsService.search(query);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.productsService.findOne(+id);
+  @Get(':uuid')
+  findOne(@Param('uuid') uuid: string) {
+    return this.productsService.findOne(uuid);
   }
 
   @UseGuards(JwtAuthGuard)
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
-    return this.productsService.update(+id, updateProductDto);
+  @Patch(':uuid')
+  update(
+    @Param('uuid') uuid: string,
+    @Body() updateProductDto: UpdateProductDto,
+  ) {
+    return this.productsService.update(uuid, updateProductDto);
   }
 
   @UseGuards(JwtAuthGuard)
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    this.productsService.remove(+id);
+  @Delete(':uuid')
+  remove(@Param('uuid') uuid: string) {
+    this.productsService.remove(uuid);
     return { message: 'Product deleted successfully' };
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post(':id/images')
+  @Post(':uuid/images')
   @UseInterceptors(FileInterceptor('file'))
   async uploadImage(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('uuid') uuid: string,
     @UploadedFile() file: Express.Multer.File,
     @Query('isPrimary') isPrimary?: string,
     @Query('order') order?: string,
@@ -101,48 +107,53 @@ export class ProductsController {
     const isPrimaryBool = isPrimary === 'true';
     const orderNum = order ? parseInt(order) : 0;
 
-    return this.productsService.uploadImage(id, file, isPrimaryBool, orderNum);
+    return this.productsService.uploadImage(
+      uuid,
+      file,
+      isPrimaryBool,
+      orderNum,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
-  @Delete('images/:imageId')
-  async deleteImage(@Param('imageId', ParseIntPipe) imageId: number) {
-    await this.productsService.deleteImage(imageId);
+  @Delete('images/:imageUuid')
+  async deleteImage(@Param('imageUuid') imageUuid: string) {
+    await this.productsService.deleteImage(imageUuid);
     return { message: 'Image deleted successfully' };
   }
 
   @UseGuards(JwtAuthGuard)
-  @Patch('images/:imageId/primary')
-  async setPrimaryImage(@Param('imageId', ParseIntPipe) imageId: number) {
-    return this.productsService.setPrimaryImage(imageId);
+  @Patch('images/:imageUuid/primary')
+  async setPrimaryImage(@Param('imageUuid') imageUuid: string) {
+    return this.productsService.setPrimaryImage(imageUuid);
   }
 
   @UseGuards(JwtAuthGuard)
-  @Patch(':id/inventory')
+  @Patch(':uuid/inventory')
   async updateInventory(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('uuid', ParseUUIDPipe) uuid: string,
     @Body('inventory') inventory: number,
   ) {
-    return this.productsService.updateInventory(id, inventory);
+    return this.productsService.updateInventory(uuid, inventory);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch('bulk/publish')
   async bulkUpdatePublished(
-    @Body('ids') ids: number[],
+    @Body('uuids') uuids: string[],
     @Body('published') published: boolean,
   ) {
-    await this.productsService.bulkUpdatePublished(ids, published);
-    return { message: `${ids.length} products updated successfully` };
+    await this.productsService.bulkUpdatePublished(uuids, published);
+    return { message: `${uuids.length} products updated successfully` };
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch('bulk/feature')
   async bulkUpdateFeatured(
-    @Body('ids') ids: number[],
+    @Body('uuids') uuids: string[],
     @Body('featured') featured: boolean,
   ) {
-    await this.productsService.bulkUpdateFeatured(ids, featured);
-    return { message: `${ids.length} products updated successfully` };
+    await this.productsService.bulkUpdateFeatured(uuids, featured);
+    return { message: `${uuids.length} products updated successfully` };
   }
 }

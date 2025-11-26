@@ -35,14 +35,24 @@ export class CategoriesController {
     return this.categoriesService.findAll();
   }
 
-  @Get('active')
-  findAllActive() {
-    return this.categoriesService.findAllActive();
+  @Get('visible')
+  findAllVisible() {
+    return this.categoriesService.findAllVisible();
   }
 
   @Get('featured')
   findFeatured() {
     return this.categoriesService.findFeatured();
+  }
+
+  @Get('parents')
+  findParentCategories() {
+    return this.categoriesService.findParentCategories();
+  }
+
+  @Get('parent/:parentUuid/children')
+  findChildrenByParent(@Param('parentUuid') parentUuid: string) {
+    return this.categoriesService.findChildrenByParentUuid(parentUuid);
   }
 
   @Get('stats')
@@ -69,6 +79,15 @@ export class CategoriesController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.categoriesService.update(uuid, updateCategoryDto, file);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':uuid/parent')
+  setParent(
+    @Param('uuid') uuid: string,
+    @Body('parentUuid') parentUuid: string | null,
+  ) {
+    return this.categoriesService.setParent(uuid, parentUuid);
   }
 
   @UseGuards(JwtAuthGuard)

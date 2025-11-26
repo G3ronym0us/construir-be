@@ -14,6 +14,7 @@ import { S3Service } from '../products/s3.service';
 import { EmailService } from '../email/email.service';
 import { DiscountsModule } from '../discounts/discounts.module';
 import { BanksModule } from '../banks/banks.module';
+import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
 import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomersController } from './guest-customers.controller';
 
@@ -31,6 +32,7 @@ import { GuestCustomersController } from './guest-customers.controller';
     ]),
     DiscountsModule,
     BanksModule,
+    ExchangeRatesModule,
   ],
   controllers: [OrdersController, GuestCustomersController],
   providers: [OrdersService, GuestCustomersService, S3Service, EmailService],

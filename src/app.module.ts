@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
@@ -12,6 +13,12 @@ import { CartModule } from './cart/cart.module';
 import { OrdersModule } from './orders/orders.module';
 import { DiscountsModule } from './discounts/discounts.module';
 import { BanksModule } from './banks/banks.module';
+import { ExchangeRatesModule } from './exchange-rates/exchange-rates.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { CustomersModule } from './customers/customers.module';
+import { ApiKeysModule } from './api-keys/api-keys.module';
+import { ApiV1Module } from './api-v1/api-v1.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 import {
   databaseConfig,
   jwtConfig,
@@ -26,6 +33,7 @@ import {
       isGlobal: true,
       load: [databaseConfig, jwtConfig, awsConfig, appConfig, emailConfig],
     }),
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -49,6 +57,12 @@ import {
     OrdersModule,
     DiscountsModule,
     BanksModule,
+    ExchangeRatesModule,
+    AnalyticsModule,
+    CustomersModule,
+    ApiKeysModule,
+    ApiV1Module,
+    WebhooksModule,
   ],
   controllers: [AppController],
   providers: [AppService],
