@@ -125,9 +125,8 @@ export class PaymentDetailsDto {
 }
 
 export class GuestCartItemDto {
-  @IsInt()
-  @IsPositive()
-  productId: number;
+  @IsString()
+  productUuid: string;
 
   @IsInt()
   @Min(1)

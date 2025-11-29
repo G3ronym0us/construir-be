@@ -44,9 +44,7 @@ export class Cart {
   }
 
   get subtotal(): number {
-    return (
-      this.items?.reduce((sum, item) => sum + item.subtotal, 0) || 0
-    );
+    return this.items?.reduce((sum, item) => sum + item.subtotal, 0) || 0;
   }
 
   get subtotalVes(): number | null {

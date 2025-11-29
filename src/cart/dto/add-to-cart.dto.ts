@@ -1,9 +1,8 @@
-import { IsInt, IsPositive, Min } from 'class-validator';
+import { IsInt, IsString, Min } from 'class-validator';
 
 export class AddToCartDto {
-  @IsInt()
-  @IsPositive()
-  productId: number;
+  @IsString()
+  productUuid: string;
 
   @IsInt()
   @Min(1)

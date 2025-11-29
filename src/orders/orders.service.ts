@@ -64,13 +64,17 @@ export class OrdersService {
     userId?: number | null,
   ): Promise<Order> {
     // 1. Determinar el origen de los items
-    let orderItems: Array<{ productId: number; quantity: number }> = [];
+    let orderItems: Array<{ productUuid: string; quantity: number }> = [];
 
     if (userId) {
       // Usuario autenticado: obtener items del carrito backend
       const cart = await this.cartRepository.findOne({
         where: { userId },
-        relations: ['items', 'items.product'],
+        relations: {
+          items: {
+            product: true,
+          },
+        },
       });
 
       if (!cart || !cart.items || cart.items.length === 0) {
@@ -78,7 +82,7 @@ export class OrdersService {
       }
 
       orderItems = cart.items.map((item) => ({
-        productId: item.productId,
+        productUuid: item.product.uuid,
         quantity: item.quantity,
       }));
     } else {
@@ -90,7 +94,7 @@ export class OrdersService {
       }
 
       orderItems = createOrderDto.items.map((item) => ({
-        productId: item.productId,
+        productUuid: item.productUuid,
         quantity: item.quantity,
       }));
     }
@@ -98,18 +102,18 @@ export class OrdersService {
     // 2. Validar inventario y calcular totales
     let subtotal = 0;
     const validatedItems: Array<{
-      productId: number;
+      productUuid: string;
       quantity: number;
       product: Product;
     }> = [];
 
     for (const item of orderItems) {
       const product = await this.productRepository.findOne({
-        where: { id: item.productId },
+        where: { uuid: item.productUuid },
       });
 
       if (!product) {
-        throw new NotFoundException(`Product ${item.productId} not found`);
+        throw new NotFoundException(`Product ${item.productUuid} not found`);
       }
 
       if (!product.published) {
@@ -126,7 +130,7 @@ export class OrdersService {
 
       subtotal += Number(product.price) * item.quantity;
       validatedItems.push({
-        productId: item.productId,
+        productUuid: item.productUuid,
         quantity: item.quantity,
         product,
       });
@@ -154,8 +158,7 @@ export class OrdersService {
       shippingAddress = this.shippingAddressRepository.create({
         // Datos del cliente (desde customerInfo si es guest, sino desde shippingAddress)
         identificationType: createOrderDto.customerInfo?.identificationType,
-        identificationNumber:
-          createOrderDto.customerInfo?.identificationNumber,
+        identificationNumber: createOrderDto.customerInfo?.identificationNumber,
         firstName: createOrderDto.customerInfo?.firstName,
         lastName: createOrderDto.customerInfo?.lastName,
         email: createOrderDto.customerInfo?.email,
@@ -218,7 +221,9 @@ export class OrdersService {
       totalVes = Number((total * exchangeRate).toFixed(2));
     } catch (error) {
       // Si no hay tipo de cambio disponible, continuar sin precios VES
-      console.warn('Exchange rate not available, continuing without VES prices');
+      console.warn(
+        'Exchange rate not available, continuing without VES prices',
+      );
     }
 
     // 4. Crear la información de pago
@@ -269,8 +274,9 @@ export class OrdersService {
     const order = new Order();
     order.orderNumber = this.generateOrderNumber();
     order.userId = userId || null;
-    order.guestEmail =
-      !userId ? createOrderDto.customerInfo?.email || null : null;
+    order.guestEmail = !userId
+      ? createOrderDto.customerInfo?.email || null
+      : null;
     order.deliveryMethod = createOrderDto.deliveryMethod;
     order.shippingAddressId = shippingAddress?.id || null;
     order.paymentInfoId = paymentInfo.id;
@@ -294,8 +300,12 @@ export class OrdersService {
 
     for (const item of validatedItems) {
       const itemSubtotal = Number(item.product.price) * item.quantity;
-      const itemPriceVes = exchangeRate ? Number((Number(item.product.price) * exchangeRate).toFixed(2)) : null;
-      const itemSubtotalVes = exchangeRate ? Number((itemSubtotal * exchangeRate).toFixed(2)) : null;
+      const itemPriceVes = exchangeRate
+        ? Number((Number(item.product.price) * exchangeRate).toFixed(2))
+        : null;
+      const itemSubtotalVes = exchangeRate
+        ? Number((itemSubtotal * exchangeRate).toFixed(2))
+        : null;
 
       const orderItem = this.orderItemRepository.create({
         orderId: order.id,
@@ -317,7 +327,7 @@ export class OrdersService {
     // 7. Reducir inventario
     for (const item of validatedItems) {
       await this.productRepository.decrement(
-        { id: item.productId },
+        { uuid: item.productUuid },
         'inventory',
         item.quantity,
       );
@@ -363,7 +373,7 @@ export class OrdersService {
     }
 
     // 11. Enviar email de confirmación
-    const finalOrder = await this.findOne(order.id);
+    const finalOrder = await this.findOneByUuid(order.uuid);
     await this.emailService.sendOrderConfirmation(finalOrder);
 
     // 12. Retornar la orden completa
@@ -374,17 +384,17 @@ export class OrdersService {
    * Sube el comprobante de pago
    */
   async uploadPaymentReceipt(
-    orderId: number,
+    orderUuid: string,
     receiptUrl: string,
     receiptKey: string,
   ): Promise<Order> {
     const order = await this.orderRepository.findOne({
-      where: { id: orderId },
+      where: { uuid: orderUuid },
       relations: ['paymentInfo'],
     });
 
     if (!order) {
-      throw new NotFoundException(`Order with ID ${orderId} not found`);
+      throw new NotFoundException(`Order with ID ${orderUuid} not found`);
     }
 
     order.paymentInfo.receiptUrl = receiptUrl;
@@ -393,25 +403,23 @@ export class OrdersService {
     order.status = OrderStatus.PAYMENT_REVIEW;
 
     await this.paymentInfoRepository.save(order.paymentInfo);
-    await this.orderRepository.save(order);
-
-    return this.findOne(orderId);
+    return this.orderRepository.save(order);
   }
 
   /**
    * Actualiza el estado de una orden (solo admin)
    */
   async updateOrderStatus(
-    orderId: number,
+    uuid: string,
     updateOrderStatusDto: UpdateOrderStatusDto,
   ): Promise<Order> {
     const order = await this.orderRepository.findOne({
-      where: { id: orderId },
+      where: { uuid },
       relations: ['paymentInfo'],
     });
 
     if (!order) {
-      throw new NotFoundException(`Order with ID ${orderId} not found`);
+      throw new NotFoundException(`Order with UUID ${uuid} not found`);
     }
 
     const previousStatus = order.status;
@@ -432,7 +440,7 @@ export class OrdersService {
 
     await this.orderRepository.save(order);
 
-    const updatedOrder = await this.findOne(orderId);
+    const updatedOrder = await this.findOneByUuid(order.uuid);
 
     // Enviar notificaciones según el cambio de estado
     if (
@@ -480,15 +488,15 @@ export class OrdersService {
   }
 
   /**
-   * Obtiene una orden por ID
+   * Obtiene una orden por UUID
    */
-  async findOne(orderId: number, userId?: number): Promise<Order> {
+  async findOneByUuid(uuid: string, userId?: number): Promise<Order> {
     const order = await this.orderRepository.findOne({
-      where: { id: orderId },
+      where: { uuid },
     });
 
     if (!order) {
-      throw new NotFoundException(`Order with ID ${orderId} not found`);
+      throw new NotFoundException(`Order with UUID ${uuid} not found`);
     }
 
     // Verificar que el usuario tenga acceso a esta orden
@@ -517,8 +525,8 @@ export class OrdersService {
   /**
    * Cancela una orden
    */
-  async cancelOrder(orderId: number, userId?: number): Promise<Order> {
-    const order = await this.findOne(orderId, userId);
+  async cancelOrder(uuid: string, userId?: number): Promise<Order> {
+    const order = await this.findOneByUuid(uuid, userId);
 
     if (
       order.status !== OrderStatus.PENDING &&
@@ -537,9 +545,7 @@ export class OrdersService {
     }
 
     order.status = OrderStatus.CANCELLED;
-    await this.orderRepository.save(order);
-
-    return this.findOne(orderId);
+    return this.orderRepository.save(order);
   }
 
   /**
@@ -700,12 +706,19 @@ export class OrdersService {
     // Calcular porcentajes de cambio
     const revenueChangePercent =
       prevRevenue > 0
-        ? Number((((currentRevenue - prevRevenue) / prevRevenue) * 100).toFixed(2))
+        ? Number(
+            (((currentRevenue - prevRevenue) / prevRevenue) * 100).toFixed(2),
+          )
         : 0;
 
     const salesChangePercent =
       prevSalesCount > 0
-        ? Number((((currentSalesCount - prevSalesCount) / prevSalesCount) * 100).toFixed(2))
+        ? Number(
+            (
+              ((currentSalesCount - prevSalesCount) / prevSalesCount) *
+              100
+            ).toFixed(2),
+          )
         : 0;
 
     // Formatear período
@@ -738,10 +751,7 @@ export class OrdersService {
   /**
    * Obtiene productos más y menos vendidos
    */
-  async getTopProducts(
-    month?: string,
-    limit: number = 10,
-  ): Promise<any> {
+  async getTopProducts(month?: string, limit: number = 10): Promise<any> {
     // Determinar el mes
     const targetDate = month ? new Date(month + '-01') : new Date();
     const startOfMonth = new Date(
@@ -761,12 +771,13 @@ export class OrdersService {
     // Productos más vendidos
     const topSelling = await this.orderItemRepository
       .createQueryBuilder('item')
-      .select('item.productId', 'productId')
+      .select('item.product.uuid', 'productUuid')
       .addSelect('item.productName', 'productName')
       .addSelect('SUM(item.quantity)', 'totalQuantity')
       .addSelect('SUM(item.subtotal)', 'totalRevenue')
       .addSelect('COUNT(DISTINCT item.orderId)', 'orderCount')
       .innerJoin('item.order', 'order')
+      .innerJoin('item.product', 'product')
       .where('order.createdAt >= :start', { start: startOfMonth })
       .andWhere('order.createdAt <= :end', { end: endOfMonth })
       .andWhere('order.status IN (:...statuses)', {
@@ -786,12 +797,13 @@ export class OrdersService {
     // Productos menos vendidos
     const leastSelling = await this.orderItemRepository
       .createQueryBuilder('item')
-      .select('item.productId', 'productId')
+      .select('product.uuid', 'productUuid')
       .addSelect('item.productName', 'productName')
       .addSelect('SUM(item.quantity)', 'totalQuantity')
       .addSelect('SUM(item.subtotal)', 'totalRevenue')
       .addSelect('COUNT(DISTINCT item.orderId)', 'orderCount')
       .innerJoin('item.order', 'order')
+      .innerJoin('item.product', 'product')
       .where('order.createdAt >= :start', { start: startOfMonth })
       .andWhere('order.createdAt <= :end', { end: endOfMonth })
       .andWhere('order.status IN (:...statuses)', {
@@ -816,14 +828,14 @@ export class OrdersService {
 
     return {
       topSelling: topSelling.map((p) => ({
-        productId: p.productId,
+        productUuid: p.productUuid,
         productName: p.productName,
         totalQuantity: parseInt(p.totalQuantity),
         totalRevenue: Number(Number(p.totalRevenue).toFixed(2)),
         orderCount: parseInt(p.orderCount),
       })),
       leastSelling: leastSelling.map((p) => ({
-        productId: p.productId,
+        productUuid: p.productUuid,
         productName: p.productName,
         totalQuantity: parseInt(p.totalQuantity),
         totalRevenue: Number(Number(p.totalRevenue).toFixed(2)),
@@ -848,8 +860,7 @@ export class OrdersService {
     const query = this.orderRepository.createQueryBuilder('order');
 
     if (filters.status) {
-      query
-        .andWhere('order.status = :status', { status: filters.status });
+      query.andWhere('order.status = :status', { status: filters.status });
     }
 
     if (filters.paymentStatus) {
@@ -881,8 +892,7 @@ export class OrdersService {
       );
     }
 
-    query.andWhere('order.status != :status', { status: OrderStatus.PENDING })
-
+    query.andWhere('order.status != :status', { status: OrderStatus.PENDING });
 
     const total = await query.getCount();
 

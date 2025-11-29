@@ -48,24 +48,20 @@ export class OrdersV1Controller {
     };
   }
 
-  @Get(':id')
+  @Get(':uuid')
   @RequireApiKeyPermission(ApiKeyPermission.READ)
-  async findOne(@Param('id') id: string) {
-    const orderId = parseInt(id);
-    // Devuelve entidad Order tal cual
-    return this.ordersService.findOne(orderId);
+  async findOne(@Param('uuid') uuid: string) {
+    return this.ordersService.findOneByUuid(uuid);
   }
 
-  @Put(':id')
+  @Put(':uuid')
   @RequireApiKeyPermission(ApiKeyPermission.WRITE)
   @TriggerWebhook(WebhookEvent.ORDER_UPDATED)
   @HttpCode(HttpStatus.OK)
   async updateStatus(
-    @Param('id') id: string,
+    @Param('uuid') uuid: string,
     @Body() updateStatusDto: UpdateOrderStatusDto,
   ) {
-    const orderId = parseInt(id);
-    // Devuelve entidad Order actualizada
-    return this.ordersService.updateOrderStatus(orderId, updateStatusDto);
+    return this.ordersService.updateOrderStatus(uuid, updateStatusDto);
   }
 }

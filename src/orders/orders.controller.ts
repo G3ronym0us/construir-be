@@ -50,10 +50,10 @@ export class OrdersController {
   /**
    * Subir comprobante de pago
    */
-  @Post(':id/receipt')
+  @Post(':uuid/receipt')
   @UseInterceptors(FileInterceptor('receipt'))
   async uploadReceipt(
-    @Param('id') id: string,
+    @Param('uuid') uuid: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) {
@@ -61,7 +61,13 @@ export class OrdersController {
     }
 
     // Validar tipo de archivo
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/webp',
+      'application/pdf',
+    ];
     if (!allowedMimeTypes.includes(file.mimetype)) {
       throw new BadRequestException(
         'Only image files (JPEG, PNG, WebP) and PDF are allowed',
@@ -74,7 +80,7 @@ export class OrdersController {
 
     // Actualizar la orden con el comprobante
     return this.ordersService.uploadPaymentReceipt(
-      +id,
+      uuid,
       result.url,
       result.key,
     );
@@ -94,14 +100,14 @@ export class OrdersController {
   /**
    * Obtener una orden específica
    */
-  @Get(':id')
+  @Get(':uuid')
   @UseGuards(JwtAuthGuard)
-  async getOrder(@Request() req, @Param('id') id: string) {
+  async getOrder(@Request() req, @Param('uuid') uuid: string) {
     const userId = req.user?.userId;
     const isAdmin = req.user?.role === 'admin';
 
     // Si es admin, no validar userId
-    return this.ordersService.findOne(+id, isAdmin ? undefined : userId);
+    return this.ordersService.findOneByUuid(uuid, isAdmin ? undefined : userId);
   }
 
   /**
@@ -115,26 +121,26 @@ export class OrdersController {
   /**
    * Actualizar estado de la orden (solo admin)
    */
-  @Patch(':id/status')
+  @Patch(':uuid/status')
   @Roles(UserRole.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
   async updateOrderStatus(
-    @Param('id') id: string,
+    @Param('uuid') uuid: string,
     @Body() updateOrderStatusDto: UpdateOrderStatusDto,
   ) {
-    return this.ordersService.updateOrderStatus(+id, updateOrderStatusDto);
+    return this.ordersService.updateOrderStatus(uuid, updateOrderStatusDto);
   }
 
   /**
    * Cancelar una orden
    */
-  @Delete(':id')
+  @Delete(':uuid')
   @UseGuards(JwtAuthGuard)
-  async cancelOrder(@Request() req, @Param('id') id: string) {
+  async cancelOrder(@Request() req, @Param('uuid') uuid: string) {
     const userId = req.user.userId;
     const isAdmin = req.user.role === 'admin';
 
-    return this.ordersService.cancelOrder(+id, isAdmin ? undefined : userId);
+    return this.ordersService.cancelOrder(uuid, isAdmin ? undefined : userId);
   }
 
   // ==================== ADMIN ENDPOINTS ====================
@@ -147,32 +153,6 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   async getAdminStats() {
     return this.ordersService.getAdminStats();
-  }
-
-  /**
-   * Dashboard con estadísticas mensuales y comparación (solo admin)
-   */
-  @Get('admin/dashboard-stats')
-  @Roles(UserRole.ADMIN)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  async getDashboardStats(@Query('month') month?: string) {
-    return this.ordersService.getDashboardStats(month);
-  }
-
-  /**
-   * Top productos más y menos vendidos (solo admin)
-   */
-  @Get('admin/top-products')
-  @Roles(UserRole.ADMIN)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  async getTopProducts(
-    @Query('month') month?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.ordersService.getTopProducts(
-      month,
-      limit ? parseInt(limit) : 10,
-    );
   }
 
   /**

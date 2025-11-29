@@ -36,15 +36,15 @@ export class CartService {
   }
 
   async addItem(userId: number, addToCartDto: AddToCartDto): Promise<Cart> {
-    const { productId, quantity } = addToCartDto;
+    const { productUuid, quantity } = addToCartDto;
 
     // Verificar que el producto existe y está disponible
     const product = await this.productRepository.findOne({
-      where: { id: productId },
+      where: { uuid: productUuid },
     });
 
     if (!product) {
-      throw new NotFoundException(`Product with ID ${productId} not found`);
+      throw new NotFoundException(`Product with ID ${productUuid} not found`);
     }
 
     if (!product.published) {
@@ -58,11 +58,11 @@ export class CartService {
     }
 
     // Obtener o crear el carrito
-    let cart = await this.getCart(userId);
+    const cart = await this.getCart(userId);
 
     // Verificar si el producto ya está en el carrito
     const existingItem = cart.items?.find(
-      (item) => item.productId === productId,
+      (item) => item.product.uuid === productUuid,
     );
 
     if (existingItem) {
@@ -82,9 +82,9 @@ export class CartService {
       // Crear nuevo item
       const cartItem = this.cartItemRepository.create({
         cartId: cart.id,
-        productId,
         quantity,
         price: product.price,
+        product,
       });
       await this.cartItemRepository.save(cartItem);
     }
@@ -108,12 +108,12 @@ export class CartService {
 
     // Verificar inventario
     const product = await this.productRepository.findOne({
-      where: { id: cartItem.productId },
+      where: { uuid: cartItem.product.uuid },
     });
 
     if (!product) {
       throw new NotFoundException(
-        `Product with ID ${cartItem.productId} not found`,
+        `Product with ID ${cartItem.product.uuid} not found`,
       );
     }
 
@@ -165,7 +165,7 @@ export class CartService {
     if (cart.items?.length > 0) {
       for (const item of cart.items) {
         const product = await this.productRepository.findOne({
-          where: { id: item.productId },
+          where: { uuid: item.product.uuid },
         });
 
         if (product && item.price !== product.price) {
