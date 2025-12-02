@@ -14,6 +14,9 @@ export class OrderItem {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ type: 'uuid', unique: true, default: () => 'uuid_generate_v4()' })
+  uuid: string;
+
   @Column({ name: 'order_id' })
   orderId: number;
 
@@ -43,10 +46,22 @@ export class OrderItem {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   subtotal: number;
 
-  @Column({ name: 'price_ves', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({
+    name: 'price_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
   priceVes: number | null;
 
-  @Column({ name: 'subtotal_ves', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({
+    name: 'subtotal_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
   subtotalVes: number | null;
 
   @CreateDateColumn({ name: 'created_at' })
