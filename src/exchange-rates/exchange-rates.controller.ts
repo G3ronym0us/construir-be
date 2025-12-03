@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ExchangeRatesService } from './exchange-rates.service';
 import { GetExchangeRatesDto } from './dto/get-exchange-rates.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';

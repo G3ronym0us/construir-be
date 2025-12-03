@@ -58,9 +58,9 @@ export class AnalyticsService {
     };
   }
 
-  async getMostVisitedPages(limit: number = 10): Promise<
-    Array<{ path: string; viewCount: number }>
-  > {
+  async getMostVisitedPages(
+    limit: number = 10,
+  ): Promise<Array<{ path: string; viewCount: number }>> {
     const result = await this.pageViewRepository
       .createQueryBuilder('pv')
       .select('pv.path', 'path')

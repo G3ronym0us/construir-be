@@ -25,7 +25,9 @@ async function bootstrap() {
     // 2. Sync exchange rate from BCV API
     console.log('💱 Fetching current exchange rate from BCV...');
     const exchangeRate = await exchangeRatesService.sync();
-    console.log(`  ✅ Exchange rate synchronized: ${exchangeRate.rate} VES/USD`);
+    console.log(
+      `  ✅ Exchange rate synchronized: ${exchangeRate.rate} VES/USD`,
+    );
     console.log(`  📅 Date: ${exchangeRate.date}`);
     console.log(`  📡 Source: ${exchangeRate.source}\n`);
 
@@ -73,14 +75,23 @@ async function bootstrap() {
     console.log('📊 Summary:');
     console.log(`  Total products: ${stat.total_products}`);
     console.log(`  Products with VES price: ${stat.products_with_ves_price}`);
-    console.log(`  Min VES price: Bs. ${Number(stat.min_price_ves).toFixed(2)}`);
-    console.log(`  Max VES price: Bs. ${Number(stat.max_price_ves).toFixed(2)}`);
-    console.log(`  Avg VES price: Bs. ${Number(stat.avg_price_ves).toFixed(2)}\n`);
+    console.log(
+      `  Min VES price: Bs. ${Number(stat.min_price_ves).toFixed(2)}`,
+    );
+    console.log(
+      `  Max VES price: Bs. ${Number(stat.max_price_ves).toFixed(2)}`,
+    );
+    console.log(
+      `  Avg VES price: Bs. ${Number(stat.avg_price_ves).toFixed(2)}\n`,
+    );
 
     console.log('✨ Exchange rate initialization completed successfully!');
-    console.log('\n💡 The system will automatically update prices daily at 1:00 AM');
-    console.log('💡 You can also manually sync with: POST /exchange-rates/sync\n');
-
+    console.log(
+      '\n💡 The system will automatically update prices daily at 1:00 AM',
+    );
+    console.log(
+      '💡 You can also manually sync with: POST /exchange-rates/sync\n',
+    );
   } catch (error) {
     console.error('❌ Error initializing exchange rate:', error.message);
     console.error(error.stack);

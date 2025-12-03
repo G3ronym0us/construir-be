@@ -8,9 +8,7 @@ import { UserRole } from '../users/user.entity';
 
 @Controller('guest-customers')
 export class GuestCustomersController {
-  constructor(
-    private readonly guestCustomersService: GuestCustomersService,
-  ) {}
+  constructor(private readonly guestCustomersService: GuestCustomersService) {}
 
   /**
    * Busca datos de un cliente guest por su identificación

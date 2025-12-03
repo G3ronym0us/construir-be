@@ -7,7 +7,12 @@ import { WebhookInterceptor } from './common/interceptors/webhook.interceptor';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 
 @Module({
-  imports: [ProductsV1Module, OrdersV1Module, CustomersV1Module, WebhooksModule],
+  imports: [
+    ProductsV1Module,
+    OrdersV1Module,
+    CustomersV1Module,
+    WebhooksModule,
+  ],
   providers: [
     {
       provide: APP_INTERCEPTOR,

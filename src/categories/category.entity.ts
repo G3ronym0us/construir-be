@@ -37,6 +37,9 @@ export class Category {
   @Column({ type: 'boolean', default: false })
   isFeatured: boolean;
 
+  @Column({ type: 'boolean', default: false })
+  isMain: boolean;
+
   @Column({ type: 'boolean', default: true })
   visible: boolean;
 

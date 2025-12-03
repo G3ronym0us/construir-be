@@ -70,11 +70,13 @@ async function migrateCategories() {
       // Check if category already exists
       const existing = await dataSource.query<CategoryRow[]>(
         `SELECT id, uuid, name, slug FROM categories WHERE slug = $1`,
-        [slug]
+        [slug],
       );
 
       if (existing.length > 0) {
-        console.log(`   ⏭️  Category "${categoryName}" already exists (slug: ${slug})`);
+        console.log(
+          `   ⏭️  Category "${categoryName}" already exists (slug: ${slug})`,
+        );
         categoryMap.set(categoryName, existing[0].id);
         continue;
       }
@@ -84,12 +86,14 @@ async function migrateCategories() {
         `INSERT INTO categories (name, slug, "order", "isActive")
          VALUES ($1, $2, 0, true)
          RETURNING id, uuid, name, slug`,
-        [categoryName, slug]
+        [categoryName, slug],
       );
 
       const newCategory = result[0];
       categoryMap.set(categoryName, newCategory.id);
-      console.log(`   ✅ Created category: "${newCategory.name}" (UUID: ${newCategory.uuid})`);
+      console.log(
+        `   ✅ Created category: "${newCategory.name}" (UUID: ${newCategory.uuid})`,
+      );
     }
 
     // Step 3: Backup old category column data
@@ -125,12 +129,14 @@ async function migrateCategories() {
         `UPDATE products
          SET category_id = $1
          WHERE category = $2`,
-        [categoryId, categoryName]
+        [categoryId, categoryName],
       );
 
       const count = result[1] || 0;
       updatedCount += count;
-      console.log(`   ✅ Updated ${count} products with category "${categoryName}"`);
+      console.log(
+        `   ✅ Updated ${count} products with category "${categoryName}"`,
+      );
     }
 
     // Step 5: Drop old category column
@@ -138,7 +144,9 @@ async function migrateCategories() {
     await dataSource.query(`
       ALTER TABLE products DROP COLUMN category
     `);
-    console.log('   ✅ Dropped old category column (backup preserved in category_backup)');
+    console.log(
+      '   ✅ Dropped old category column (backup preserved in category_backup)',
+    );
 
     // Summary
     console.log('\n' + '='.repeat(60));

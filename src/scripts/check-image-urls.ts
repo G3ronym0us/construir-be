@@ -43,7 +43,6 @@ async function bootstrap() {
     `);
 
     console.log(`\n✅ Total images: ${total[0].count}`);
-
   } catch (error) {
     console.error('❌ Error checking URLs:', error.message);
     process.exit(1);

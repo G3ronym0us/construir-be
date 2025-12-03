@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual } from 'typeorm';
 import { ExchangeRate } from './exchange-rate.entity';
@@ -15,7 +20,9 @@ export class ExchangeRatesService {
     private bcvService: BCVService,
   ) {}
 
-  async create(createExchangeRateDto: CreateExchangeRateDto): Promise<ExchangeRate> {
+  async create(
+    createExchangeRateDto: CreateExchangeRateDto,
+  ): Promise<ExchangeRate> {
     // Verificar si ya existe un tipo de cambio para esta fecha
     const existingRate = await this.exchangeRatesRepository.findOne({
       where: { date: new Date(createExchangeRateDto.date) },
@@ -40,7 +47,10 @@ export class ExchangeRatesService {
     return await this.exchangeRatesRepository.save(exchangeRate);
   }
 
-  async findAll(page: number = 1, limit: number = 10): Promise<{
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<{
     data: ExchangeRate[];
     total: number;
     page: number;
@@ -96,14 +106,18 @@ export class ExchangeRatesService {
     });
 
     if (!exchangeRate) {
-      throw new NotFoundException(`No exchange rate found for date ${searchDate.toISOString()}`);
+      throw new NotFoundException(
+        `No exchange rate found for date ${searchDate.toISOString()}`,
+      );
     }
 
     return exchangeRate;
   }
 
   async getRate(date?: Date): Promise<number> {
-    const exchangeRate = date ? await this.findByDate(date) : await this.findCurrent();
+    const exchangeRate = date
+      ? await this.findByDate(date)
+      : await this.findCurrent();
     return Number(exchangeRate.rate);
   }
 
@@ -127,7 +141,9 @@ export class ExchangeRatesService {
       source: 'bcv',
     });
 
-    this.logger.log(`Exchange rate synchronized successfully: ${exchangeRate.rate}`);
+    this.logger.log(
+      `Exchange rate synchronized successfully: ${exchangeRate.rate}`,
+    );
     return exchangeRate;
   }
 }

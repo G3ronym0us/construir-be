@@ -34,14 +34,12 @@ export class WebhookInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap((data) => {
         // Trigger webhook asíncronamente sin bloquear respuesta
-        this.webhooksService
-          .triggerWebhooks(event, data)
-          .catch((err) => {
-            this.logger.error(
-              `Failed to trigger webhook for event ${event}:`,
-              err.stack,
-            );
-          });
+        this.webhooksService.triggerWebhooks(event, data).catch((err) => {
+          this.logger.error(
+            `Failed to trigger webhook for event ${event}:`,
+            err.stack,
+          );
+        });
       }),
     );
   }

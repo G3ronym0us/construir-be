@@ -58,7 +58,11 @@ export class Order {
   })
   items: OrderItem[];
 
-  @OneToOne(() => ShippingAddress, { cascade: true, eager: true, nullable: true })
+  @OneToOne(() => ShippingAddress, {
+    cascade: true,
+    eager: true,
+    nullable: true,
+  })
   @JoinColumn({ name: 'shipping_address_id' })
   shippingAddress: ShippingAddress | null;
 
@@ -106,19 +110,43 @@ export class Order {
   @Column({ name: 'discount_code', type: 'varchar', nullable: true })
   discountCode: string | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'discount_amount' })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    default: 0,
+    name: 'discount_amount',
+  })
   discountAmount: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   total: number;
 
-  @Column({ name: 'exchange_rate', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({
+    name: 'exchange_rate',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
   exchangeRate: number | null;
 
-  @Column({ name: 'subtotal_ves', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({
+    name: 'subtotal_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
   subtotalVes: number | null;
 
-  @Column({ name: 'total_ves', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({
+    name: 'total_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
   totalVes: number | null;
 
   @Column({ type: 'text', nullable: true })

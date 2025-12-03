@@ -2,10 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
-import {
-  CustomerInfoDto,
-  ShippingAddressDto,
-} from './dto/create-order.dto';
+import { CustomerInfoDto, ShippingAddressDto } from './dto/create-order.dto';
 
 @Injectable()
 export class GuestCustomersService {

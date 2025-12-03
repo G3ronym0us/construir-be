@@ -63,14 +63,8 @@ export class ImageProcessingService {
     });
 
     const [webp, jpeg] = await Promise.all([
-      resized
-        .clone()
-        .webp({ quality: 85 })
-        .toBuffer(),
-      resized
-        .clone()
-        .jpeg({ quality: 85, progressive: true })
-        .toBuffer(),
+      resized.clone().webp({ quality: 85 }).toBuffer(),
+      resized.clone().jpeg({ quality: 85, progressive: true }).toBuffer(),
     ]);
 
     return { webp, jpeg };

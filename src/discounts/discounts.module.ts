@@ -6,10 +6,7 @@ import { Discount } from './discount.entity';
 import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Discount]),
-    ExchangeRatesModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Discount]), ExchangeRatesModule],
   controllers: [DiscountsController],
   providers: [DiscountsService],
   exports: [DiscountsService],

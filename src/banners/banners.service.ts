@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Banner, BannerImageVariants } from './banner.entity';
@@ -33,8 +38,12 @@ export class BannersService {
 
     const banner = this.bannerRepository.create(createBannerDto);
     banner.images = images;
-    banner.startDate = createBannerDto.startDate ? new Date(createBannerDto.startDate) : undefined;
-    banner.endDate = createBannerDto.endDate ? new Date(createBannerDto.endDate) : undefined;
+    banner.startDate = createBannerDto.startDate
+      ? new Date(createBannerDto.startDate)
+      : undefined;
+    banner.endDate = createBannerDto.endDate
+      ? new Date(createBannerDto.endDate)
+      : undefined;
 
     return (await this.bannerRepository.save(banner)) as unknown as Banner;
   }
@@ -51,14 +60,10 @@ export class BannersService {
     return await this.bannerRepository
       .createQueryBuilder('banner')
       .where('banner.isActive = :isActive', { isActive: true })
-      .andWhere(
-        '(banner.startDate IS NULL OR banner.startDate <= :now)',
-        { now },
-      )
-      .andWhere(
-        '(banner.endDate IS NULL OR banner.endDate >= :now)',
-        { now },
-      )
+      .andWhere('(banner.startDate IS NULL OR banner.startDate <= :now)', {
+        now,
+      })
+      .andWhere('(banner.endDate IS NULL OR banner.endDate >= :now)', { now })
       .orderBy('banner.priority', 'DESC')
       .addOrderBy('banner.createdAt', 'DESC')
       .getMany();
@@ -85,11 +90,20 @@ export class BannersService {
     const banner = await this.findOne(uuid);
 
     // Si se proporcionan archivos, procesar imágenes
-    if (files && (files.image || files.desktopImage || files.tabletImage || files.mobileImage)) {
+    if (
+      files &&
+      (files.image ||
+        files.desktopImage ||
+        files.tabletImage ||
+        files.mobileImage)
+    ) {
       // Guardar imágenes antiguas para eliminar
       const oldImages = { ...banner.images };
 
-      const newImages = await this.processImagesHybridForUpdate(banner.images, files);
+      const newImages = await this.processImagesHybridForUpdate(
+        banner.images,
+        files,
+      );
 
       // Eliminar SOLO las imágenes antiguas que fueron reemplazadas
       await this.deleteOldImages(oldImages, newImages);
@@ -150,16 +164,24 @@ export class BannersService {
     // Si hay imagen general, procesarla primero
     let processedGeneral: any = null;
     if (hasGeneralImage) {
-      processedGeneral = await this.imageProcessingService.processBannerImage(files.image![0].buffer);
+      processedGeneral = await this.imageProcessingService.processBannerImage(
+        files.image![0].buffer,
+      );
     }
 
     // Desktop: usar individual si existe, sino usar de la general
     if (hasDesktop) {
       this.logger.log('Using custom desktop image');
-      desktop = await this.processSingleDeviceImage(files.desktopImage![0], 'desktop');
+      desktop = await this.processSingleDeviceImage(
+        files.desktopImage![0],
+        'desktop',
+      );
     } else if (processedGeneral) {
       this.logger.log('Generating desktop from general image');
-      desktop = await this.uploadProcessedVariant(processedGeneral.desktop, 'desktop');
+      desktop = await this.uploadProcessedVariant(
+        processedGeneral.desktop,
+        'desktop',
+      );
     } else {
       throw new BadRequestException('Falta imagen para desktop');
     }
@@ -167,10 +189,16 @@ export class BannersService {
     // Tablet: usar individual si existe, sino usar de la general
     if (hasTablet) {
       this.logger.log('Using custom tablet image');
-      tablet = await this.processSingleDeviceImage(files.tabletImage![0], 'tablet');
+      tablet = await this.processSingleDeviceImage(
+        files.tabletImage![0],
+        'tablet',
+      );
     } else if (processedGeneral) {
       this.logger.log('Generating tablet from general image');
-      tablet = await this.uploadProcessedVariant(processedGeneral.tablet, 'tablet');
+      tablet = await this.uploadProcessedVariant(
+        processedGeneral.tablet,
+        'tablet',
+      );
     } else {
       throw new BadRequestException('Falta imagen para tablet');
     }
@@ -178,10 +206,16 @@ export class BannersService {
     // Mobile: usar individual si existe, sino usar de la general
     if (hasMobile) {
       this.logger.log('Using custom mobile image');
-      mobile = await this.processSingleDeviceImage(files.mobileImage![0], 'mobile');
+      mobile = await this.processSingleDeviceImage(
+        files.mobileImage![0],
+        'mobile',
+      );
     } else if (processedGeneral) {
       this.logger.log('Generating mobile from general image');
-      mobile = await this.uploadProcessedVariant(processedGeneral.mobile, 'mobile');
+      mobile = await this.uploadProcessedVariant(
+        processedGeneral.mobile,
+        'mobile',
+      );
     } else {
       throw new BadRequestException('Falta imagen para mobile');
     }
@@ -210,56 +244,91 @@ export class BannersService {
     // 1. Primero procesar la imagen general si existe (para usarla como base)
     if (files.image && files.image[0]) {
       this.logger.log('Processing general image for variants');
-      processedGeneral = await this.imageProcessingService.processBannerImage(files.image[0].buffer);
+      processedGeneral = await this.imageProcessingService.processBannerImage(
+        files.image[0].buffer,
+      );
 
       // Generar todas las variantes desde la imagen general
-      desktop = await this.uploadProcessedVariant(processedGeneral.desktop, 'desktop');
-      tablet = await this.uploadProcessedVariant(processedGeneral.tablet, 'tablet');
-      mobile = await this.uploadProcessedVariant(processedGeneral.mobile, 'mobile');
+      desktop = await this.uploadProcessedVariant(
+        processedGeneral.desktop,
+        'desktop',
+      );
+      tablet = await this.uploadProcessedVariant(
+        processedGeneral.tablet,
+        'tablet',
+      );
+      mobile = await this.uploadProcessedVariant(
+        processedGeneral.mobile,
+        'mobile',
+      );
     }
 
     // 2. Sobrescribir con imágenes individuales si se proporcionaron (tienen prioridad)
     if (files.desktopImage && files.desktopImage[0]) {
       this.logger.log('Overriding desktop with custom image');
-      desktop = await this.processSingleDeviceImage(files.desktopImage[0], 'desktop');
+      desktop = await this.processSingleDeviceImage(
+        files.desktopImage[0],
+        'desktop',
+      );
     }
 
     if (files.tabletImage && files.tabletImage[0]) {
       this.logger.log('Overriding tablet with custom image');
-      tablet = await this.processSingleDeviceImage(files.tabletImage[0], 'tablet');
+      tablet = await this.processSingleDeviceImage(
+        files.tabletImage[0],
+        'tablet',
+      );
     }
 
     if (files.mobileImage && files.mobileImage[0]) {
       this.logger.log('Overriding mobile with custom image');
-      mobile = await this.processSingleDeviceImage(files.mobileImage[0], 'mobile');
+      mobile = await this.processSingleDeviceImage(
+        files.mobileImage[0],
+        'mobile',
+      );
     }
 
     // 3. Si no hay imagen general, usar la primera individual disponible como base
     if (!files.image || !files.image[0]) {
       if (files.desktopImage && files.desktopImage[0]) {
         this.logger.log('Using desktop as base for missing variants');
-        processedGeneral = await this.imageProcessingService.processBannerImage(files.desktopImage[0].buffer);
+        processedGeneral = await this.imageProcessingService.processBannerImage(
+          files.desktopImage[0].buffer,
+        );
       } else if (files.tabletImage && files.tabletImage[0]) {
         this.logger.log('Using tablet as base for missing variants');
-        processedGeneral = await this.imageProcessingService.processBannerImage(files.tabletImage[0].buffer);
+        processedGeneral = await this.imageProcessingService.processBannerImage(
+          files.tabletImage[0].buffer,
+        );
       } else if (files.mobileImage && files.mobileImage[0]) {
         this.logger.log('Using mobile as base for missing variants');
-        processedGeneral = await this.imageProcessingService.processBannerImage(files.mobileImage[0].buffer);
+        processedGeneral = await this.imageProcessingService.processBannerImage(
+          files.mobileImage[0].buffer,
+        );
       }
 
       // Generar las variantes faltantes
       if (processedGeneral) {
         if (!files.desktopImage || !files.desktopImage[0]) {
           this.logger.log('Generating desktop from base image');
-          desktop = await this.uploadProcessedVariant(processedGeneral.desktop, 'desktop');
+          desktop = await this.uploadProcessedVariant(
+            processedGeneral.desktop,
+            'desktop',
+          );
         }
         if (!files.tabletImage || !files.tabletImage[0]) {
           this.logger.log('Generating tablet from base image');
-          tablet = await this.uploadProcessedVariant(processedGeneral.tablet, 'tablet');
+          tablet = await this.uploadProcessedVariant(
+            processedGeneral.tablet,
+            'tablet',
+          );
         }
         if (!files.mobileImage || !files.mobileImage[0]) {
           this.logger.log('Generating mobile from base image');
-          mobile = await this.uploadProcessedVariant(processedGeneral.mobile, 'mobile');
+          mobile = await this.uploadProcessedVariant(
+            processedGeneral.mobile,
+            'mobile',
+          );
         }
       }
     }

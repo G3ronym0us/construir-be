@@ -3,7 +3,11 @@ import * as readline from 'readline';
 import * as path from 'path';
 
 async function debugCSV() {
-  const csvPath = path.join(process.env.HOME || '', 'Descargas', 'wc-product-export-7-10-2025-1759873182189.csv');
+  const csvPath = path.join(
+    process.env.HOME || '',
+    'Descargas',
+    'wc-product-export-7-10-2025-1759873182189.csv',
+  );
 
   const fileStream = fs.createReadStream(csvPath);
   const rl = readline.createInterface({
@@ -20,11 +24,14 @@ async function debugCSV() {
     if (lineCount === 1) {
       // Parse headers
       const parts = line.split(',');
-      headers = parts.map(h => h.trim().replace(/^"|"$/g, ''));
+      headers = parts.map((h) => h.trim().replace(/^"|"$/g, ''));
 
       console.log('Headers found:');
       headers.forEach((h, i) => {
-        if (h.toLowerCase().includes('categ') || h.toLowerCase().includes('sku')) {
+        if (
+          h.toLowerCase().includes('categ') ||
+          h.toLowerCase().includes('sku')
+        ) {
           console.log(`  [${i}]: ${h}`);
         }
       });

@@ -32,15 +32,22 @@ export class ExchangeRateTasksService {
       this.logger.log(`Updating VES prices for ${products.length} products...`);
 
       const updatePromises = products.map(async (product) => {
-        product.priceVes = Number((Number(product.price) * Number(exchangeRate.rate)).toFixed(2));
+        product.priceVes = Number(
+          (Number(product.price) * Number(exchangeRate.rate)).toFixed(2),
+        );
         return this.productsRepository.save(product);
       });
 
       await Promise.all(updatePromises);
 
-      this.logger.log('Daily exchange rate synchronization completed successfully');
+      this.logger.log(
+        'Daily exchange rate synchronization completed successfully',
+      );
     } catch (error) {
-      this.logger.error('Error during daily exchange rate synchronization:', error);
+      this.logger.error(
+        'Error during daily exchange rate synchronization:',
+        error,
+      );
     }
   }
 
@@ -53,7 +60,9 @@ export class ExchangeRateTasksService {
       const products = await this.productsRepository.find();
 
       const updatePromises = products.map(async (product) => {
-        product.priceVes = Number((Number(product.price) * Number(exchangeRate.rate)).toFixed(2));
+        product.priceVes = Number(
+          (Number(product.price) * Number(exchangeRate.rate)).toFixed(2),
+        );
         return this.productsRepository.save(product);
       });
 

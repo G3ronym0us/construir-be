@@ -34,7 +34,7 @@ async function checkTable() {
     // Check if there's any category-related column
     console.log('\n🔍 Looking for category-related columns:');
     const categoryColumns = columns.filter((col: any) =>
-      col.column_name.toLowerCase().includes('categ')
+      col.column_name.toLowerCase().includes('categ'),
     );
 
     if (categoryColumns.length > 0) {

@@ -35,11 +35,7 @@ export class CartController {
     @Param('id') id: string,
     @Body() updateCartItemDto: UpdateCartItemDto,
   ) {
-    return this.cartService.updateItem(
-      req.user.userId,
-      +id,
-      updateCartItemDto,
-    );
+    return this.cartService.updateItem(req.user.userId, +id, updateCartItemDto);
   }
 
   @Delete('items/:id')

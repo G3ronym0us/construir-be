@@ -41,7 +41,9 @@ export class EmailService {
   ): Promise<void> {
     try {
       await this.transporter.sendMail({
-        from: this.configService.get('email.from') || '"Construir" <noreply@construir.com>',
+        from:
+          this.configService.get('email.from') ||
+          '"Construir" <noreply@construir.com>',
         to,
         subject,
         html,
@@ -60,7 +62,8 @@ export class EmailService {
     const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
 
     const html = template({
-      customerName: order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+      customerName:
+        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
       orderDate: new Date(order.createdAt).toLocaleDateString('es-ES', {
         year: 'numeric',
@@ -68,7 +71,7 @@ export class EmailService {
         day: 'numeric',
       }),
       orderStatus: this.translateStatus(order.status),
-      items: order.items.map(item => ({
+      items: order.items.map((item) => ({
         productName: item.productName,
         quantity: item.quantity,
         price: Number(item.price).toFixed(2),
@@ -104,7 +107,8 @@ export class EmailService {
     const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
 
     const html = template({
-      customerName: order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+      customerName:
+        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
       orderStatus: this.translateStatus(order.status),
       total: Number(order.total).toFixed(2),
@@ -131,7 +135,8 @@ export class EmailService {
     const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
 
     const html = template({
-      customerName: order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+      customerName:
+        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
       trackingNumber,
       shippingAddress: order.shippingAddress,
@@ -156,7 +161,8 @@ export class EmailService {
     const template = handlebars.compile(templateSource);
 
     const html = template({
-      customerName: order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+      customerName:
+        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
       deliveryDate: new Date().toLocaleDateString('es-ES', {
         year: 'numeric',

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsOptional, IsBoolean, IsNumber, Min } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsBoolean } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class CreateCategoryDto {
@@ -38,4 +38,3 @@ export class CreateCategoryDto {
   })
   visible?: boolean;
 }
-

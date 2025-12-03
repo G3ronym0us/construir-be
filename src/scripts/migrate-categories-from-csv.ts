@@ -54,7 +54,7 @@ async function parseCSV(filePath: string): Promise<ProductCategoryMap[]> {
 
   for await (const line of rl) {
     if (isFirstLine) {
-      headers = line.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+      headers = line.split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
       isFirstLine = false;
       continue;
     }
@@ -95,7 +95,8 @@ async function parseCSV(filePath: string): Promise<ProductCategoryMap[]> {
     });
 
     const sku = row['SKU'];
-    const categoriesField = row['Categorías'] || row['Categories'] || row['Categorias'] || '';
+    const categoriesField =
+      row['Categorías'] || row['Categories'] || row['Categorias'] || '';
 
     // Debug: log first few products
     if (values.length > 0 && sku) {
@@ -128,7 +129,11 @@ async function migrateCategories() {
     console.log('✅ Database connection established\n');
 
     // Find CSV file
-    const csvPath = path.join(process.env.HOME || '', 'Descargas', 'wc-product-export-7-10-2025-1759873182189.csv');
+    const csvPath = path.join(
+      process.env.HOME || '',
+      'Descargas',
+      'wc-product-export-7-10-2025-1759873182189.csv',
+    );
 
     if (!fs.existsSync(csvPath)) {
       console.error(`❌ CSV file not found at: ${csvPath}`);
@@ -142,19 +147,23 @@ async function migrateCategories() {
     // Step 1: Parse CSV and extract categories
     console.log('📊 Step 1: Parsing CSV and extracting categories...');
     const productCategoryMaps = await parseCSV(csvPath);
-    console.log(`   Found ${productCategoryMaps.length} products with categories\n`);
+    console.log(
+      `   Found ${productCategoryMaps.length} products with categories\n`,
+    );
 
     // Step 2: Get all unique categories
     console.log('🔍 Step 2: Identifying unique categories...');
     const uniqueCategories = new Set<string>();
-    productCategoryMaps.forEach(pcm => {
-      pcm.categories.forEach(cat => uniqueCategories.add(cat));
+    productCategoryMaps.forEach((pcm) => {
+      pcm.categories.forEach((cat) => uniqueCategories.add(cat));
     });
 
     console.log(`   Found ${uniqueCategories.size} unique categories:`);
-    Array.from(uniqueCategories).sort().forEach((cat, i) => {
-      console.log(`   ${i + 1}. ${cat}`);
-    });
+    Array.from(uniqueCategories)
+      .sort()
+      .forEach((cat, i) => {
+        console.log(`   ${i + 1}. ${cat}`);
+      });
 
     // Step 3: Create Category entities
     console.log('\n🏗️  Step 3: Creating Category entities...');
@@ -166,7 +175,7 @@ async function migrateCategories() {
       // Check if category already exists
       const existing = await dataSource.query<CategoryRow[]>(
         `SELECT id, uuid, name, slug FROM categories WHERE slug = $1`,
-        [slug]
+        [slug],
       );
 
       if (existing.length > 0) {
@@ -180,12 +189,14 @@ async function migrateCategories() {
         `INSERT INTO categories (name, slug, "order", "isActive")
          VALUES ($1, $2, 0, true)
          RETURNING id, uuid, name, slug`,
-        [categoryName, slug]
+        [categoryName, slug],
       );
 
       const newCategory = result[0];
       categoryMap.set(categoryName, newCategory);
-      console.log(`   ✅ Created category: "${newCategory.name}" (UUID: ${newCategory.uuid})`);
+      console.log(
+        `   ✅ Created category: "${newCategory.name}" (UUID: ${newCategory.uuid})`,
+      );
     }
 
     // Step 4: Link products to categories
@@ -197,7 +208,7 @@ async function migrateCategories() {
       // Find product by SKU
       const product = await dataSource.query(
         `SELECT id FROM products WHERE sku = $1`,
-        [pcm.sku]
+        [pcm.sku],
       );
 
       if (product.length === 0) {
@@ -220,7 +231,7 @@ async function migrateCategories() {
         // Check if relationship already exists
         const existingLink = await dataSource.query(
           `SELECT * FROM product_categories WHERE product_id = $1 AND category_id = $2`,
-          [productId, category.id]
+          [productId, category.id],
         );
 
         if (existingLink.length > 0) {
@@ -230,7 +241,7 @@ async function migrateCategories() {
         // Create the link
         await dataSource.query(
           `INSERT INTO product_categories (product_id, category_id) VALUES ($1, $2)`,
-          [productId, category.id]
+          [productId, category.id],
         );
 
         linkedCount++;

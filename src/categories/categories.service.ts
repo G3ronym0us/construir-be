@@ -28,7 +28,8 @@ export class CategoriesService {
 
   async create(
     createCategoryDto: CreateCategoryDto,
-    file: Express.Multer.File,
+    file?: Express.Multer.File,
+    isMain?: boolean,
   ): Promise<Category> {
     const existingCategory = await this.categoriesRepository.findOne({
       where: [
@@ -41,7 +42,10 @@ export class CategoriesService {
       throw new ConflictException('Category name or slug already exists');
     }
 
-    const category = this.categoriesRepository.create(createCategoryDto);
+    const category = this.categoriesRepository.create({
+      ...createCategoryDto,
+      isMain,
+    });
 
     if (file) {
       const imageUrl = await this.processCategoryImage(file);
@@ -89,7 +93,10 @@ export class CategoriesService {
     });
   }
 
-  async setParent(childUuid: string, parentUuid: string | null): Promise<Category> {
+  async setParent(
+    childUuid: string,
+    parentUuid: string | null,
+  ): Promise<Category> {
     const child = await this.findByUuid(childUuid);
 
     if (parentUuid) {
@@ -97,7 +104,9 @@ export class CategoriesService {
 
       // Validar que el parent no sea una subcategoría
       if (parent.parent) {
-        throw new BadRequestException('Cannot assign a subcategory as parent. Only root categories can be parents.');
+        throw new BadRequestException(
+          'Cannot assign a subcategory as parent. Only root categories can be parents.',
+        );
       }
 
       // Validar que no se esté intentando asignar a sí mismo
@@ -134,7 +143,9 @@ export class CategoriesService {
   }
 
   async findByUuid(uuid: string): Promise<Category> {
-    const category = await this.categoriesRepository.findOne({ where: { uuid } });
+    const category = await this.categoriesRepository.findOne({
+      where: { uuid },
+    });
 
     if (!category) {
       throw new NotFoundException(`Category with UUID ${uuid} not found`);
@@ -144,12 +155,28 @@ export class CategoriesService {
   }
 
   async findBySlug(slug: string): Promise<Category> {
-    const category = await this.categoriesRepository.findOne({ where: { slug } });
+    const category = await this.categoriesRepository.findOne({
+      where: { slug },
+    });
 
     if (!category) {
       throw new NotFoundException(`Category with slug ${slug} not found`);
     }
 
+    return category;
+  }
+
+  async findByNameOrCreate(name: string): Promise<Category> {
+    const category = await this.categoriesRepository
+      .createQueryBuilder('category')
+      .where('name ILIKE :name', { name })
+      .getOne();
+    if (!category)
+      return this.create(
+        { name, slug: name.trim().toLowerCase().replace(' ', '-') },
+        undefined,
+        true,
+      );
     return category;
   }
 
@@ -216,18 +243,26 @@ export class CategoriesService {
     hidden: number;
   }> {
     const total = await this.categoriesRepository.count();
-    const visible = await this.categoriesRepository.count({ where: { visible: true } });
-    const hidden = await this.categoriesRepository.count({ where: { visible: false } });
+    const visible = await this.categoriesRepository.count({
+      where: { visible: true },
+    });
+    const hidden = await this.categoriesRepository.count({
+      where: { visible: false },
+    });
 
     return { total, visible, hidden };
   }
 
-  private async processCategoryImage(file: Express.Multer.File): Promise<string> {
+  private async processCategoryImage(
+    file: Express.Multer.File,
+  ): Promise<string> {
     if (!file) {
       throw new BadRequestException('Image file is required');
     }
 
-    const isValid = await this.imageProcessingService.validateImage(file.buffer);
+    const isValid = await this.imageProcessingService.validateImage(
+      file.buffer,
+    );
     if (!isValid) {
       throw new BadRequestException('Invalid image file');
     }

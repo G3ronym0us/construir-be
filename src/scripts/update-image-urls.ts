@@ -34,11 +34,14 @@ async function bootstrap() {
     let totalUpdated = 0;
 
     // Update WordPress URLs
-    const wordpressResult = await dataSource.query(`
+    const wordpressResult = await dataSource.query(
+      `
       UPDATE product_images
       SET url = REPLACE(url, 'http://54.236.97.190/wp-content/uploads/', $1)
       WHERE url LIKE 'http://54.236.97.190%'
-    `, [`${apiUrl}/uploads/`]);
+    `,
+      [`${apiUrl}/uploads/`],
+    );
 
     if (wordpressResult[1] > 0) {
       console.log(`✅ Updated ${wordpressResult[1]} WordPress URLs`);
@@ -46,11 +49,14 @@ async function bootstrap() {
     }
 
     // Update relative URLs to absolute
-    const relativeResult = await dataSource.query(`
+    const relativeResult = await dataSource.query(
+      `
       UPDATE product_images
       SET url = $1::text || url
       WHERE url LIKE '/%' AND url NOT LIKE 'http://%' AND url NOT LIKE 'https://%'
-    `, [apiUrl]);
+    `,
+      [apiUrl],
+    );
 
     if (relativeResult[1] > 0) {
       console.log(`✅ Updated ${relativeResult[1]} relative URLs to absolute`);
@@ -75,7 +81,6 @@ async function bootstrap() {
     });
 
     console.log('\n✨ Migration completed successfully!');
-
   } catch (error) {
     console.error('❌ Error updating image URLs:', error.message);
     process.exit(1);

@@ -1,4 +1,11 @@
-import { IsString, IsOptional, IsBoolean, IsNumber, IsDateString, IsUrl } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsNumber,
+  IsDateString,
+  IsUrl,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class CreateBannerDto {

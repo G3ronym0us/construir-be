@@ -70,7 +70,11 @@ async function migrateCategories() {
     await dataSource.initialize();
     console.log('✅ Database connected\n');
 
-    const csvPath = path.join(process.env.HOME || '', 'Descargas', 'wc-product-export-7-10-2025-1759873182189.csv');
+    const csvPath = path.join(
+      process.env.HOME || '',
+      'Descargas',
+      'wc-product-export-7-10-2025-1759873182189.csv',
+    );
 
     if (!fs.existsSync(csvPath)) {
       console.error(`❌ CSV not found: ${csvPath}`);
@@ -90,7 +94,7 @@ async function migrateCategories() {
     let headers: string[] = [];
     const categoryMap = new Map<string, CategoryRow>();
     const uniqueCategories = new Set<string>();
-    const productCategories: Array<{sku: string, categories: string[]}> = [];
+    const productCategories: Array<{ sku: string; categories: string[] }> = [];
 
     for await (const line of rl) {
       lineNumber++;
@@ -98,8 +102,8 @@ async function migrateCategories() {
       if (lineNumber === 1) {
         headers = parseCSVLine(line);
         console.log(`📋 Found ${headers.length} columns`);
-        const catIndex = headers.findIndex(h => h === 'Categorías');
-        const skuIndex = headers.findIndex(h => h === 'SKU');
+        const catIndex = headers.findIndex((h) => h === 'Categorías');
+        const skuIndex = headers.findIndex((h) => h === 'SKU');
         console.log(`   SKU column: ${skuIndex}`);
         console.log(`   Categorías column: ${catIndex}\n`);
         continue;
@@ -119,22 +123,26 @@ async function migrateCategories() {
       // Split by comma or > for hierarchical categories
       const categories = categoriesField
         .split(/[,>]/)
-        .map(c => c.trim())
-        .filter(c => c.length > 0);
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0);
 
       if (categories.length > 0) {
         productCategories.push({ sku, categories });
-        categories.forEach(cat => uniqueCategories.add(cat));
+        categories.forEach((cat) => uniqueCategories.add(cat));
       }
     }
 
     console.log(`✅ Parsed ${lineNumber - 1} products`);
-    console.log(`📊 Found ${productCategories.length} products with categories`);
+    console.log(
+      `📊 Found ${productCategories.length} products with categories`,
+    );
     console.log(`🔖 Found ${uniqueCategories.size} unique categories:\n`);
 
-    Array.from(uniqueCategories).sort().forEach((cat, i) => {
-      console.log(`   ${i + 1}. ${cat}`);
-    });
+    Array.from(uniqueCategories)
+      .sort()
+      .forEach((cat, i) => {
+        console.log(`   ${i + 1}. ${cat}`);
+      });
 
     if (uniqueCategories.size === 0) {
       console.log('\n❌ No categories found');
@@ -149,7 +157,7 @@ async function migrateCategories() {
 
       const existing = await dataSource.query<CategoryRow[]>(
         `SELECT id, uuid, name, slug FROM categories WHERE slug = $1`,
-        [slug]
+        [slug],
       );
 
       if (existing.length > 0) {
@@ -162,7 +170,7 @@ async function migrateCategories() {
         `INSERT INTO categories (name, slug, "order", "isActive")
          VALUES ($1, $2, 0, true)
          RETURNING id, uuid, name, slug`,
-        [categoryName, slug]
+        [categoryName, slug],
       );
 
       categoryMap.set(categoryName, result[0]);
@@ -177,7 +185,7 @@ async function migrateCategories() {
     for (const { sku, categories } of productCategories) {
       const product = await dataSource.query(
         `SELECT id FROM products WHERE sku = $1`,
-        [sku]
+        [sku],
       );
 
       if (product.length === 0) {
@@ -193,14 +201,14 @@ async function migrateCategories() {
 
         const existingLink = await dataSource.query(
           `SELECT * FROM product_categories WHERE product_id = $1 AND category_id = $2`,
-          [productId, category.id]
+          [productId, category.id],
         );
 
         if (existingLink.length > 0) continue;
 
         await dataSource.query(
           `INSERT INTO product_categories (product_id, category_id) VALUES ($1, $2)`,
-          [productId, category.id]
+          [productId, category.id],
         );
 
         linkedCount++;

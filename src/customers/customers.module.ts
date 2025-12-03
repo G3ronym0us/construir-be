@@ -7,9 +7,7 @@ import { GuestCustomer } from '../orders/guest-customer.entity';
 import { Order } from '../orders/order.entity';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([User, GuestCustomer, Order]),
-  ],
+  imports: [TypeOrmModule.forFeature([User, GuestCustomer, Order])],
   controllers: [CustomersController],
   providers: [CustomersService],
   exports: [CustomersService],

@@ -47,7 +47,8 @@ export class CustomersService {
           c.name.toLowerCase().includes(searchLower) ||
           c.email.toLowerCase().includes(searchLower) ||
           (c.phone && c.phone.toLowerCase().includes(searchLower)) ||
-          (c.identification && c.identification.toLowerCase().includes(searchLower)),
+          (c.identification &&
+            c.identification.toLowerCase().includes(searchLower)),
       );
     }
 
@@ -138,7 +139,9 @@ export class CustomersService {
     ]);
 
     const csvRows = [headers, ...rows];
-    return csvRows.map((row) => row.map((cell) => `"${cell}"`).join(',')).join('\n');
+    return csvRows
+      .map((row) => row.map((cell) => `"${cell}"`).join(','))
+      .join('\n');
   }
 
   private async getUsersWithStats(): Promise<CustomerResponseDto[]> {
@@ -173,7 +176,9 @@ export class CustomersService {
         return {
           id: `user-${user.id}`,
           type: 'registered' as const,
-          name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+          name:
+            `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+            user.email,
           email: user.email,
           phone: null,
           identification: null,
@@ -241,7 +246,9 @@ export class CustomersService {
     return guestsWithStats.filter((g) => g.totalOrders > 0);
   }
 
-  private async getRegisteredCustomerDetail(userId: number): Promise<CustomerDetailResponseDto> {
+  private async getRegisteredCustomerDetail(
+    userId: number,
+  ): Promise<CustomerDetailResponseDto> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new Error('User not found');
 
@@ -282,7 +289,8 @@ export class CustomersService {
       customer: {
         id: `user-${user.id}`,
         type: 'registered',
-        name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+        name:
+          `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
         email: user.email,
         phone: null,
         identification: null,
@@ -292,9 +300,10 @@ export class CustomersService {
         totalOrders: confirmedOrders.length,
         totalSpentUSD: Number(totalSpentUSD.toFixed(2)),
         totalSpentVES: Number(totalSpentVES.toFixed(2)),
-        averageOrderValue: confirmedOrders.length > 0
-          ? Number((totalSpentUSD / confirmedOrders.length).toFixed(2))
-          : 0,
+        averageOrderValue:
+          confirmedOrders.length > 0
+            ? Number((totalSpentUSD / confirmedOrders.length).toFixed(2))
+            : 0,
         firstOrderDate: orderDates[0] || null,
         lastOrderDate: orderDates[orderDates.length - 1] || null,
       },
@@ -302,7 +311,9 @@ export class CustomersService {
     };
   }
 
-  private async getGuestCustomerDetail(guestId: number): Promise<CustomerDetailResponseDto> {
+  private async getGuestCustomerDetail(
+    guestId: number,
+  ): Promise<CustomerDetailResponseDto> {
     const guest = await this.guestCustomerRepository.findOne({
       where: { id: guestId },
     });
@@ -357,9 +368,10 @@ export class CustomersService {
         totalOrders: confirmedOrders.length,
         totalSpentUSD: Number(totalSpentUSD.toFixed(2)),
         totalSpentVES: Number(totalSpentVES.toFixed(2)),
-        averageOrderValue: confirmedOrders.length > 0
-          ? Number((totalSpentUSD / confirmedOrders.length).toFixed(2))
-          : 0,
+        averageOrderValue:
+          confirmedOrders.length > 0
+            ? Number((totalSpentUSD / confirmedOrders.length).toFixed(2))
+            : 0,
         firstOrderDate: orderDates[0] || null,
         lastOrderDate: orderDates[orderDates.length - 1] || null,
       },

@@ -44,9 +44,10 @@ async function bootstrap() {
 
     console.log('\n📋 Sample products:');
     samples.forEach((p: any, index: number) => {
-      console.log(`  ${index + 1}. ${p.name} (${p.sku}) - Published: ${p.published}, Featured: ${p.featured}`);
+      console.log(
+        `  ${index + 1}. ${p.name} (${p.sku}) - Published: ${p.published}, Featured: ${p.featured}`,
+      );
     });
-
   } catch (error) {
     console.error('❌ Error:', error.message);
     process.exit(1);

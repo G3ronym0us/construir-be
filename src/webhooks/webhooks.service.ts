@@ -57,9 +57,7 @@ export class WebhooksService {
       where: { active: true },
     });
 
-    const matchingWebhooks = webhooks.filter((wh) =>
-      wh.events.includes(event),
-    );
+    const matchingWebhooks = webhooks.filter((wh) => wh.events.includes(event));
 
     if (matchingWebhooks.length === 0) {
       this.logger.debug(`No active webhooks found for event: ${event}`);

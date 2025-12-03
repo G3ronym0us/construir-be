@@ -49,7 +49,9 @@ export async function createTestApiKey(
 /**
  * Generates authentication headers for Bearer token method
  */
-export function getBearerAuthHeaders(credentials: ApiKeyCredentials): Record<string, string> {
+export function getBearerAuthHeaders(
+  credentials: ApiKeyCredentials,
+): Record<string, string> {
   const token = `${credentials.consumerKey}:${credentials.consumerSecret}`;
   return {
     Authorization: `Bearer ${token}`,
@@ -59,7 +61,9 @@ export function getBearerAuthHeaders(credentials: ApiKeyCredentials): Record<str
 /**
  * Generates authentication headers for custom headers method
  */
-export function getCustomHeadersAuth(credentials: ApiKeyCredentials): Record<string, string> {
+export function getCustomHeadersAuth(
+  credentials: ApiKeyCredentials,
+): Record<string, string> {
   return {
     'X-Consumer-Key': credentials.consumerKey,
     'X-Consumer-Secret': credentials.consumerSecret,

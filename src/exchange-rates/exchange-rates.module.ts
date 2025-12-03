@@ -9,10 +9,7 @@ import { ExchangeRate } from './exchange-rate.entity';
 import { Product } from '../products/product.entity';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([ExchangeRate, Product]),
-    HttpModule,
-  ],
+  imports: [TypeOrmModule.forFeature([ExchangeRate, Product]), HttpModule],
   controllers: [ExchangeRatesController],
   providers: [ExchangeRatesService, BCVService, ExchangeRateTasksService],
   exports: [ExchangeRatesService, BCVService],
