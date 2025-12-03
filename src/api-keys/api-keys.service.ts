@@ -78,8 +78,21 @@ export class ApiKeysService {
     return apiKey;
   }
 
-  async revoke(id: number): Promise<void> {
-    const apiKey = await this.apiKeyRepository.findOne({ where: { id } });
+  async findByUuid(uuid: string): Promise<ApiKey> {
+    const apiKey = await this.apiKeyRepository.findOne({ where: { uuid } });
+
+    if (!apiKey) {
+      throw new NotFoundException('API Key not found');
+    }
+
+    return {
+      ...apiKey,
+      consumerSecret: '***HIDDEN***',
+    };
+  }
+
+  async revoke(uuid: string): Promise<void> {
+    const apiKey = await this.apiKeyRepository.findOne({ where: { uuid } });
 
     if (!apiKey) {
       throw new NotFoundException('API Key not found');
@@ -89,8 +102,8 @@ export class ApiKeysService {
     await this.apiKeyRepository.save(apiKey);
   }
 
-  async delete(id: number): Promise<void> {
-    const result = await this.apiKeyRepository.delete(id);
+  async delete(uuid: string): Promise<void> {
+    const result = await this.apiKeyRepository.delete({ uuid });
 
     if (result.affected === 0) {
       throw new NotFoundException('API Key not found');

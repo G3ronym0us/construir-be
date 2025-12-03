@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Generated,
 } from 'typeorm';
 
 export enum ApiKeyPermission {
@@ -17,6 +18,10 @@ export enum ApiKeyPermission {
 export class ApiKey {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ unique: true })
+  @Generated('uuid')
+  uuid: string;
 
   @Column({ type: 'varchar', length: 100, unique: true, name: 'consumer_key' })
   @Index()

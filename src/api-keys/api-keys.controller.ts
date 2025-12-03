@@ -33,8 +33,7 @@ export class ApiKeysController {
       message: 'API Key created successfully',
       apiKey: result.apiKey,
       consumerSecret: result.consumerSecret,
-      warning:
-        'Save the consumer_secret securely. It will not be shown again.',
+      warning: 'Save the consumer_secret securely. It will not be shown again.',
     };
   }
 
@@ -43,18 +42,23 @@ export class ApiKeysController {
     return this.apiKeysService.findAll();
   }
 
-  @Post(':id/revoke')
+  @Get(':uuid')
+  async findOne(@Param('uuid') uuid: string) {
+    return this.apiKeysService.findByUuid(uuid);
+  }
+
+  @Post(':uuid/revoke')
   @HttpCode(HttpStatus.OK)
-  async revoke(@Param('id') id: string) {
-    await this.apiKeysService.revoke(parseInt(id));
+  async revoke(@Param('uuid') uuid: string) {
+    await this.apiKeysService.revoke(uuid);
     return {
       message: 'API Key revoked successfully',
     };
   }
 
-  @Delete(':id')
+  @Delete(':uuid')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(@Param('id') id: string) {
-    await this.apiKeysService.delete(parseInt(id));
+  async delete(@Param('uuid') uuid: string) {
+    await this.apiKeysService.delete(uuid);
   }
 }
