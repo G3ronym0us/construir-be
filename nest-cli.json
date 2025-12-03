@@ -7,7 +7,7 @@
     "assets": [
       {
         "include": "email/templates/**/*.hbs",
-        "outDir": "dist/src"
+        "outDir": "dist"
       }
     ]
   }
