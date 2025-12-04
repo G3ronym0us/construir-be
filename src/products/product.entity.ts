@@ -10,12 +10,14 @@ import {
   ManyToMany,
   JoinTable,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { ProductImage } from './product-image.entity';
 import { Category } from '../categories/category.entity';
 
 @Entity('products')
 export class Product {
   @PrimaryGeneratedColumn()
+  @Exclude()
   id: number;
 
   @Column({ unique: true })

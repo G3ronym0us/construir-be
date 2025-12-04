@@ -8,11 +8,13 @@ import {
   JoinColumn,
   Generated,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { Product } from './product.entity';
 
 @Entity('product_images')
 export class ProductImage {
   @PrimaryGeneratedColumn()
+  @Exclude()
   id: number;
 
   @Column({ unique: true })
@@ -39,9 +41,6 @@ export class ProductImage {
   })
   @JoinColumn({ name: 'product_id' })
   product: Product;
-
-  @Column({ name: 'product_id' })
-  productId: number;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

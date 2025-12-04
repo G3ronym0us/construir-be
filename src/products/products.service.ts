@@ -196,7 +196,7 @@ export class ProductsService {
     // If this is primary, unset all other images as primary
     if (isPrimary) {
       await this.productImagesRepository.update(
-        { productId: product.id },
+        { product: { id: product.id } },
         { isPrimary: false },
       );
     }
@@ -206,7 +206,7 @@ export class ProductsService {
       key,
       isPrimary,
       order,
-      productId: product.id,
+      product: product,
     });
 
     return await this.productImagesRepository.save(productImage);
