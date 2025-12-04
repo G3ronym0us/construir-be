@@ -94,17 +94,17 @@ export class ProductsV1Controller {
     return result;
   }
 
-  @Get(':uuid')
+  @Get(':sku')
   @RequireApiKeyPermission(ApiKeyPermission.READ)
   @ApiOperation({
-    summary: 'Obtener producto por UUID',
+    summary: 'Obtener producto por SKU',
     description:
       'Retorna un producto con todos sus detalles incluyendo imágenes, categorías y precios',
   })
   @ApiParam({
-    name: 'uuid',
-    description: 'UUID del producto',
-    example: 'a1b2c3d4-e5f6-7890-abcd-1234567890ab',
+    name: 'sku',
+    description: 'SKU único del producto',
+    example: 'MART-001',
     type: String,
   })
   @ApiOkResponse({
@@ -115,9 +115,9 @@ export class ProductsV1Controller {
     description: 'Producto no encontrado',
   })
   @ApiStandardResponses()
-  async findOne(@Param('uuid') uuid: string) {
+  async findOne(@Param('sku') sku: string) {
     // Devuelve entidad Product tal cual
-    return this.productsService.findByUuid(uuid);
+    return this.productsService.findBySku(sku);
   }
 
   @Post()
@@ -146,18 +146,18 @@ export class ProductsV1Controller {
     return this.productsService.create({ ...createDto, categoryUuids });
   }
 
-  @Put(':uuid')
+  @Put(':sku')
   @RequireApiKeyPermission(ApiKeyPermission.WRITE)
   @TriggerWebhook(WebhookEvent.PRODUCT_UPDATED)
   @ApiOperation({
     summary: 'Actualizar producto',
     description:
-      'Actualiza un producto existente. Requiere permiso WRITE o READ_WRITE. Dispara webhook product.updated.',
+      'Actualiza un producto existente por SKU. Requiere permiso WRITE o READ_WRITE. Dispara webhook product.updated.',
   })
   @ApiParam({
-    name: 'uuid',
-    description: 'UUID del producto a actualizar',
-    example: 'a1b2c3d4-e5f6-7890-abcd-1234567890ab',
+    name: 'sku',
+    description: 'SKU único del producto a actualizar',
+    example: 'MART-001',
     type: String,
   })
   @ApiOkResponse({
@@ -169,7 +169,7 @@ export class ProductsV1Controller {
   })
   @ApiStandardResponses()
   async update(
-    @Param('uuid') uuid: string,
+    @Param('sku') sku: string,
     @Body() updateDto: UpdateProductForV1Dto,
   ) {
     let categoryUuids: string[] | undefined = undefined;
@@ -181,7 +181,7 @@ export class ProductsV1Controller {
       );
 
       // Obtener el producto actual con sus categorías
-      const currentProduct = await this.productsService.findByUuid(uuid);
+      const currentProduct = await this.productsService.findBySku(sku);
 
       // Verificar si la categoría ya está en el producto
       const categoryAlreadyExists = currentProduct.categories.some(
@@ -203,25 +203,25 @@ export class ProductsV1Controller {
     }
 
     // Devuelve entidad Product actualizada
-    return this.productsService.update(uuid, {
+    return this.productsService.updateBySku(sku, {
       ...updateDto,
       categoryUuids,
     });
   }
 
-  @Delete(':uuid')
+  @Delete(':sku')
   @RequireApiKeyPermission(ApiKeyPermission.WRITE)
   @TriggerWebhook(WebhookEvent.PRODUCT_DELETED)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Eliminar producto',
     description:
-      'Elimina un producto del catálogo. Requiere permiso WRITE o READ_WRITE. Dispara webhook product.deleted.',
+      'Elimina un producto del catálogo por SKU. Requiere permiso WRITE o READ_WRITE. Dispara webhook product.deleted.',
   })
   @ApiParam({
-    name: 'uuid',
-    description: 'UUID del producto a eliminar',
-    example: 'a1b2c3d4-e5f6-7890-abcd-1234567890ab',
+    name: 'sku',
+    description: 'SKU único del producto a eliminar',
+    example: 'MART-001',
     type: String,
   })
   @ApiOkResponse({
@@ -233,8 +233,8 @@ export class ProductsV1Controller {
     description: 'Producto no encontrado',
   })
   @ApiStandardResponses()
-  async delete(@Param('uuid') uuid: string) {
-    await this.productsService.remove(uuid);
-    return { uuid, message: 'Product deleted successfully' };
+  async delete(@Param('sku') sku: string) {
+    await this.productsService.removeBySku(sku);
+    return { sku, message: 'Product deleted successfully' };
   }
 }

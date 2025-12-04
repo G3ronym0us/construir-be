@@ -79,6 +79,63 @@ export class ProductsService {
     return product;
   }
 
+  async findBySku(sku: string): Promise<Product> {
+    const product = await this.productsRepository.findOne({ where: { sku } });
+
+    if (!product) {
+      throw new NotFoundException(`Product with SKU ${sku} not found`);
+    }
+
+    return product;
+  }
+
+  async updateBySku(
+    sku: string,
+    updateProductDto: UpdateProductDto,
+  ): Promise<Product> {
+    const product = await this.findBySku(sku);
+
+    if (updateProductDto.sku && updateProductDto.sku !== product.sku) {
+      const existingProduct = await this.productsRepository.findOne({
+        where: { sku: updateProductDto.sku },
+      });
+
+      if (existingProduct && existingProduct.id !== product.id) {
+        throw new ConflictException('SKU already exists');
+      }
+    }
+
+    const { categoryUuids, ...productData } = updateProductDto;
+    Object.assign(product, productData);
+
+    if (categoryUuids && categoryUuids.length > 0) {
+      const categories = await this.categoriesRepository.findBy({
+        uuid: In(categoryUuids),
+      });
+
+      if (categories.length !== categoryUuids.length) {
+        throw new NotFoundException('One or more categories not found');
+      }
+
+      product.categories = categories;
+    }
+
+    return await this.productsRepository.save(product);
+  }
+
+  async removeBySku(sku: string): Promise<void> {
+    const product = await this.findBySku(sku);
+
+    // Delete all images from S3 before soft deleting product
+    if (product.images && product.images.length > 0) {
+      for (const image of product.images) {
+        await this.s3Service.deleteFile(image.key);
+      }
+    }
+
+    await this.productsRepository.softRemove(product);
+  }
+
   async update(
     uuid: string,
     updateProductDto: UpdateProductDto,
