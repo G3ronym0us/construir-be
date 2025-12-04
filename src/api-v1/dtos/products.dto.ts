@@ -4,7 +4,6 @@ import {
   IsNumber,
   Min,
   IsOptional,
-  IsBoolean,
   IsArray,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
@@ -79,43 +78,6 @@ export class CreateProductForV1Dto {
   @IsOptional()
   @IsString()
   shortDescription?: string;
-
-  @ApiPropertyOptional({
-    description: 'Tipo de producto',
-    example: 'simple',
-    type: String,
-  })
-  @IsOptional()
-  @IsString()
-  type?: string;
-
-  @ApiPropertyOptional({
-    description:
-      'Indica si el producto está publicado y visible en el catálogo',
-    example: true,
-    type: Boolean,
-  })
-  @IsOptional()
-  @IsBoolean()
-  published?: boolean;
-
-  @ApiPropertyOptional({
-    description: 'Indica si el producto es destacado',
-    example: false,
-    type: Boolean,
-  })
-  @IsOptional()
-  @IsBoolean()
-  featured?: boolean;
-
-  @ApiPropertyOptional({
-    description: 'Visibilidad del producto en el catálogo',
-    example: 'visible',
-    type: String,
-  })
-  @IsOptional()
-  @IsString()
-  visibility?: string;
 
   @ApiPropertyOptional({
     description: 'Código de barras del producto',
