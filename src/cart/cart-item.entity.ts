@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -12,6 +13,7 @@ import { Product } from '../products/product.entity';
 
 @Entity('cart_items')
 export class CartItem {
+  @Exclude()
   @PrimaryGeneratedColumn()
   id: number;
 

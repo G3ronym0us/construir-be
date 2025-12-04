@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Entity,
   Column,
@@ -16,6 +17,7 @@ export enum ApiKeyPermission {
 
 @Entity('api_keys')
 export class ApiKey {
+  @Exclude()
   @PrimaryGeneratedColumn()
   id: number;
 

@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Entity,
   Column,
@@ -14,6 +15,7 @@ export enum UserRole {
 
 @Entity('users')
 export class User {
+  @Exclude()
   @PrimaryGeneratedColumn()
   id: number;
 

@@ -9,6 +9,7 @@ import {
   OneToOne,
   JoinColumn,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { User } from '../users/user.entity';
 import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
@@ -33,6 +34,7 @@ export enum DeliveryMethod {
 
 @Entity('orders')
 export class Order {
+  @Exclude()
   @PrimaryGeneratedColumn()
   id: number;
 

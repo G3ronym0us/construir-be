@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Entity,
   Column,
@@ -21,6 +22,7 @@ export enum WebhookEvent {
 
 @Entity('webhooks')
 export class Webhook {
+  @Exclude()
   @PrimaryGeneratedColumn()
   id: number;
 

@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Entity,
   Column,
@@ -25,6 +26,7 @@ export interface BannerImageVariants {
 
 @Entity('banners')
 export class Banner {
+  @Exclude()
   @PrimaryGeneratedColumn()
   id: number;
 

@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Entity,
   Column,
@@ -9,6 +10,7 @@ import {
 
 @Entity('exchange_rates')
 export class ExchangeRate {
+  @Exclude()
   @PrimaryGeneratedColumn()
   id: number;
 

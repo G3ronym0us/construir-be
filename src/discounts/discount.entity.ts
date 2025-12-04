@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Entity,
   Column,
@@ -17,6 +18,7 @@ export enum DiscountType {
 
 @Entity('discounts')
 export class Discount {
+  @Exclude()
   @PrimaryGeneratedColumn()
   id: number;
 
