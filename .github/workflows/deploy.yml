@@ -1,0 +1,53 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            cd ~/construir-be
+
+            echo "📥 Pulling latest changes..."
+            git pull origin main
+
+            echo "🛑 Stopping current container..."
+            docker stop construir-be || true
+            docker rm construir-be || true
+
+            echo "🔨 Building new image..."
+            docker-compose build app
+
+            echo "🚀 Starting new container..."
+            docker-compose up -d app
+
+            echo "⏳ Waiting for application to start..."
+            sleep 5
+
+            echo "✅ Deployment completed!"
+            docker logs --tail=20 construir-be
+
+      - name: Notify deployment status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment successful!"
+          else
+            echo "❌ Deployment failed!"
+          fi
