@@ -9,6 +9,7 @@ import {
   UseGuards,
   UseInterceptors,
   UploadedFile,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CategoriesService } from './categories.service';
@@ -95,5 +96,37 @@ export class CategoriesController {
   remove(@Param('uuid') uuid: string) {
     this.categoriesService.remove(uuid);
     return { message: 'Category deleted successfully' };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':uuid/image')
+  @UseInterceptors(FileInterceptor('image'))
+  async uploadImage(
+    @Param('uuid') uuid: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.categoriesService.uploadImage(uuid, file);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':uuid/image')
+  async deleteImage(
+    @Param('uuid') uuid: string,
+    @Query('confirm') confirm?: string,
+  ) {
+    const confirmed = confirm === 'true';
+    const result = await this.categoriesService.deleteImage(uuid, confirmed);
+
+    if (result.requiresConfirmation) {
+      return {
+        requiresConfirmation: true,
+        message: result.message,
+      };
+    }
+
+    return {
+      message: 'Imagen eliminada exitosamente',
+      category: result.category,
+    };
   }
 }

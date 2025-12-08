@@ -34,7 +34,10 @@ export class Category {
   description: string;
 
   @Column({ type: 'varchar', nullable: true })
-  image: string;
+  image?: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  imageKey: string | null;
 
   @Column({ type: 'boolean', default: false })
   isFeatured: boolean;

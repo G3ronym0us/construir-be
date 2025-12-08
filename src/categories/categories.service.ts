@@ -26,6 +26,17 @@ export class CategoriesService {
     private imageProcessingService: ImageProcessingService,
   ) {}
 
+  private validateFeaturedCategoryImage(
+    isFeatured: boolean,
+    hasImage: boolean,
+  ): void {
+    if (isFeatured && !hasImage) {
+      throw new BadRequestException(
+        'Las categorías destacadas deben tener una imagen asociada',
+      );
+    }
+  }
+
   async create(
     createCategoryDto: CreateCategoryDto,
     file?: Express.Multer.File,
@@ -47,9 +58,16 @@ export class CategoriesService {
       isMain,
     });
 
+    // Validar que las categorías destacadas tengan imagen
+    this.validateFeaturedCategoryImage(
+      createCategoryDto.isFeatured || false,
+      !!file,
+    );
+
     if (file) {
-      const imageUrl = await this.processCategoryImage(file);
-      category.image = imageUrl;
+      const { url, key } = await this.processCategoryImage(file);
+      category.image = url;
+      category.imageKey = key;
     }
 
     return await this.categoriesRepository.save(category);
@@ -209,26 +227,113 @@ export class CategoriesService {
     }
 
     if (file) {
-      const newImageUrl = await this.processCategoryImage(file);
-      category.image = newImageUrl;
+      const { url, key } = await this.processCategoryImage(file);
+      category.image = url;
+      category.imageKey = key;
 
       if (oldImageUrl) {
-        const oldImageKey = this.extractKeyFromUrl(oldImageUrl);
+        const oldImageKey =
+          category.imageKey || this.extractKeyFromUrl(oldImageUrl);
         if (oldImageKey) {
           await this.s3Service.deleteFile(oldImageKey);
         }
       }
     }
 
+    // Validar categoría destacada tiene imagen
+    const willBeFeatured =
+      updateCategoryDto.isFeatured !== undefined
+        ? updateCategoryDto.isFeatured
+        : category.isFeatured;
+    const hasImage = !!(file || category.image);
+    this.validateFeaturedCategoryImage(willBeFeatured, hasImage);
+
     Object.assign(category, updateCategoryDto);
     return await this.categoriesRepository.save(category);
+  }
+
+  async uploadImage(
+    uuid: string,
+    file: Express.Multer.File,
+  ): Promise<Category> {
+    if (!file) {
+      throw new BadRequestException('Archivo de imagen requerido');
+    }
+
+    const category = await this.findByUuid(uuid);
+    const oldImageUrl = category.image;
+    const oldImageKey = category.imageKey;
+
+    // Procesar y subir nueva imagen
+    const { url, key } = await this.processCategoryImage(file);
+    category.image = url;
+    category.imageKey = key;
+
+    // Eliminar imagen anterior de S3
+    if (oldImageKey) {
+      await this.s3Service.deleteFile(oldImageKey);
+    } else if (oldImageUrl) {
+      // Fallback para datos legacy sin imageKey
+      const extractedKey = this.extractKeyFromUrl(oldImageUrl);
+      if (extractedKey) {
+        await this.s3Service.deleteFile(extractedKey);
+      }
+    }
+
+    return await this.categoriesRepository.save(category);
+  }
+
+  async deleteImage(
+    uuid: string,
+    confirmed: boolean = false,
+  ): Promise<{
+    requiresConfirmation: boolean;
+    message?: string;
+    category?: Category;
+  }> {
+    const category = await this.findByUuid(uuid);
+
+    if (!category.image) {
+      throw new NotFoundException('La categoría no tiene imagen');
+    }
+
+    // Verificar si es destacada y requiere confirmación
+    if (category.isFeatured && !confirmed) {
+      return {
+        requiresConfirmation: true,
+        message:
+          'Esta categoría está destacada. Al eliminar la imagen, se quitará automáticamente de destacadas. ¿Deseas continuar?',
+      };
+    }
+
+    // Eliminar de S3
+    if (category.imageKey) {
+      await this.s3Service.deleteFile(category.imageKey);
+    } else if (category.image) {
+      // Fallback para datos legacy
+      const extractedKey = this.extractKeyFromUrl(category.image);
+      if (extractedKey) {
+        await this.s3Service.deleteFile(extractedKey);
+      }
+    }
+
+    // Limpiar campos de imagen y desmarcar destacada
+    category.image = undefined;
+    category.imageKey = null;
+    if (category.isFeatured) {
+      category.isFeatured = false;
+    }
+
+    const updatedCategory = await this.categoriesRepository.save(category);
+    return { requiresConfirmation: false, category: updatedCategory };
   }
 
   async remove(uuid: string): Promise<void> {
     const category = await this.findByUuid(uuid);
 
     if (category.image) {
-      const imageKey = this.extractKeyFromUrl(category.image);
+      const imageKey =
+        category.imageKey || this.extractKeyFromUrl(category.image);
       if (imageKey) {
         await this.s3Service.deleteFile(imageKey);
       }
@@ -255,7 +360,7 @@ export class CategoriesService {
 
   private async processCategoryImage(
     file: Express.Multer.File,
-  ): Promise<string> {
+  ): Promise<{ url: string; key: string }> {
     if (!file) {
       throw new BadRequestException('Image file is required');
     }
@@ -282,7 +387,7 @@ export class CategoriesService {
       'image/webp',
     );
 
-    return webpResult.url;
+    return { url: webpResult.url, key: webpResult.key };
   }
 
   private extractKeyFromUrl(url: string): string | null {
