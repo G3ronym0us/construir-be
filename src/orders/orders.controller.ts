@@ -18,6 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { OrderAdminGuard } from '../auth/guards/order-admin.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OrdersService } from './orders.service';
@@ -93,7 +94,7 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard)
   async getMyOrders(@Request() req) {
     const userId = req.user.userId;
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.ORDER_ADMIN;
     return this.ordersService.findAll(userId, isAdmin);
   }
 
@@ -104,7 +105,7 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard)
   async getOrder(@Request() req, @Param('uuid') uuid: string) {
     const userId = req.user?.userId;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = req.user?.role === UserRole.ADMIN || req.user?.role === UserRole.ORDER_ADMIN;
 
     // Si es admin, no validar userId
     return this.ordersService.findOneByUuid(uuid, isAdmin ? undefined : userId);
@@ -122,8 +123,7 @@ export class OrdersController {
    * Actualizar estado de la orden (solo admin)
    */
   @Patch(':uuid/status')
-  @Roles(UserRole.ADMIN)
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, OrderAdminGuard)
   async updateOrderStatus(
     @Param('uuid') uuid: string,
     @Body() updateOrderStatusDto: UpdateOrderStatusDto,
@@ -138,7 +138,7 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard)
   async cancelOrder(@Request() req, @Param('uuid') uuid: string) {
     const userId = req.user.userId;
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.ORDER_ADMIN;
 
     return this.ordersService.cancelOrder(uuid, isAdmin ? undefined : userId);
   }
@@ -149,8 +149,7 @@ export class OrdersController {
    * Dashboard de estadísticas (solo admin)
    */
   @Get('admin/stats')
-  @Roles(UserRole.ADMIN)
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, OrderAdminGuard)
   async getAdminStats() {
     return this.ordersService.getAdminStats();
   }
@@ -159,8 +158,7 @@ export class OrdersController {
    * Filtrar órdenes con opciones avanzadas (solo admin)
    */
   @Get('admin/filter')
-  @Roles(UserRole.ADMIN)
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, OrderAdminGuard)
   async filterOrders(
     @Query('status') status?: OrderStatus,
     @Query('paymentStatus') paymentStatus?: PaymentStatus,
@@ -185,8 +183,7 @@ export class OrdersController {
    * Exportar órdenes a CSV (solo admin)
    */
   @Get('admin/export/csv')
-  @Roles(UserRole.ADMIN)
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, OrderAdminGuard)
   async exportOrders(
     @Res() res: Response,
     @Query('status') status?: OrderStatus,

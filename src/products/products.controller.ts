@@ -18,13 +18,17 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../users/user.entity';
 
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  @UseGuards(JwtAuthGuard)
   @Post()
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   create(@Body() createProductDto: CreateProductDto) {
     return this.productsService.create(createProductDto);
   }
@@ -35,6 +39,8 @@ export class ProductsController {
   }
 
   @Get('admin/paginated')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   findAllPaginated(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -58,11 +64,15 @@ export class ProductsController {
   }
 
   @Get('admin/stats')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   getStats() {
     return this.productsService.getStats();
   }
 
   @Get('admin/low-stock')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   getLowStock(@Query('threshold') threshold?: string) {
     return this.productsService.getLowStock(
       threshold ? parseInt(threshold) : 10,
@@ -79,8 +89,9 @@ export class ProductsController {
     return this.productsService.findOne(uuid);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch(':uuid')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   update(
     @Param('uuid') uuid: string,
     @Body() updateProductDto: UpdateProductDto,
@@ -88,15 +99,17 @@ export class ProductsController {
     return this.productsService.update(uuid, updateProductDto);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Delete(':uuid')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   remove(@Param('uuid') uuid: string) {
     this.productsService.remove(uuid);
     return { message: 'Product deleted successfully' };
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post(':uuid/images')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @UseInterceptors(FileInterceptor('file'))
   async uploadImage(
     @Param('uuid') uuid: string,
@@ -115,21 +128,24 @@ export class ProductsController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
   @Delete('images/:imageUuid')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteImage(@Param('imageUuid') imageUuid: string) {
     await this.productsService.deleteImage(imageUuid);
     return { message: 'Image deleted successfully' };
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch('images/:imageUuid/primary')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async setPrimaryImage(@Param('imageUuid') imageUuid: string) {
     return this.productsService.setPrimaryImage(imageUuid);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch(':uuid/inventory')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateInventory(
     @Param('uuid', ParseUUIDPipe) uuid: string,
     @Body('inventory') inventory: number,
@@ -137,8 +153,9 @@ export class ProductsController {
     return this.productsService.updateInventory(uuid, inventory);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch('bulk/publish')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async bulkUpdatePublished(
     @Body('uuids') uuids: string[],
     @Body('published') published: boolean,
@@ -147,8 +164,9 @@ export class ProductsController {
     return { message: `${uuids.length} products updated successfully` };
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch('bulk/feature')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async bulkUpdateFeatured(
     @Body('uuids') uuids: string[],
     @Body('featured') featured: boolean,

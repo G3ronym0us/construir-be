@@ -16,13 +16,17 @@ import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../users/user.entity';
 
 @Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
-  @UseGuards(JwtAuthGuard)
   @Post()
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @UseInterceptors(FileInterceptor('image'))
   create(
     @Body() createCategoryDto: CreateCategoryDto,
@@ -71,8 +75,9 @@ export class CategoriesController {
     return this.categoriesService.findByUuid(uuid);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch(':uuid')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @UseInterceptors(FileInterceptor('image'))
   update(
     @Param('uuid') uuid: string,
@@ -82,8 +87,9 @@ export class CategoriesController {
     return this.categoriesService.update(uuid, updateCategoryDto, file);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch(':uuid/parent')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   setParent(
     @Param('uuid') uuid: string,
     @Body('parentUuid') parentUuid: string | null,
@@ -91,15 +97,17 @@ export class CategoriesController {
     return this.categoriesService.setParent(uuid, parentUuid);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Delete(':uuid')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   remove(@Param('uuid') uuid: string) {
     this.categoriesService.remove(uuid);
     return { message: 'Category deleted successfully' };
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post(':uuid/image')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @UseInterceptors(FileInterceptor('image'))
   async uploadImage(
     @Param('uuid') uuid: string,
@@ -108,8 +116,9 @@ export class CategoriesController {
     return this.categoriesService.uploadImage(uuid, file);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Delete(':uuid/image')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteImage(
     @Param('uuid') uuid: string,
     @Query('confirm') confirm?: string,

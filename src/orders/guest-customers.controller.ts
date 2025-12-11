@@ -2,9 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../users/user.entity';
+import { OrderAdminGuard } from '../auth/guards/order-admin.guard';
 
 @Controller('guest-customers')
 export class GuestCustomersController {
@@ -34,8 +32,7 @@ export class GuestCustomersController {
    * Para campañas de marketing
    */
   @Get()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, OrderAdminGuard)
   async findAll(
     @Query('limit') limit?: number,
     @Query('offset') offset?: number,

@@ -10,6 +10,7 @@ import {
 
 export enum UserRole {
   ADMIN = 'admin',
+  ORDER_ADMIN = 'order_admin',
   USER = 'user',
 }
 
