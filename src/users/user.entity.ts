@@ -5,12 +5,14 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   Generated,
 } from 'typeorm';
 
 export enum UserRole {
   ADMIN = 'admin',
   ORDER_ADMIN = 'order_admin',
+  CUSTOMER = 'customer',
   USER = 'user',
 }
 
@@ -39,9 +41,15 @@ export class User {
   @Column({
     type: 'enum',
     enum: UserRole,
-    default: UserRole.USER,
+    default: UserRole.CUSTOMER,
   })
   role: UserRole;
+
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean;
+
+  @DeleteDateColumn({ name: 'deleted_at' })
+  deletedAt: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

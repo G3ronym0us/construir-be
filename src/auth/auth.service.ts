@@ -18,6 +18,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Check if account is deactivated
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
+    // Check if account is soft deleted
+    if (user.deletedAt) {
+      throw new UnauthorizedException('Account not found');
+    }
+
     const isPasswordValid = await bcrypt.compare(
       loginDto.password,
       user.password,
