@@ -4,12 +4,22 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:  # Permite ejecución manual desde GitHub UI
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - restart
 
 jobs:
   deploy:
     name: Deploy to Server
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.inputs.action == 'deploy'
 
     steps:
       - name: Checkout code
@@ -32,6 +42,9 @@ jobs:
             docker stop construir-be || true
             docker rm construir-be || true
 
+            echo "🧹 Cleaning up Docker resources..."
+            docker system prune -af
+
             echo "🔨 Building new image..."
             docker-compose build app
 
@@ -52,3 +65,28 @@ jobs:
           else
             echo "❌ Deployment failed!"
           fi
+
+  restart:
+    name: Restart Container
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'restart'
+
+    steps:
+      - name: Restart container
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            cd ~/construir-be
+
+            echo "🔄 Restarting container..."
+            docker-compose restart app
+
+            echo "⏳ Waiting for application to start..."
+            sleep 5
+
+            echo "✅ Restart completed!"
+            docker logs --tail=20 construir-be
