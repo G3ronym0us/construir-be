@@ -19,6 +19,7 @@ import { CustomersModule } from './customers/customers.module';
 import { ApiKeysModule } from './api-keys/api-keys.module';
 import { ApiV1Module } from './api-v1/api-v1.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { ApiRequestLogsModule } from './api-request-logs/api-request-logs.module';
 import {
   databaseConfig,
   jwtConfig,
@@ -63,6 +64,7 @@ import {
     ApiKeysModule,
     ApiV1Module,
     WebhooksModule,
+    ApiRequestLogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

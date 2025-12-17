@@ -5,6 +5,8 @@ import { OrdersV1Module } from './orders/orders-v1.module';
 import { CustomersV1Module } from './customers/customers-v1.module';
 import { WebhookInterceptor } from './common/interceptors/webhook.interceptor';
 import { WebhooksModule } from '../webhooks/webhooks.module';
+import { ApiRequestLogsModule } from '../api-request-logs/api-request-logs.module';
+import { ApiLoggingInterceptor } from '../api-request-logs/api-logging.interceptor';
 
 @Module({
   imports: [
@@ -12,11 +14,16 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
     OrdersV1Module,
     CustomersV1Module,
     WebhooksModule,
+    ApiRequestLogsModule,
   ],
   providers: [
     {
       provide: APP_INTERCEPTOR,
       useClass: WebhookInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ApiLoggingInterceptor,
     },
   ],
 })
