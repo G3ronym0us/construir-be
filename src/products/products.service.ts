@@ -373,4 +373,113 @@ export class ProductsService {
   async bulkUpdateFeatured(uuids: string[], featured: boolean): Promise<void> {
     await this.productsRepository.update(uuids, { featured });
   }
+
+  /**
+   * Parse image name in format "sku-001" to extract SKU and order number
+   * Example: "MART-001-002" -> { sku: "MART-001", order: 2 }
+   * Example: "ABC123-001" -> { sku: "ABC123", order: 1 }
+   */
+  parseImageName(imageName: string): { sku: string; order: number } {
+    // Remove file extension if present
+    const nameWithoutExt = imageName.replace(/\.[^/.]+$/, '');
+
+    // Find the last hyphen followed by digits
+    const match = nameWithoutExt.match(/^(.+)-(\d+)$/);
+
+    if (!match) {
+      throw new NotFoundException(
+        `Invalid image name format: ${imageName}. Expected format: sku-001`,
+      );
+    }
+
+    const sku = match[1];
+    const order = parseInt(match[2], 10);
+
+    return { sku, order };
+  }
+
+  /**
+   * Find image by product and order number
+   */
+  async findImageByProductAndOrder(
+    productId: number,
+    order: number,
+  ): Promise<ProductImage | null> {
+    return await this.productImagesRepository.findOne({
+      where: {
+        product: { id: productId },
+        order: order,
+      },
+    });
+  }
+
+  /**
+   * Upload or replace image by SKU and order number
+   * If image with same order exists, replace it; otherwise create new
+   */
+  async uploadImageBySku(
+    sku: string,
+    file: Express.Multer.File,
+    order: number,
+  ): Promise<ProductImage> {
+    const product = await this.findBySku(sku);
+
+    // Check if image with this order already exists
+    const existingImage = await this.findImageByProductAndOrder(
+      product.id,
+      order,
+    );
+
+    // Upload new file to S3
+    const { url, key } = await this.s3Service.uploadFile(file, 'products');
+
+    if (existingImage) {
+      // Delete old file from S3
+      await this.s3Service.deleteFile(existingImage.key);
+
+      // Update existing image
+      existingImage.url = url;
+      existingImage.key = key;
+      return await this.productImagesRepository.save(existingImage);
+    }
+
+    // Create new image
+    const isPrimary = order === 1;
+
+    // If this is primary (order 1), unset all other images as primary
+    if (isPrimary) {
+      await this.productImagesRepository.update(
+        { product: { id: product.id } },
+        { isPrimary: false },
+      );
+    }
+
+    const productImage = this.productImagesRepository.create({
+      url,
+      key,
+      isPrimary,
+      order,
+      product: product,
+    });
+
+    return await this.productImagesRepository.save(productImage);
+  }
+
+  /**
+   * Delete image by SKU and order number
+   */
+  async deleteImageBySku(sku: string, order: number): Promise<void> {
+    const product = await this.findBySku(sku);
+
+    const image = await this.findImageByProductAndOrder(product.id, order);
+
+    if (!image) {
+      throw new NotFoundException(
+        `Image with order ${order} not found for product ${sku}`,
+      );
+    }
+
+    await this.s3Service.deleteFile(image.key);
+    await this.productImagesRepository.remove(image);
+  }
 }

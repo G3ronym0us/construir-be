@@ -11,7 +11,10 @@ import {
   UseInterceptors,
   HttpCode,
   HttpStatus,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -19,6 +22,8 @@ import {
   ApiOkResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { ProductsService } from '../../products/products.service';
 import { ApiKeyGuard } from '../../api-keys/guards/api-key.guard';
@@ -236,5 +241,78 @@ export class ProductsV1Controller {
   async delete(@Param('sku') sku: string) {
     await this.productsService.removeBySku(sku);
     return { sku, message: 'Product deleted successfully' };
+  }
+
+  @Post('images')
+  @RequireApiKeyPermission(ApiKeyPermission.WRITE)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({
+    summary: 'Subir o reemplazar imagen de producto',
+    description:
+      'Sube una imagen para un producto. El nombre del archivo debe tener formato "sku-001" donde sku es el SKU del producto y 001 es el número de orden. Si ya existe una imagen con ese orden, será reemplazada.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    description: 'Archivo de imagen con nombre en formato sku-001',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description:
+            'Archivo de imagen. El nombre debe tener formato sku-001 (ejemplo: MART-001-001.jpg)',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiCreatedResponse({
+    description: 'Imagen subida/reemplazada exitosamente',
+  })
+  @ApiWritePermissionResponses()
+  @ApiNotFoundResponse({
+    description: 'Producto no encontrado',
+  })
+  @ApiStandardResponses()
+  async uploadImage(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    const { sku, order } = this.productsService.parseImageName(
+      file.originalname,
+    );
+
+    return this.productsService.uploadImageBySku(sku, file, order);
+  }
+
+  @Delete('images/:imageName')
+  @RequireApiKeyPermission(ApiKeyPermission.WRITE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Eliminar imagen de producto por nombre',
+    description:
+      'Elimina una imagen de un producto usando el nombre en formato "sku-001" donde sku es el SKU del producto y 001 es el número de orden de la imagen.',
+  })
+  @ApiParam({
+    name: 'imageName',
+    description: 'Nombre de la imagen en formato sku-orden (ejemplo: MART-001-001)',
+    example: 'MART-001-001',
+    type: String,
+  })
+  @ApiOkResponse({
+    description: 'Imagen eliminada exitosamente',
+    type: SuccessMessageSchema,
+  })
+  @ApiWritePermissionResponses()
+  @ApiNotFoundResponse({
+    description: 'Producto o imagen no encontrada',
+  })
+  @ApiStandardResponses()
+  async deleteImage(@Param('imageName') imageName: string) {
+    const { sku, order } = this.productsService.parseImageName(imageName);
+    await this.productsService.deleteImageBySku(sku, order);
+    return { imageName, message: 'Image deleted successfully' };
   }
 }
