@@ -94,7 +94,9 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard)
   async getMyOrders(@Request() req) {
     const userId = req.user.userId;
-    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.ORDER_ADMIN;
+    const isAdmin =
+      req.user.role === UserRole.ADMIN ||
+      req.user.role === UserRole.ORDER_ADMIN;
     return this.ordersService.findAll(userId, isAdmin);
   }
 
@@ -105,7 +107,9 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard)
   async getOrder(@Request() req, @Param('uuid') uuid: string) {
     const userId = req.user?.userId;
-    const isAdmin = req.user?.role === UserRole.ADMIN || req.user?.role === UserRole.ORDER_ADMIN;
+    const isAdmin =
+      req.user?.role === UserRole.ADMIN ||
+      req.user?.role === UserRole.ORDER_ADMIN;
 
     // Si es admin, no validar userId
     return this.ordersService.findOneByUuid(uuid, isAdmin ? undefined : userId);
@@ -138,7 +142,9 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard)
   async cancelOrder(@Request() req, @Param('uuid') uuid: string) {
     const userId = req.user.userId;
-    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.ORDER_ADMIN;
+    const isAdmin =
+      req.user.role === UserRole.ADMIN ||
+      req.user.role === UserRole.ORDER_ADMIN;
 
     return this.ordersService.cancelOrder(uuid, isAdmin ? undefined : userId);
   }

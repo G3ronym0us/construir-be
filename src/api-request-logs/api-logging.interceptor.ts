@@ -13,9 +13,7 @@ import { ApiRequestLogsService } from './api-request-logs.service';
 export class ApiLoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger(ApiLoggingInterceptor.name);
 
-  constructor(
-    private readonly apiRequestLogsService: ApiRequestLogsService,
-  ) {}
+  constructor(private readonly apiRequestLogsService: ApiRequestLogsService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();

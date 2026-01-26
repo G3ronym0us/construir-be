@@ -24,7 +24,9 @@ describe('OrderAdminGuard', () => {
     });
 
     it('should allow access for ORDER_ADMIN role', () => {
-      const context = createMockExecutionContext({ role: UserRole.ORDER_ADMIN });
+      const context = createMockExecutionContext({
+        role: UserRole.ORDER_ADMIN,
+      });
       expect(guard.canActivate(context)).toBe(true);
     });
 
@@ -39,7 +41,10 @@ describe('OrderAdminGuard', () => {
     });
 
     it('should deny access when user exists but has no role', () => {
-      const context = createMockExecutionContext({ id: 1, email: 'test@test.com' });
+      const context = createMockExecutionContext({
+        id: 1,
+        email: 'test@test.com',
+      });
       expect(guard.canActivate(context)).toBe(false);
     });
 

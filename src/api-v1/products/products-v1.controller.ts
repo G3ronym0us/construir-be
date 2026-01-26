@@ -99,7 +99,7 @@ export class ProductsV1Controller {
     return result;
   }
 
-  @Get(':sku')
+  @Get('sku/:sku')
   @RequireApiKeyPermission(ApiKeyPermission.READ)
   @ApiOperation({
     summary: 'Obtener producto por SKU',
@@ -120,9 +120,33 @@ export class ProductsV1Controller {
     description: 'Producto no encontrado',
   })
   @ApiStandardResponses()
-  async findOne(@Param('sku') sku: string) {
-    // Devuelve entidad Product tal cual
+  async findBySku(@Param('sku') sku: string) {
     return this.productsService.findBySku(sku);
+  }
+
+  @Get('uuid/:uuid')
+  @RequireApiKeyPermission(ApiKeyPermission.READ)
+  @ApiOperation({
+    summary: 'Obtener producto por UUID',
+    description:
+      'Retorna un producto con todos sus detalles incluyendo imágenes, categorías y precios',
+  })
+  @ApiParam({
+    name: 'uuid',
+    description: 'UUID único del producto',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+    type: String,
+  })
+  @ApiOkResponse({
+    description: 'Producto encontrado exitosamente',
+  })
+  @ApiAuthResponses()
+  @ApiNotFoundResponse({
+    description: 'Producto no encontrado',
+  })
+  @ApiStandardResponses()
+  async findByUuid(@Param('uuid') uuid: string) {
+    return this.productsService.findByUuid(uuid);
   }
 
   @Post()
@@ -151,7 +175,7 @@ export class ProductsV1Controller {
     return this.productsService.create({ ...createDto, categoryUuids });
   }
 
-  @Put(':sku')
+  @Put('sku/:sku')
   @RequireApiKeyPermission(ApiKeyPermission.WRITE)
   @TriggerWebhook(WebhookEvent.PRODUCT_UPDATED)
   @ApiOperation({
@@ -214,7 +238,7 @@ export class ProductsV1Controller {
     });
   }
 
-  @Delete(':sku')
+  @Delete('sku/:sku')
   @RequireApiKeyPermission(ApiKeyPermission.WRITE)
   @TriggerWebhook(WebhookEvent.PRODUCT_DELETED)
   @HttpCode(HttpStatus.OK)
@@ -297,7 +321,8 @@ export class ProductsV1Controller {
   })
   @ApiParam({
     name: 'imageName',
-    description: 'Nombre de la imagen en formato sku-orden (ejemplo: MART-001-001)',
+    description:
+      'Nombre de la imagen en formato sku-orden (ejemplo: MART-001-001)',
     example: 'MART-001-001',
     type: String,
   })

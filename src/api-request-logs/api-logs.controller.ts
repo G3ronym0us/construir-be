@@ -20,9 +20,7 @@ import { UserRole } from '../users/user.entity';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class ApiLogsController {
-  constructor(
-    private readonly apiRequestLogsService: ApiRequestLogsService,
-  ) {}
+  constructor(private readonly apiRequestLogsService: ApiRequestLogsService) {}
 
   /**
    * Get all API request logs with filters (ADMIN only)

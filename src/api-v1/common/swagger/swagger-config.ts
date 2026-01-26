@@ -48,7 +48,10 @@ export const v1SwaggerConfig = new DocumentBuilder()
   `,
   )
   .setVersion('1.0')
-  .addServer(process.env.API_URL || 'http://localhost:3000', 'Servidor Principal')
+  .addServer(
+    process.env.API_URL || 'http://localhost:3000',
+    'Servidor Principal',
+  )
   .addServer('http://localhost:3000', 'Desarrollo Local')
   .addBearerAuth(
     {
