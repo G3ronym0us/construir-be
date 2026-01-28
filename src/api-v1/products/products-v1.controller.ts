@@ -31,6 +31,7 @@ import { RequireApiKeyPermission } from '../../api-keys/decorators/api-key-permi
 import { ApiKeyPermission } from '../../api-keys/api-key.entity';
 import { TriggerWebhook } from '../common/decorators/trigger-webhook.decorator';
 import { WebhookInterceptor } from '../common/interceptors/webhook.interceptor';
+import { PaginationLinkInterceptor } from '../common/interceptors/pagination-link.interceptor';
 import { WebhookEvent } from '../../webhooks/webhook.entity';
 import {
   ApiSecurityAll,
@@ -51,7 +52,7 @@ import { CategoriesService } from 'src/categories/categories.service';
 @ApiSecurityAll()
 @Controller('api/v1/products')
 @UseGuards(ApiKeyGuard)
-@UseInterceptors(WebhookInterceptor)
+@UseInterceptors(WebhookInterceptor, PaginationLinkInterceptor)
 export class ProductsV1Controller {
   constructor(
     private readonly productsService: ProductsService,

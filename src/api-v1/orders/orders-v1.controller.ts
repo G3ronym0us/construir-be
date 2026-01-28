@@ -23,6 +23,7 @@ import { RequireApiKeyPermission } from '../../api-keys/decorators/api-key-permi
 import { ApiKeyPermission } from '../../api-keys/api-key.entity';
 import { TriggerWebhook } from '../common/decorators/trigger-webhook.decorator';
 import { WebhookInterceptor } from '../common/interceptors/webhook.interceptor';
+import { PaginationLinkInterceptor } from '../common/interceptors/pagination-link.interceptor';
 import { WebhookEvent } from '../../webhooks/webhook.entity';
 import { UpdateOrderStatusDto } from '../../orders/dto/update-order-status.dto';
 import {
@@ -37,7 +38,7 @@ import {
 @ApiSecurityAll()
 @Controller('api/v1/orders')
 @UseGuards(ApiKeyGuard)
-@UseInterceptors(WebhookInterceptor)
+@UseInterceptors(WebhookInterceptor, PaginationLinkInterceptor)
 export class OrdersV1Controller {
   constructor(private readonly ordersService: OrdersService) {}
 
@@ -79,11 +80,15 @@ export class OrdersV1Controller {
     const start = (pageNum - 1) * perPageNum;
     const end = start + perPageNum;
 
+    const total = allOrders.length;
+    const lastPage = Math.ceil(total / perPageNum) || 1;
+
     return {
       data: allOrders.slice(start, end),
-      total: allOrders.length,
+      total,
       page: pageNum,
       perPage: perPageNum,
+      lastPage,
     };
   }
 

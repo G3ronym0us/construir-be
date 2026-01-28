@@ -26,6 +26,7 @@ import { RequireApiKeyPermission } from '../../api-keys/decorators/api-key-permi
 import { ApiKeyPermission } from '../../api-keys/api-key.entity';
 import { TriggerWebhook } from '../common/decorators/trigger-webhook.decorator';
 import { WebhookInterceptor } from '../common/interceptors/webhook.interceptor';
+import { PaginationLinkInterceptor } from '../common/interceptors/pagination-link.interceptor';
 import { WebhookEvent } from '../../webhooks/webhook.entity';
 import { GetCustomersDto } from '../../customers/dto/get-customers.dto';
 import {
@@ -39,7 +40,7 @@ import {
 @ApiSecurityAll()
 @Controller('api/v1/customers')
 @UseGuards(ApiKeyGuard)
-@UseInterceptors(WebhookInterceptor)
+@UseInterceptors(WebhookInterceptor, PaginationLinkInterceptor)
 export class CustomersV1Controller {
   constructor(private readonly customersService: CustomersService) {}
 
