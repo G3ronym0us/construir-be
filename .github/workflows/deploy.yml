@@ -46,7 +46,7 @@ jobs:
             docker image prune -f
 
             echo "🔨 Building new image..."
-            docker-compose build app
+            docker-compose build --progress=plain app
 
             echo "🚀 Starting new container..."
             docker-compose up -d app
