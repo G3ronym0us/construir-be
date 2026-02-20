@@ -17,11 +17,18 @@ export class ApiLoggingInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
+
+    // Solo registrar peticiones a la API v1
+    const rawPath: string = request.url;
+    if (!rawPath.startsWith('/api/v1/')) {
+      return next.handle();
+    }
+
     const startTime = Date.now();
 
     // Extraer info del request
     const method = request.method;
-    const path = request.url;
+    const path = rawPath;
     const query = request.query;
     const requestBody = this.sanitizeBody(request.body);
     const requestHeaders = this.sanitizeHeaders(request.headers);
@@ -32,12 +39,12 @@ export class ApiLoggingInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap({
-        next: (responseBody) => {
+        next: () => {
           const responseTime = Date.now() - startTime;
           const response = context.switchToHttp().getResponse();
           const statusCode = response.statusCode;
 
-          // Guardar log asíncronamente (no bloquear respuesta)
+          // No guardar responseBody en requests exitosos: puede ser MB de datos
           this.saveLog({
             method,
             path,
@@ -45,7 +52,7 @@ export class ApiLoggingInterceptor implements NestInterceptor {
             requestBody,
             requestHeaders,
             statusCode,
-            responseBody: this.sanitizeBody(responseBody),
+            responseBody: null,
             responseTime,
             consumerKey,
             apiKey,
