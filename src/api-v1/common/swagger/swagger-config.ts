@@ -85,4 +85,5 @@ export const v1SwaggerConfig = new DocumentBuilder()
   .addTag('Products V1', 'Gestión de catálogo de productos')
   .addTag('Orders V1', 'Gestión y seguimiento de órdenes')
   .addTag('Customers V1', 'Información y estadísticas de clientes')
+  .addTag('Categories V1', 'Gestión de categorías')
   .build();

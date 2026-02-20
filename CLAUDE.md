@@ -119,5 +119,5 @@ When ready to migrate to S3:
 
 ## Git Workflow
 
-- Remote: supreme (as configured in user settings)
-- Push all changes to the supreme remote
+- Remote: origin
+- Push all changes to origin
