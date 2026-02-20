@@ -88,12 +88,14 @@ export class ApiRequestLogsService {
       queryBuilder.andWhere('log.createdAt <= :endDate', { endDate });
     }
 
-    queryBuilder.orderBy('log.createdAt', 'DESC');
+    // Contar con query separada (evita el DISTINCT subquery que genera getManyAndCount con joins)
+    const total = await queryBuilder.getCount();
 
+    queryBuilder.orderBy('log.createdAt', 'DESC');
     const skip = (page - 1) * limit;
     queryBuilder.skip(skip).take(limit);
 
-    const [data, total] = await queryBuilder.getManyAndCount();
+    const data = await queryBuilder.getMany();
 
     return {
       data,

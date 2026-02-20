@@ -10,6 +10,7 @@ import {
   UseInterceptors,
   UploadedFile,
   Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CategoriesService } from './categories.service';
@@ -56,7 +57,7 @@ export class CategoriesController {
   }
 
   @Get('parent/:parentUuid/children')
-  findChildrenByParent(@Param('parentUuid') parentUuid: string) {
+  findChildrenByParent(@Param('parentUuid', ParseUUIDPipe) parentUuid: string) {
     return this.categoriesService.findChildrenByParentUuid(parentUuid);
   }
 
@@ -71,7 +72,7 @@ export class CategoriesController {
   }
 
   @Get(':uuid')
-  findOne(@Param('uuid') uuid: string) {
+  findOne(@Param('uuid', ParseUUIDPipe) uuid: string) {
     return this.categoriesService.findByUuid(uuid);
   }
 
@@ -80,7 +81,7 @@ export class CategoriesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @UseInterceptors(FileInterceptor('image'))
   update(
-    @Param('uuid') uuid: string,
+    @Param('uuid', ParseUUIDPipe) uuid: string,
     @Body() updateCategoryDto: UpdateCategoryDto,
     @UploadedFile() file: Express.Multer.File,
   ) {
@@ -91,7 +92,7 @@ export class CategoriesController {
   @Roles(UserRole.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
   setParent(
-    @Param('uuid') uuid: string,
+    @Param('uuid', ParseUUIDPipe) uuid: string,
     @Body('parentUuid') parentUuid: string | null,
   ) {
     return this.categoriesService.setParent(uuid, parentUuid);
@@ -100,7 +101,7 @@ export class CategoriesController {
   @Delete(':uuid')
   @Roles(UserRole.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  remove(@Param('uuid') uuid: string) {
+  remove(@Param('uuid', ParseUUIDPipe) uuid: string) {
     this.categoriesService.remove(uuid);
     return { message: 'Category deleted successfully' };
   }
@@ -110,7 +111,7 @@ export class CategoriesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @UseInterceptors(FileInterceptor('image'))
   async uploadImage(
-    @Param('uuid') uuid: string,
+    @Param('uuid', ParseUUIDPipe) uuid: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.categoriesService.uploadImage(uuid, file);
@@ -120,7 +121,7 @@ export class CategoriesController {
   @Roles(UserRole.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteImage(
-    @Param('uuid') uuid: string,
+    @Param('uuid', ParseUUIDPipe) uuid: string,
     @Query('confirm') confirm?: string,
   ) {
     const confirmed = confirm === 'true';

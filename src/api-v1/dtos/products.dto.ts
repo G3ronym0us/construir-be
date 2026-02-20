@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsArray,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 
 export class CreateProductForV1Dto {
@@ -56,8 +57,9 @@ export class CreateProductForV1Dto {
     example: 'Pinturas',
     type: String,
   })
+  @IsOptional()
   @IsString()
-  category: string;
+  category?: string;
 
   @ApiPropertyOptional({
     description: 'Descripción detallada del producto (soporta HTML)',
@@ -66,6 +68,7 @@ export class CreateProductForV1Dto {
     type: String,
   })
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   description?: string;
 

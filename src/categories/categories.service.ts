@@ -184,14 +184,38 @@ export class CategoriesService {
     return category;
   }
 
+  async findByExternalCode(externalCode: string): Promise<Category> {
+    const trimmed = externalCode.trim();
+    const category = await this.categoriesRepository.findOne({
+      where: { externalCode: trimmed },
+    });
+    if (!category) {
+      throw new NotFoundException(
+        `Category with external code "${trimmed}" not found`,
+      );
+    }
+    return category;
+  }
+
+  async updateByExternalCode(
+    externalCode: string,
+    dto: { name?: string; description?: string },
+  ): Promise<Category> {
+    const category = await this.findByExternalCode(externalCode);
+    if (dto.name !== undefined) category.name = dto.name;
+    if (dto.description !== undefined) category.description = dto.description;
+    return this.categoriesRepository.save(category);
+  }
+
   async findByNameOrCreate(name: string): Promise<Category> {
+    const trimmed = name.trim();
     const category = await this.categoriesRepository
       .createQueryBuilder('category')
-      .where('name ILIKE :name', { name })
+      .where('name ILIKE :name', { name: trimmed })
       .getOne();
     if (!category)
       return this.create(
-        { name, slug: name.trim().toLowerCase().replace(' ', '-') },
+        { name: trimmed, slug: trimmed.toLowerCase().replace(/\s+/g, '-') },
         undefined,
         true,
       );

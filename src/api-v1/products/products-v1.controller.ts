@@ -13,6 +13,7 @@ import {
   HttpStatus,
   UploadedFile,
   BadRequestException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -46,7 +47,7 @@ import {
   CreateProductForV1Dto,
   UpdateProductForV1Dto,
 } from '../dtos/products.dto';
-import { CategoriesService } from 'src/categories/categories.service';
+import { CategoriesService } from '../../categories/categories.service';
 
 @ApiTags('Products V1')
 @ApiSecurityAll()
@@ -146,7 +147,7 @@ export class ProductsV1Controller {
     description: 'Producto no encontrado',
   })
   @ApiStandardResponses()
-  async findByUuid(@Param('uuid') uuid: string) {
+  async findByUuid(@Param('uuid', ParseUUIDPipe) uuid: string) {
     return this.productsService.findByUuid(uuid);
   }
 
@@ -167,7 +168,7 @@ export class ProductsV1Controller {
     const categoryUuids: string[] = [];
 
     if (createDto.category) {
-      const category = await this.categoryService.findByNameOrCreate(
+      const category = await this.categoryService.findByExternalCode(
         createDto.category,
       );
       categoryUuids.push(category.uuid);
@@ -205,8 +206,8 @@ export class ProductsV1Controller {
     let categoryUuids: string[] | undefined = undefined;
 
     if (updateDto.category) {
-      // Obtener o crear la nueva categoría principal
-      const newMainCategory = await this.categoryService.findByNameOrCreate(
+      // Obtener la categoría por código externo (lanza 404 si no existe)
+      const newMainCategory = await this.categoryService.findByExternalCode(
         updateDto.category,
       );
 
