@@ -42,8 +42,8 @@ jobs:
             docker stop construir-be || true
             docker rm construir-be || true
 
-            echo "🧹 Cleaning up Docker resources..."
-            docker system prune -af
+            echo "🧹 Cleaning up dangling images..."
+            docker image prune -f
 
             echo "🔨 Building new image..."
             docker-compose build app
