@@ -60,7 +60,7 @@ export class ApiRequestLogsService {
         'log.errorMessage',
         'log.createdAt',
         'apiKey.uuid',
-        'apiKey.name',
+        'apiKey.description',
         'apiKey.consumerKey',
       ]);
 
