@@ -38,15 +38,14 @@ jobs:
             echo "📥 Pulling latest changes..."
             git pull origin main
 
-            echo "🛑 Stopping current container..."
-            docker stop construir-be || true
-            docker rm construir-be || true
+            echo "🛑 Stopping and removing all project containers (including orphans)..."
+            docker-compose down --remove-orphans || true
 
             echo "🧹 Cleaning up dangling images..."
             docker image prune -f
 
             echo "🔨 Building new image..."
-            docker-compose build --progress=plain app
+            docker-compose build app
 
             echo "🚀 Starting new container..."
             docker-compose up -d app
