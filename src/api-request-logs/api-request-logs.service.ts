@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 import { ApiRequestLog } from './api-request-log.entity';
 import { GetApiLogsDto } from './dto/get-api-logs.dto';
 
@@ -11,6 +13,7 @@ export class ApiRequestLogsService {
   constructor(
     @InjectRepository(ApiRequestLog)
     private apiRequestLogRepository: Repository<ApiRequestLog>,
+    private readonly httpService: HttpService,
   ) {}
 
   async create(data: Partial<ApiRequestLog>): Promise<ApiRequestLog | null> {
@@ -147,6 +150,56 @@ export class ApiRequestLogsService {
       avgResponseTime: parseFloat(summary.avgResponseTime) || 0,
       topPaths,
     };
+  }
+
+  async replay(uuid: string): Promise<{
+    statusCode: number;
+    body: any;
+    responseTime: number;
+  }> {
+    const log = await this.findOne(uuid);
+    if (!log) {
+      throw new NotFoundException(`Log with UUID ${uuid} not found`);
+    }
+
+    const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+    const consumerKey = process.env.REPLAY_CONSUMER_KEY;
+    const consumerSecret = process.env.REPLAY_CONSUMER_SECRET;
+    const url = `${appUrl}${log.path}`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (consumerKey && consumerSecret) {
+      headers['Authorization'] = `Bearer ${consumerKey}:${consumerSecret}`;
+    }
+
+    const startTime = Date.now();
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.request({
+          method: log.method,
+          url,
+          data: log.requestBody ?? undefined,
+          headers,
+          validateStatus: () => true, // no lanzar error en 4xx/5xx
+        }),
+      );
+
+      return {
+        statusCode: response.status,
+        body: response.data,
+        responseTime: Date.now() - startTime,
+      };
+    } catch (error) {
+      return {
+        statusCode: 500,
+        body: { error: error.message },
+        responseTime: Date.now() - startTime,
+      };
+    }
   }
 
   async deleteOldLogs(daysOld: number = 30): Promise<number> {

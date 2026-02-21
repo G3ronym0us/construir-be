@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Delete,
   Query,
   Param,
@@ -48,6 +49,14 @@ export class ApiLogsController {
       throw new NotFoundException(`Log with UUID ${uuid} not found`);
     }
     return log;
+  }
+
+  /**
+   * Replay a logged request (ADMIN only)
+   */
+  @Post(':uuid/replay')
+  async replay(@Param('uuid') uuid: string) {
+    return this.apiRequestLogsService.replay(uuid);
   }
 
   /**

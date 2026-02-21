@@ -1,4 +1,5 @@
 import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 
 export class CreateCategoryForV1Dto {
@@ -7,6 +8,7 @@ export class CreateCategoryForV1Dto {
     example: '20131',
   })
   @IsNotEmpty()
+  @Transform(({ value }) => (value ? value.trim() : value))
   @IsString()
   externalCode: string;
 
@@ -15,6 +17,7 @@ export class CreateCategoryForV1Dto {
     example: 'Aspiradoras',
   })
   @IsNotEmpty()
+  @Transform(({ value }) => (value ? value.trim() : value))
   @IsString()
   name: string;
 

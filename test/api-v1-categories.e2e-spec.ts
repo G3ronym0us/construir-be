@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { In, Repository } from 'typeorm';
@@ -31,6 +31,9 @@ describe('API v1 - Categories (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    );
     await app.init();
 
     apiKeyRepository = moduleFixture.get(getRepositoryToken(ApiKey));
@@ -207,6 +210,32 @@ describe('API v1 - Categories (e2e)', () => {
         categoryData.externalCode,
       );
       expect(typeof response.body.uuid).toBe('string');
+    });
+
+    it('should trim whitespace from name and externalCode and be findable by clean code', async () => {
+      const categoryData = {
+        name: 'TUBOS A.B POLIET-PVC          ',
+        externalCode: '10301     ',
+      };
+
+      const createResponse = await request(app.getHttpServer())
+        .post('/api/v1/categories')
+        .set(getBearerAuthHeaders(readWriteCredentials))
+        .send(categoryData)
+        .expect(201);
+
+      createdCategoryExternalCode = '10301';
+
+      expect(createResponse.body.name).toBe('TUBOS A.B POLIET-PVC');
+      expect(createResponse.body.externalCode).toBe('10301');
+
+      const findResponse = await request(app.getHttpServer())
+        .get('/api/v1/categories/10301')
+        .set(getBearerAuthHeaders(readWriteCredentials))
+        .expect(200);
+
+      expect(findResponse.body.name).toBe('TUBOS A.B POLIET-PVC');
+      expect(findResponse.body.externalCode).toBe('10301');
     });
 
     it('should reject create with READ-only permission', () => {
