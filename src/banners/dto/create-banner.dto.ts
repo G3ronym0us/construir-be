@@ -4,7 +4,6 @@ import {
   IsBoolean,
   IsNumber,
   IsDateString,
-  IsUrl,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -41,6 +40,6 @@ export class CreateBannerDto {
 
   @IsOptional()
   @Transform(({ value }) => (value === '' ? undefined : value))
-  @IsUrl()
+  @IsString()
   link?: string;
 }

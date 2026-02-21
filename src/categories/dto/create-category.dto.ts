@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 
 export class CreateCategoryDto {
   @IsNotEmpty()
+  @Transform(({ value }) => (value ? value.trim() : value))
   @IsString()
   name: string;
 
@@ -15,6 +16,7 @@ export class CreateCategoryDto {
   description?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (value ? value.trim() : value))
   @IsString()
   externalCode?: string;
 
