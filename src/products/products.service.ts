@@ -11,6 +11,7 @@ import { Category } from '../categories/category.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { S3Service } from './s3.service';
+import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 
 @Injectable()
 export class ProductsService {
@@ -22,6 +23,7 @@ export class ProductsService {
     @InjectRepository(Category)
     private categoriesRepository: Repository<Category>,
     private s3Service: S3Service,
+    private exchangeRatesService: ExchangeRatesService,
   ) {}
 
   async create(createProductDto: CreateProductDto): Promise<Product> {
@@ -35,6 +37,14 @@ export class ProductsService {
 
     const { categoryUuids, ...productData } = createProductDto;
     const product = this.productsRepository.create(productData);
+
+    // Calcular priceVes con la tasa de cambio actual
+    try {
+      const rate = await this.exchangeRatesService.getRate();
+      product.priceVes = Number((Number(product.price) * rate).toFixed(2));
+    } catch {
+      // Si no hay tasa de cambio disponible, dejar priceVes sin calcular
+    }
 
     if (categoryUuids && categoryUuids.length > 0) {
       const categories = await this.categoriesRepository.findBy({
@@ -170,6 +180,16 @@ export class ProductsService {
     const { categoryUuids, ...productData } = updateProductDto;
     Object.assign(product, productData);
 
+    // Recalcular priceVes si cambió el precio
+    if (updateProductDto.price !== undefined) {
+      try {
+        const rate = await this.exchangeRatesService.getRate();
+        product.priceVes = Number((Number(product.price) * rate).toFixed(2));
+      } catch {
+        // Si no hay tasa de cambio disponible, mantener priceVes existente
+      }
+    }
+
     if (categoryUuids && categoryUuids.length > 0) {
       const categories = await this.categoriesRepository.findBy({
         uuid: In(categoryUuids),
@@ -216,6 +236,16 @@ export class ProductsService {
 
     const { categoryUuids, ...productData } = updateProductDto;
     Object.assign(product, productData);
+
+    // Recalcular priceVes si cambió el precio
+    if (updateProductDto.price !== undefined) {
+      try {
+        const rate = await this.exchangeRatesService.getRate();
+        product.priceVes = Number((Number(product.price) * rate).toFixed(2));
+      } catch {
+        // Si no hay tasa de cambio disponible, mantener priceVes existente
+      }
+    }
 
     if (categoryUuids && categoryUuids.length > 0) {
       const categories = await this.categoriesRepository.findBy({

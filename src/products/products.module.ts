@@ -6,9 +6,13 @@ import { Product } from './product.entity';
 import { ProductImage } from './product-image.entity';
 import { Category } from '../categories/category.entity';
 import { S3Service } from './s3.service';
+import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Product, ProductImage, Category])],
+  imports: [
+    TypeOrmModule.forFeature([Product, ProductImage, Category]),
+    ExchangeRatesModule,
+  ],
   controllers: [ProductsController],
   providers: [ProductsService, S3Service],
   exports: [ProductsService, S3Service],

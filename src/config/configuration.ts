@@ -23,6 +23,12 @@ export interface AwsConfig {
 export interface AppConfig {
   port: number;
   url: string;
+  storeName: string;
+  storeAddress: string;
+  storeCity: string;
+  storePhone: string;
+  storeHours: string;
+  storeMapUrl: string;
 }
 
 export interface EmailConfig {
@@ -67,6 +73,14 @@ export const appConfig = registerAs(
   (): AppConfig => ({
     port: parseInt(process.env.PORT || '3000', 10),
     url: process.env.APP_URL || 'http://localhost:3000',
+    storeName: process.env.STORE_NAME || 'Construir',
+    storeAddress: process.env.STORE_ADDRESS || 'Tu dirección de tienda aquí',
+    storeCity: process.env.STORE_CITY || 'Ciudad',
+    storePhone: process.env.STORE_PHONE || '0212-XXX-XXXX',
+    storeHours:
+      process.env.STORE_HOURS ||
+      'Lunes a Viernes: 8am - 6pm, Sábados: 9am - 2pm',
+    storeMapUrl: process.env.STORE_MAP_URL || '',
   }),
 );
 

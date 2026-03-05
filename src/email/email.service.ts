@@ -61,6 +61,8 @@ export class EmailService {
 
     const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
 
+    const isPickup = order.deliveryMethod === 'pickup';
+
     const html = template({
       customerName:
         order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
@@ -81,7 +83,18 @@ export class EmailService {
       tax: order.tax > 0 ? Number(order.tax).toFixed(2) : null,
       shipping: order.shipping > 0 ? Number(order.shipping).toFixed(2) : null,
       total: Number(order.total).toFixed(2),
-      shippingAddress: order.shippingAddress,
+      isPickup,
+      shippingAddress: isPickup ? null : order.shippingAddress,
+      store: isPickup
+        ? {
+            name: this.configService.get('app.storeName'),
+            address: this.configService.get('app.storeAddress'),
+            city: this.configService.get('app.storeCity'),
+            phone: this.configService.get('app.storePhone'),
+            hours: this.configService.get('app.storeHours'),
+            mapUrl: this.configService.get('app.storeMapUrl'),
+          }
+        : null,
       paymentMethod: this.translatePaymentMethod(order.paymentInfo.method),
       notes: order.notes,
       trackingUrl: `${appUrl}/orders/track/${order.orderNumber}`,
