@@ -50,6 +50,11 @@ lerna-debug.log*
 # public uploads (WordPress images - local only)
 /public
 
+# Claude Code
+.claude/
+.agents/
+skills-lock.json
+
 # Runtime data
 pids
 *.pid
