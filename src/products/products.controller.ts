@@ -34,8 +34,24 @@ export class ProductsController {
   }
 
   @Get()
-  findAll() {
-    return this.productsService.findAll();
+  findCatalog(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('categoryUuid') categoryUuid?: string,
+    @Query('featured') featured?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
+  ) {
+    return this.productsService.findCatalog(
+      page ? parseInt(page) : 1,
+      limit ? parseInt(limit) : 10,
+      search,
+      categoryUuid,
+      featured !== undefined ? featured === 'true' : undefined,
+      sortBy || 'createdAt',
+      sortOrder || 'DESC',
+    );
   }
 
   @Get('admin/paginated')

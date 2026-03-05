@@ -46,6 +46,7 @@ export class CategoriesService {
       where: [
         { name: createCategoryDto.name },
         { slug: createCategoryDto.slug },
+        { externalCode: createCategoryDto.externalCode }
       ],
     });
 

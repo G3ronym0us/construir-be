@@ -4,7 +4,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, MoreThan } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Product } from './product.entity';
 import { ProductImage } from './product-image.entity';
 import { Category } from '../categories/category.entity';
@@ -51,12 +51,55 @@ export class ProductsService {
     return await this.productsRepository.save(product);
   }
 
-  async findAll(): Promise<Product[]> {
-    return await this.productsRepository.find({
-      where: {
-        inventory: MoreThan(0),
-      },
-    });
+  async findCatalog(
+    page: number = 1,
+    limit: number = 10,
+    search?: string,
+    categoryUuid?: string,
+    featured?: boolean,
+    sortBy: string = 'createdAt',
+    sortOrder: 'ASC' | 'DESC' = 'DESC',
+  ): Promise<{
+    data: Product[];
+    total: number;
+    page: number;
+    lastPage: number;
+  }> {
+    const queryBuilder = this.productsRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.images', 'images')
+      .leftJoinAndSelect('product.categories', 'categories')
+      .andWhere('product.inventory > 0')
+      .andWhere('product.published = true');
+
+    if (search) {
+      queryBuilder.andWhere(
+        '(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    if (categoryUuid) {
+      queryBuilder.andWhere('categories.uuid = :categoryUuid', { categoryUuid });
+    }
+
+    if (featured !== undefined) {
+      queryBuilder.andWhere('product.featured = :featured', { featured });
+    }
+
+    queryBuilder.orderBy(`product.${sortBy}`, sortOrder);
+
+    const skip = (page - 1) * limit;
+    queryBuilder.skip(skip).take(limit);
+
+    const [data, total] = await queryBuilder.getManyAndCount();
+
+    return {
+      data,
+      total,
+      page,
+      lastPage: Math.ceil(total / limit),
+    };
   }
 
   async findOne(uuid: string): Promise<Product> {
