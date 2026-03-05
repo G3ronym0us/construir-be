@@ -65,34 +65,53 @@ export class ProductsService {
     page: number;
     lastPage: number;
   }> {
-    const queryBuilder = this.productsRepository
+    // Step 1: paginate IDs only (no joins) — avoids TypeORM leftJoinAndSelect + skip/take bug
+    // where LIMIT is applied to joined rows instead of root entities
+    const idsBuilder = this.productsRepository
       .createQueryBuilder('product')
-      .leftJoinAndSelect('product.images', 'images')
-      .leftJoinAndSelect('product.categories', 'categories')
+      .select('product.id')
       .andWhere('product.inventory > 0')
       .andWhere('product.published = true');
 
     if (search) {
-      queryBuilder.andWhere(
+      idsBuilder.andWhere(
         '(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
         { search: `%${search}%` },
       );
     }
 
     if (categoryUuid) {
-      queryBuilder.andWhere('categories.uuid = :categoryUuid', { categoryUuid });
+      idsBuilder
+        .leftJoin('product.categories', 'categories')
+        .andWhere('categories.uuid = :categoryUuid', { categoryUuid });
     }
 
     if (featured !== undefined) {
-      queryBuilder.andWhere('product.featured = :featured', { featured });
+      idsBuilder.andWhere('product.featured = :featured', { featured });
     }
 
-    queryBuilder.orderBy(`product.${sortBy}`, sortOrder);
+    idsBuilder.orderBy(`product.${sortBy}`, sortOrder);
 
     const skip = (page - 1) * limit;
-    queryBuilder.skip(skip).take(limit);
+    const total = await idsBuilder.getCount();
+    const productIds = await idsBuilder
+      .skip(skip)
+      .take(limit)
+      .getMany()
+      .then((products) => products.map((p) => p.id));
 
-    const [data, total] = await queryBuilder.getManyAndCount();
+    if (productIds.length === 0) {
+      return { data: [], total, page, lastPage: Math.ceil(total / limit) };
+    }
+
+    // Step 2: load full records with relations only for the paginated IDs
+    const data = await this.productsRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.images', 'images')
+      .leftJoinAndSelect('product.categories', 'categories')
+      .where('product.id IN (:...ids)', { ids: productIds })
+      .orderBy(`product.${sortBy}`, sortOrder)
+      .getMany();
 
     return {
       data,
@@ -303,47 +322,54 @@ export class ProductsService {
     page: number;
     lastPage: number;
   }> {
-    const queryBuilder = this.productsRepository
+    // Step 1: paginate IDs only (no joins) — avoids TypeORM leftJoinAndSelect + skip/take bug
+    const idsBuilder = this.productsRepository
       .createQueryBuilder('product')
-      .leftJoinAndSelect('product.images', 'images')
-      .leftJoinAndSelect('product.categories', 'categories');
+      .select('product.id');
 
-    // Filter out products without stock
-    queryBuilder.andWhere('product.inventory > 0');
-
-    // Search filter
     if (search) {
-      queryBuilder.andWhere(
+      idsBuilder.andWhere(
         '(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
         { search: `%${search}%` },
       );
     }
 
-    // Category filter by UUID
     if (categoryUuid) {
-      queryBuilder.andWhere('categories.uuid = :categoryUuid', {
-        categoryUuid,
-      });
+      idsBuilder
+        .leftJoin('product.categories', 'categories')
+        .andWhere('categories.uuid = :categoryUuid', { categoryUuid });
     }
 
-    // Published filter
     if (published !== undefined) {
-      queryBuilder.andWhere('product.published = :published', { published });
+      idsBuilder.andWhere('product.published = :published', { published });
     }
 
-    // Featured filter
     if (featured !== undefined) {
-      queryBuilder.andWhere('product.featured = :featured', { featured });
+      idsBuilder.andWhere('product.featured = :featured', { featured });
     }
 
-    // Sorting
-    queryBuilder.orderBy(`product.${sortBy}`, sortOrder);
+    idsBuilder.orderBy(`product.${sortBy}`, sortOrder);
 
-    // Pagination
     const skip = (page - 1) * limit;
-    queryBuilder.skip(skip).take(limit);
+    const total = await idsBuilder.getCount();
+    const productIds = await idsBuilder
+      .skip(skip)
+      .take(limit)
+      .getMany()
+      .then((products) => products.map((p) => p.id));
 
-    const [data, total] = await queryBuilder.getManyAndCount();
+    if (productIds.length === 0) {
+      return { data: [], total, page, lastPage: Math.ceil(total / limit) };
+    }
+
+    // Step 2: load full records with relations only for the paginated IDs
+    const data = await this.productsRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.images', 'images')
+      .leftJoinAndSelect('product.categories', 'categories')
+      .where('product.id IN (:...ids)', { ids: productIds })
+      .orderBy(`product.${sortBy}`, sortOrder)
+      .getMany();
 
     return {
       data,
