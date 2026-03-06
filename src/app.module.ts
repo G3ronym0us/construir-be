@@ -46,7 +46,9 @@ import {
         password: configService.get('database.password'),
         database: configService.get('database.database'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: true, // TODO: Cambiar a false y usar migraciones antes de producción
+        migrations: [__dirname + '/database/migrations/*{.ts,.js}'],
+        migrationsRun: true,
+        synchronize: false,
       }),
     }),
     UsersModule,

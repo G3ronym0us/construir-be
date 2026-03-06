@@ -47,6 +47,18 @@ jobs:
             echo "🔨 Building new image..."
             docker-compose build app
 
+            echo "🗄️ Running database migrations..."
+            docker-compose run --rm app node -e "
+              const { AppDataSource } = require('./dist/src/database/data-source');
+              AppDataSource.initialize()
+                .then(ds => ds.runMigrations())
+                .then(migrations => {
+                  console.log('Migrations run:', migrations.length ? migrations.map(m => m.name).join(', ') : 'none pending');
+                  process.exit(0);
+                })
+                .catch(e => { console.error('Migration failed:', e); process.exit(1); });
+            "
+
             echo "🚀 Starting new container..."
             docker-compose up -d app
 
