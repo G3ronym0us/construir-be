@@ -4,120 +4,100 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a NestJS backend application using TypeScript. The project follows the standard NestJS modular architecture with controllers, services, and modules.
+NestJS backend for a Venezuelan hardware/construction supply store (Construir). Handles product catalog, orders, customers, and exposes both an internal admin API and an external REST API (v1).
+
+## Key Commands
+
+```bash
+yarn start:dev           # Development mode with auto-reload
+yarn build               # Compile to dist/
+yarn test                # Run all unit tests
+yarn test -- --testPathPattern=products  # Run a single test file
+yarn lint                # ESLint with auto-fix
+```
+
+### Database Migrations (TypeORM)
+```bash
+yarn migration:generate -- src/database/migrations/MigrationName  # Generate from entity diff
+yarn migration:create -- src/database/migrations/MigrationName    # Create blank migration
+yarn migration:run       # Apply pending migrations
+yarn migration:revert    # Rollback last migration
+yarn migration:show      # List migration status
+```
+
+`synchronize: false` is enforced — always use explicit migrations. The data source config is at `src/database/data-source.ts`.
+
+### Utility Scripts
+```bash
+yarn update-image-urls        # Migrate WordPress image URLs to local
+yarn init-exchange-rate       # Seed initial USD/VES exchange rate
+yarn export-postman           # Generate Postman collection from Swagger
+yarn check-missing-images     # Find products with missing image files
+yarn migrate-images-s3        # Upload local images to S3
+yarn reset-admin-password     # Reset admin user password
+```
 
 ## Architecture
 
-- **Framework**: NestJS v11 with Express
-- **Language**: TypeScript (target ES2023)
-- **Package Manager**: Yarn
-- **Testing**: Jest for unit tests, Supertest for e2e tests
-- **Code Quality**: ESLint with TypeScript support, Prettier for formatting
+### Dual API Surface
 
-### Application Structure
+The app exposes two distinct API surfaces:
 
-- Entry point: `src/main.ts` - bootstraps NestJS application on port 3000 (or PORT env var)
-- Root module: `src/app.module.ts` - imports all feature modules, controllers, and providers
-- Follow NestJS conventions: modules import and organize controllers and providers
-- Controllers handle HTTP requests, services contain business logic
+1. **Internal admin API** (`src/auth/`, `src/users/`, `src/products/`, etc.) — JWT-authenticated, used by the admin frontend. Routes use `@UseGuards(JwtAuthGuard)`.
 
-## Development Commands
+2. **External public API v1** (`src/api-v1/`) — API-key authenticated, documented with Swagger at `/api-docs`. Uses `ApiKeyGuard` with permission levels (`READ`, `WRITE`, `READ_WRITE`). Interceptors automatically fire webhooks (`WebhookInterceptor`) and inject pagination `Link` headers (`PaginationLinkInterceptor`).
 
-### Installation
-```bash
-yarn install
+### Feature Modules
+
+| Module | Purpose |
+|--------|---------|
+| `auth` | JWT auth, login, JwtStrategy |
+| `users` | Admin users with roles (ADMIN, ORDER_ADMIN) |
+| `products` | Product catalog with images, SKU/UUID lookup, S3 upload |
+| `categories` | Hierarchical categories with `externalCode` for v1 API mapping |
+| `orders` | Orders with items, shipping, payment info, status tracking |
+| `customers` | Registered customers (separate from guest orders) |
+| `exchange-rates` | USD/VES rate via BCV scraping, scheduled auto-update |
+| `discounts` | Discount codes |
+| `banners` | Homepage banners |
+| `banks` | Venezuelan bank accounts for payment info |
+| `api-keys` | API key management with permission levels |
+| `webhooks` | Webhook subscriptions, fired by `@TriggerWebhook()` decorator |
+| `api-request-logs` | Logs all v1 API requests via `ApiLoggingInterceptor` |
+| `analytics` | Order/sales analytics |
+| `cart` | Shopping cart |
+| `email` | Transactional emails via Handlebars templates + nodemailer |
+
+### Exchange Rate System
+
+`BCVService` scrapes the BCV (Banco Central de Venezuela) for the official USD/VES rate. `ExchangeRateTasksService` runs a scheduled job to keep it updated. Products store prices in USD; the API returns calculated VES prices.
+
+### Webhook System
+
+Use `@TriggerWebhook(WebhookEvent.PRODUCT_CREATED)` on v1 controller methods. The `WebhookInterceptor` catches the response and fires registered webhook URLs asynchronously.
+
+### Configuration
+
+All config in `src/config/configuration.ts` via `@nestjs/config`. Required env vars:
+
 ```
-
-### Running the Application
-```bash
-yarn start           # Standard mode
-yarn start:dev       # Watch mode (auto-reload on changes)
-yarn start:debug     # Debug mode with watch
-yarn start:prod      # Production mode (requires build)
+DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, DB_DATABASE
+JWT_SECRET, JWT_EXPIRES_IN
+AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_S3_BUCKET_NAME
+APP_URL, STORE_NAME, STORE_ADDRESS, STORE_CITY, STORE_PHONE, STORE_HOURS, STORE_MAP_URL
+EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_FROM
 ```
-
-### Building
-```bash
-yarn build           # Compiles to dist/ directory
-```
-
-### Testing
-```bash
-yarn test            # Run all unit tests
-yarn test:watch      # Run tests in watch mode
-yarn test:cov        # Run tests with coverage report
-yarn test:debug      # Run tests in debug mode
-yarn test:e2e        # Run end-to-end tests
-```
-
-### Code Quality
-```bash
-yarn lint            # Run ESLint with auto-fix
-yarn format          # Format code with Prettier
-```
-
-## Code Standards
-
-- TypeScript with strict null checks enabled
-- Use decorators for NestJS components (@Controller, @Injectable, @Module, etc.)
-- ESLint configured with TypeScript-specific rules
-- Prettier formatting enforced
-- Test files use `.spec.ts` suffix for unit tests, `.e2e-spec.ts` for e2e tests
-- Jest configuration in package.json with rootDir set to `src/` for unit tests
 
 ## Static Files - Product Images
 
-### Current Setup (Provisional)
+Images are served from `public/uploads/` (excluded from git, ~860MB).
 
-The project serves product images locally from the `public/uploads/` directory.
-
-**Image URLs:**
 - Old WordPress URL: `http://54.236.97.190/wp-content/uploads/YYYY/MM/image.jpg`
-- New local URL: `http://localhost:3000/uploads/YYYY/MM/image.jpg` (absolute URL)
-- The script uses the `API_URL` environment variable or defaults to `http://localhost:3000`
+- Local URL: `http://localhost:3000/uploads/YYYY/MM/image.jpg`
+- Use `API_URL=http://your-domain.com yarn update-image-urls` to migrate URLs in DB
 
-**Configuration:**
-- Images are served statically via `app.useStaticAssets()` in `src/main.ts`
-- The `public/` directory is excluded from git (see `.gitignore`)
-- Images extracted from WordPress backup: `backup_2025-07-24-2015_Construir_ef759b415768-uploads*.zip`
+New image uploads go to S3 via `S3Service`. The `public/` directory is provisional — future images should use S3 only.
 
-**Directory Structure:**
-```
-public/
-└── uploads/
-    ├── 2021/
-    ├── 2022/
-    ├── 2023/
-    ├── 2024/
-    └── 2025/
-```
+## Swagger / API Docs
 
-### Migration Script
-
-To update image URLs in the database from WordPress to local:
-
-```bash
-yarn update-image-urls
-```
-
-This will:
-- Replace `http://54.236.97.190/wp-content/uploads/` with `http://localhost:3000/uploads/`
-- Update all ProductImage records
-- Show statistics of updated records
-- You can customize the API URL with: `API_URL=http://your-domain.com yarn update-image-urls`
-
-### Future Migration to AWS S3
-
-When ready to migrate to S3:
-
-1. Upload all images from `public/uploads/` to S3
-2. Update all `ProductImage` records in the database to point to S3 URLs
-3. Remove the static file serving configuration
-4. Use the existing S3Service for new image uploads
-
-**Note:** Do not commit the `public/` folder to the repository as it contains ~860MB of images.
-
-## Git Workflow
-
-- Remote: origin
-- Push all changes to origin
+Available at `/api-docs` in development. Config at `src/api-v1/common/swagger/swagger-config.ts`. Custom decorator helpers for common Swagger patterns are in `src/api-v1/common/decorators/api-documentation.decorator.ts`.
