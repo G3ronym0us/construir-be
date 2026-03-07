@@ -9,6 +9,8 @@ import {
   UseInterceptors,
   HttpCode,
   HttpStatus,
+  ParseIntPipe,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,11 +23,10 @@ import { OrdersService } from '../../orders/orders.service';
 import { ApiKeyGuard } from '../../api-keys/guards/api-key.guard';
 import { RequireApiKeyPermission } from '../../api-keys/decorators/api-key-permission.decorator';
 import { ApiKeyPermission } from '../../api-keys/api-key.entity';
-import { TriggerWebhook } from '../common/decorators/trigger-webhook.decorator';
 import { WebhookInterceptor } from '../common/interceptors/webhook.interceptor';
 import { PaginationLinkInterceptor } from '../common/interceptors/pagination-link.interceptor';
-import { WebhookEvent } from '../../webhooks/webhook.entity';
-import { UpdateOrderStatusDto } from '../../orders/dto/update-order-status.dto';
+import { AcknowledgeOrderDto } from '../../orders/dto/acknowledge-order.dto';
+import { UpdateOrderExternalDto } from '../../orders/dto/update-order-external.dto';
 import {
   ApiSecurityAll,
   ApiPaginatedQuery,
@@ -92,6 +93,47 @@ export class OrdersV1Controller {
     };
   }
 
+  @Get('on-hold')
+  @RequireApiKeyPermission(ApiKeyPermission.READ)
+  @ApiOperation({
+    summary: 'Listar órdenes en espera (on-hold)',
+    description:
+      'Retorna un listado paginado de órdenes en estado on-hold con el formato de integración externa.',
+  })
+  @ApiPaginatedQuery()
+  @ApiOkResponse({
+    description: 'Listado de órdenes pendientes obtenido exitosamente',
+    schema: {
+      type: 'object',
+      properties: {
+        data: { type: 'array', items: { type: 'object' } },
+        total: { type: 'number', example: 50 },
+        page: { type: 'number', example: 1 },
+        perPage: { type: 'number', example: 10 },
+        lastPage: { type: 'number', example: 5 },
+      },
+    },
+  })
+  @ApiAuthResponses()
+  @ApiStandardResponses()
+  async findPending(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('perPage', new DefaultValuePipe(10), ParseIntPipe) perPage: number,
+  ) {
+    const all = await this.ordersService.getPendingOrders();
+    const total = all.length;
+    const lastPage = Math.ceil(total / perPage) || 1;
+    const start = (page - 1) * perPage;
+
+    return {
+      data: all.slice(start, start + perPage),
+      total,
+      page,
+      perPage,
+      lastPage,
+    };
+  }
+
   @Get(':uuid')
   @RequireApiKeyPermission(ApiKeyPermission.READ)
   @ApiOperation({
@@ -117,33 +159,54 @@ export class OrdersV1Controller {
     return this.ordersService.findOneByUuid(uuid);
   }
 
-  @Put(':uuid')
+  @Put(':id/acknowledge')
   @RequireApiKeyPermission(ApiKeyPermission.WRITE)
-  @TriggerWebhook(WebhookEvent.ORDER_UPDATED)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Actualizar estado de orden',
+    summary: 'Confirmar recepción de orden por sistema externo',
     description:
-      'Actualiza el estado de la orden y/o el estado del pago. Requiere permiso WRITE o READ_WRITE. Dispara webhook order.updated.',
+      'Registra el order_key del sistema externo y cambia el estado de on-hold a pending.',
   })
   @ApiParam({
-    name: 'uuid',
-    description: 'UUID de la orden a actualizar',
-    example: 'b2c3d4e5-f6a7-8901-bcde-234567890abc',
-    type: String,
+    name: 'id',
+    description: 'ID numérico de la orden',
+    type: Number,
   })
-  @ApiOkResponse({
-    description: 'Estado de la orden actualizado exitosamente',
-  })
+  @ApiOkResponse({ description: 'Orden actualizada exitosamente' })
   @ApiWritePermissionResponses()
-  @ApiNotFoundResponse({
-    description: 'Orden no encontrada',
-  })
+  @ApiNotFoundResponse({ description: 'Orden no encontrada' })
   @ApiStandardResponses()
-  async updateStatus(
-    @Param('uuid') uuid: string,
-    @Body() updateStatusDto: UpdateOrderStatusDto,
+  async acknowledge(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AcknowledgeOrderDto,
   ) {
-    return this.ordersService.updateOrderStatus(uuid, updateStatusDto);
+    return this.ordersService.acknowledgeOrder(id, dto.order_key);
+  }
+
+  @Put(':id')
+  @RequireApiKeyPermission(ApiKeyPermission.WRITE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Actualizar orden desde sistema externo (OrbisNet): completar o anular',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID numérico de la orden',
+    type: Number,
+  })
+  @ApiOkResponse({ description: 'Orden actualizada exitosamente' })
+  @ApiWritePermissionResponses()
+  @ApiNotFoundResponse({ description: 'Orden no encontrada' })
+  @ApiStandardResponses()
+  async updateByExternal(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateOrderExternalDto,
+  ) {
+    const date = new Date(dto.date_completed);
+    if (dto.status === 'completed') {
+      return this.ordersService.completeOrder(id, dto.order_key!, date);
+    }
+    return this.ordersService.cancelPendingOrder(id, date);
   }
 }

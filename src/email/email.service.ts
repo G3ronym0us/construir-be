@@ -199,7 +199,8 @@ export class EmailService {
 
   private translateStatus(status: string): string {
     const statusMap = {
-      pending: 'Pendiente',
+      'on-hold': 'Pendiente',
+      pending: 'En proceso (sistema externo)',
       payment_review: 'Pago en Revisión',
       confirmed: 'Confirmada',
       processing: 'Procesando',

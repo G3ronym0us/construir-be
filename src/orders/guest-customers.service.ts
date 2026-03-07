@@ -86,6 +86,13 @@ export class GuestCustomersService {
   }
 
   /**
+   * Busca un cliente guest por su email
+   */
+  async findByEmail(email: string): Promise<GuestCustomer | null> {
+    return this.guestCustomerRepository.findOne({ where: { email } });
+  }
+
+  /**
    * Obtiene todos los clientes guest para campañas de marketing
    */
   async findAll(limit = 100, offset = 0): Promise<GuestCustomer[]> {

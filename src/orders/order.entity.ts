@@ -17,12 +17,14 @@ import { PaymentInfo } from './payment-info.entity';
 import { Discount } from '../discounts/discount.entity';
 
 export enum OrderStatus {
-  PENDING = 'pending', // Orden creada, esperando confirmación de pago
+  ON_HOLD = 'on-hold', // Orden creada, esperando confirmación de pago
+  PENDING = 'pending', // Creada en sistema externo, sin completar
   PAYMENT_REVIEW = 'payment_review', // Pago en revisión
   CONFIRMED = 'confirmed', // Pago confirmado
   PROCESSING = 'processing', // Orden siendo procesada
   SHIPPED = 'shipped', // Orden enviada
   DELIVERED = 'delivered', // Orden entregada
+  COMPLETED = 'completed', // Orden completada (facturada en sistema externo)
   CANCELLED = 'cancelled', // Orden cancelada
   REFUNDED = 'refunded', // Orden reembolsada
 }
@@ -81,7 +83,7 @@ export class Order {
   @Column({
     type: 'enum',
     enum: OrderStatus,
-    default: OrderStatus.PENDING,
+    default: OrderStatus.ON_HOLD,
   })
   status: OrderStatus;
 
@@ -150,6 +152,12 @@ export class Order {
     nullable: true,
   })
   totalVes: number | null;
+
+  @Column({ name: 'order_key', type: 'varchar', nullable: true })
+  orderKey: string | null;
+
+  @Column({ name: 'date_completed', type: 'timestamptz', nullable: true })
+  dateCompleted: Date | null;
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;

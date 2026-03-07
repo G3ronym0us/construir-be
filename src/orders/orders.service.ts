@@ -280,7 +280,7 @@ export class OrdersService {
     order.deliveryMethod = createOrderDto.deliveryMethod;
     order.shippingAddressId = shippingAddress?.id || null;
     order.paymentInfoId = paymentInfo.id;
-    order.status = OrderStatus.PENDING;
+    order.status = OrderStatus.ON_HOLD;
     order.subtotal = subtotal;
     order.tax = tax;
     order.shipping = shippingCost;
@@ -529,7 +529,7 @@ export class OrdersService {
     const order = await this.findOneByUuid(uuid, userId);
 
     if (
-      order.status !== OrderStatus.PENDING &&
+      order.status !== OrderStatus.ON_HOLD &&
       order.status !== OrderStatus.PAYMENT_REVIEW
     ) {
       throw new BadRequestException('Only pending orders can be cancelled');
@@ -560,7 +560,7 @@ export class OrdersService {
       deliveredOrders,
     ] = await Promise.all([
       this.orderRepository.count(),
-      this.orderRepository.count({ where: { status: OrderStatus.PENDING } }),
+      this.orderRepository.count({ where: { status: OrderStatus.ON_HOLD } }),
       this.orderRepository.count({ where: { status: OrderStatus.CONFIRMED } }),
       this.orderRepository.count({ where: { status: OrderStatus.SHIPPED } }),
       this.orderRepository.count({ where: { status: OrderStatus.DELIVERED } }),
@@ -892,7 +892,7 @@ export class OrdersService {
       );
     }
 
-    query.andWhere('order.status != :status', { status: OrderStatus.PENDING });
+    query.andWhere('order.status != :status', { status: OrderStatus.ON_HOLD });
 
     const total = await query.getCount();
 
@@ -909,6 +909,162 @@ export class OrdersService {
     const orders = await query.getMany();
 
     return { orders, total };
+  }
+
+  /**
+   * Registra el order_key del sistema externo y avanza el estado on-hold → pending
+   */
+  async acknowledgeOrder(id: number, orderKey: string): Promise<Order> {
+    const order = await this.orderRepository.findOne({ where: { id } });
+
+    if (!order) {
+      throw new NotFoundException(`Order with id ${id} not found`);
+    }
+
+    if (order.status !== OrderStatus.ON_HOLD) {
+      throw new BadRequestException(
+        `Only on-hold orders can be acknowledged. Current status: ${order.status}`,
+      );
+    }
+
+    order.orderKey = orderKey;
+    order.status = OrderStatus.PENDING;
+
+    return this.orderRepository.save(order);
+  }
+
+  /**
+   * Factura la orden (pending → completed) con el key de la factura OrbisNet
+   */
+  async completeOrder(
+    id: number,
+    orderKey: string,
+    dateCompleted: Date,
+  ): Promise<Order> {
+    const order = await this.orderRepository.findOne({ where: { id } });
+
+    if (!order) {
+      throw new NotFoundException(`Order with id ${id} not found`);
+    }
+
+    if (order.status !== OrderStatus.PENDING) {
+      throw new BadRequestException(
+        `Only pending orders can be completed. Current status: ${order.status}`,
+      );
+    }
+
+    order.orderKey = orderKey;
+    order.status = OrderStatus.COMPLETED;
+    order.dateCompleted = dateCompleted;
+
+    return this.orderRepository.save(order);
+  }
+
+  /**
+   * Anula una orden pendiente (pending → cancelled) restaurando el inventario
+   */
+  async cancelPendingOrder(id: number, dateCompleted: Date): Promise<Order> {
+    const order = await this.orderRepository.findOne({ where: { id } });
+
+    if (!order) {
+      throw new NotFoundException(`Order with id ${id} not found`);
+    }
+
+    if (order.status !== OrderStatus.PENDING) {
+      throw new BadRequestException(
+        `Only pending orders can be cancelled by external system. Current status: ${order.status}`,
+      );
+    }
+
+    for (const item of order.items) {
+      await this.productRepository.increment(
+        { id: item.productId },
+        'inventory',
+        item.quantity,
+      );
+    }
+
+    order.status = OrderStatus.CANCELLED;
+    order.dateCompleted = dateCompleted;
+
+    return this.orderRepository.save(order);
+  }
+
+  /**
+   * Retorna órdenes en estado on-hold con el formato de integración externa
+   */
+  async getPendingOrders(): Promise<any[]> {
+    const orders = await this.orderRepository.find({
+      where: { status: OrderStatus.ON_HOLD },
+      relations: [
+        'items',
+        'items.product',
+        'shippingAddress',
+        'paymentInfo',
+        'user',
+      ],
+      order: { createdAt: 'DESC' },
+    });
+
+    const deliveryMethodTitles = {
+      [DeliveryMethod.PICKUP]: 'Entrega y/o recogida en el local',
+      [DeliveryMethod.DELIVERY]: 'Envío a domicilio',
+    };
+
+    return Promise.all(
+      orders.map(async (order) => {
+        let firstName: string | null = null;
+        let lastName: string | null = null;
+        let email: string | null = null;
+
+        if (order.user) {
+          firstName = order.user.firstName;
+          lastName = order.user.lastName;
+          email = order.user.email;
+        } else if (order.guestEmail) {
+          const guest = await this.guestCustomersService.findByEmail(
+            order.guestEmail,
+          );
+          firstName = guest?.firstName ?? null;
+          lastName = guest?.lastName ?? null;
+          email = order.guestEmail;
+        }
+
+        const addr = order.shippingAddress;
+
+        return {
+          id: order.id,
+          status: order.status,
+          date_created: order.createdAt.toISOString().slice(0, 19),
+          total: Number(order.total).toFixed(2),
+          total_tax: Number(order.tax).toFixed(2),
+          billing: {
+            first_name: firstName,
+            last_name: lastName,
+            company: null,
+            address_1: addr?.address ?? null,
+            address_2: null,
+            city: addr?.city ?? null,
+            email,
+            phone: addr?.phone ?? null,
+          },
+          payment_method_title: deliveryMethodTitles[order.deliveryMethod],
+          customer_note: order.notes,
+          number: String(order.id),
+          line_items: order.items.map((item) => ({
+            id: item.id,
+            name: item.productName,
+            product_id: item.product?.id ?? 0,
+            quantity: item.quantity,
+            tax_class: '',
+            total: Number(item.subtotal).toFixed(2),
+            total_tax: '0',
+            sku: item.productSku ?? null,
+            price: Number(item.price),
+          })),
+        };
+      }),
+    );
   }
 
   /**
