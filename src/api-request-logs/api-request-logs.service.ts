@@ -126,7 +126,10 @@ export class ApiRequestLogsService {
     const summary = await this.apiRequestLogRepository
       .createQueryBuilder('log')
       .select('COUNT(*)', 'totalRequests')
-      .addSelect('SUM(CASE WHEN log.isError = true THEN 1 ELSE 0 END)', 'totalErrors')
+      .addSelect(
+        'SUM(CASE WHEN log.isError = true THEN 1 ELSE 0 END)',
+        'totalErrors',
+      )
       .addSelect('AVG(log.responseTime)', 'avgResponseTime')
       .getRawOne();
 
