@@ -120,18 +120,7 @@ export class OrdersV1Controller {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('perPage', new DefaultValuePipe(10), ParseIntPipe) perPage: number,
   ) {
-    const all = await this.ordersService.getPendingOrders();
-    const total = all.length;
-    const lastPage = Math.ceil(total / perPage) || 1;
-    const start = (page - 1) * perPage;
-
-    return {
-      data: all.slice(start, start + perPage),
-      total,
-      page,
-      perPage,
-      lastPage,
-    };
+    return this.ordersService.getPendingOrders(page, perPage);
   }
 
   @Get(':uuid')

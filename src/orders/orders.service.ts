@@ -993,25 +993,30 @@ export class OrdersService {
   /**
    * Retorna órdenes en estado on-hold con el formato de integración externa
    */
-  async getPendingOrders(): Promise<any[]> {
-    const orders = await this.orderRepository.find({
-      where: { status: OrderStatus.ON_HOLD },
-      relations: [
-        'items',
-        'items.product',
-        'shippingAddress',
-        'paymentInfo',
-        'user',
-      ],
-      order: { createdAt: 'DESC' },
-    });
+  async getPendingOrders(
+    page: number = 1,
+    perPage: number = 10,
+  ): Promise<{ data: any[]; total: number; page: number; perPage: number; lastPage: number }> {
+    const [orders, total] = await this.orderRepository
+      .createQueryBuilder('order')
+      .innerJoin('order.items', 'itemCheck')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('items.product', 'product')
+      .leftJoinAndSelect('order.shippingAddress', 'shippingAddress')
+      .leftJoinAndSelect('order.paymentInfo', 'paymentInfo')
+      .leftJoinAndSelect('order.user', 'user')
+      .where('order.status = :status', { status: OrderStatus.ON_HOLD })
+      .orderBy('order.createdAt', 'DESC')
+      .skip((page - 1) * perPage)
+      .take(perPage)
+      .getManyAndCount();
 
     const deliveryMethodTitles = {
       [DeliveryMethod.PICKUP]: 'Entrega y/o recogida en el local',
       [DeliveryMethod.DELIVERY]: 'Envío a domicilio',
     };
 
-    return Promise.all(
+    const data = await Promise.all(
       orders.map(async (order) => {
         let firstName: string | null = null;
         let lastName: string | null = null;
@@ -1043,7 +1048,10 @@ export class OrdersService {
             last_name: lastName,
             company: null,
             address_1: addr?.address ?? null,
-            address_2: null,
+            identification:
+              addr?.identificationType && addr?.identificationNumber
+                ? `${addr.identificationType}-${addr.identificationNumber}`
+                : null,
             city: addr?.city ?? null,
             email,
             phone: addr?.phone ?? null,
@@ -1065,6 +1073,14 @@ export class OrdersService {
         };
       }),
     );
+
+    return {
+      data,
+      total,
+      page,
+      perPage,
+      lastPage: Math.ceil(total / perPage) || 1,
+    };
   }
 
   /**
