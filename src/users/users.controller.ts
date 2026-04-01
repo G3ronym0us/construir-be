@@ -12,6 +12,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { InvitationsService } from './invitations.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { CreateUserAdminDto } from './dto/create-user-admin.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -20,6 +21,9 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GetUsersDto } from './dto/get-users.dto';
+import { SendInvitationDto } from './dto/send-invitation.dto';
+import { CompleteInvitationDto } from './dto/complete-invitation.dto';
+import { GetInvitationsDto } from './dto/get-invitations.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { PreventSelfRoleChangeGuard } from '../auth/guards/prevent-self-role-change.guard';
@@ -28,7 +32,10 @@ import { UserRole } from './user.entity';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly invitationsService: InvitationsService,
+  ) {}
 
   // ==================== PUBLIC ENDPOINTS ====================
 
@@ -195,6 +202,79 @@ export class UsersController {
       message: 'User deleted successfully',
       uuid: user.uuid,
     };
+  }
+
+  // ==================== INVITATION ENDPOINTS ====================
+
+  /**
+   * Send invitation email (ADMIN only)
+   */
+  @Post('admin/invite')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async sendInvitation(
+    @Body() dto: SendInvitationDto,
+    @Request() req,
+  ) {
+    const invitation = await this.invitationsService.createInvitation(
+      dto,
+      req.user.id,
+    );
+    return {
+      uuid: invitation.uuid,
+      email: invitation.email,
+      role: invitation.role,
+      firstName: invitation.firstName,
+      lastName: invitation.lastName,
+      expiresAt: invitation.expiresAt,
+      createdAt: invitation.createdAt,
+    };
+  }
+
+  /**
+   * List invitations with filters (ADMIN only)
+   */
+  @Get('admin/invitations')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async listInvitations(@Query() dto: GetInvitationsDto) {
+    return await this.invitationsService.listInvitations(dto);
+  }
+
+  /**
+   * Revoke a pending invitation (ADMIN only)
+   */
+  @Delete('admin/invitations/:uuid')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async revokeInvitation(@Param('uuid') uuid: string) {
+    await this.invitationsService.revokeInvitation(uuid);
+    return { message: 'Invitación revocada exitosamente' };
+  }
+
+  /**
+   * Validate invitation token (public)
+   */
+  @Get('invitation/:token')
+  async validateInvitation(@Param('token') token: string) {
+    const invitation = await this.invitationsService.validateToken(token);
+    return {
+      email: invitation.email,
+      firstName: invitation.firstName,
+      lastName: invitation.lastName,
+      role: invitation.role,
+      expiresAt: invitation.expiresAt,
+    };
+  }
+
+  /**
+   * Complete registration via invitation (public)
+   */
+  @Post('register/invitation')
+  async completeInvitation(@Body() dto: CompleteInvitationDto) {
+    const user = await this.invitationsService.completeRegistration(dto);
+    const { password, ...result } = user;
+    return result;
   }
 
   // ==================== ORDER_ADMIN READ-ONLY ACCESS ====================

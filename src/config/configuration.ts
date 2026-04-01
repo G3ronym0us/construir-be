@@ -23,6 +23,7 @@ export interface AwsConfig {
 export interface AppConfig {
   port: number;
   url: string;
+  frontendUrl: string;
   storeName: string;
   storeAddress: string;
   storeCity: string;
@@ -73,6 +74,7 @@ export const appConfig = registerAs(
   (): AppConfig => ({
     port: parseInt(process.env.PORT || '3000', 10),
     url: process.env.APP_URL || 'http://localhost:3000',
+    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:4000',
     storeName: process.env.STORE_NAME || 'Construir',
     storeAddress: process.env.STORE_ADDRESS || 'Tu dirección de tienda aquí',
     storeCity: process.env.STORE_CITY || 'Ciudad',

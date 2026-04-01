@@ -197,6 +197,32 @@ export class EmailService {
     );
   }
 
+  async sendInvitationEmail(params: {
+    to: string;
+    inviteUrl: string;
+    firstName?: string;
+    role: string;
+    expiresAtFormatted: string;
+    storeName: string;
+  }): Promise<void> {
+    const templateSource = await this.loadTemplate('invitation');
+    const template = handlebars.compile(templateSource);
+
+    const html = template({
+      firstName: params.firstName,
+      inviteUrl: params.inviteUrl,
+      role: params.role,
+      expiresAtFormatted: params.expiresAtFormatted,
+      storeName: params.storeName,
+    });
+
+    await this.sendEmail(
+      params.to,
+      `Invitación para unirte a ${params.storeName}`,
+      html,
+    );
+  }
+
   private translateStatus(status: string): string {
     const statusMap = {
       'on-hold': 'Pendiente',

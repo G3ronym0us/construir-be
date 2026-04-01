@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invitación a {{storeName}}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #1a1a1a;
+            background-color: #e8e8e8;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background-color: #3a9e3e;
+            color: #ffffff;
+            padding: 28px 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .content {
+            background-color: #f2f2f2;
+            padding: 24px;
+            border: 1px solid #cccccc;
+        }
+
+        .content > p {
+            color: #1a1a1a;
+            margin: 0 0 16px;
+        }
+
+        .info-box {
+            background-color: #ffffff;
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .info-box p {
+            margin: 6px 0;
+            color: #333333;
+        }
+
+        .button-wrap {
+            text-align: center;
+            margin: 24px 0 8px;
+        }
+
+        .button {
+            display: inline-block;
+            padding: 13px 32px;
+            background-color: #3a9e3e;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 15px;
+        }
+
+        .disclaimer {
+            color: #888888;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #777777;
+            font-size: 13px;
+            background-color: #e0e0e0;
+            border-radius: 0 0 8px 8px;
+            border: 1px solid #cccccc;
+            border-top: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="header">
+            <h1>Has sido invitado a {{storeName}}</h1>
+        </div>
+
+        <div class="content">
+            {{#if firstName}}
+            <p>Hola {{firstName}},</p>
+            {{else}}
+            <p>Hola,</p>
+            {{/if}}
+
+            <p>Has recibido una invitación para crear tu cuenta en <strong>{{storeName}}</strong>.</p>
+
+            <div class="info-box">
+                <p><strong>Rol asignado:</strong> {{role}}</p>
+                <p><strong>Válido hasta:</strong> {{expiresAtFormatted}}</p>
+            </div>
+
+            <p>Haz clic en el botón para completar tu registro:</p>
+
+            <div class="button-wrap">
+                <a href="{{inviteUrl}}" class="button">Completar Registro</a>
+            </div>
+
+            <p class="disclaimer">
+                Si no puedes hacer clic en el botón, copia y pega el siguiente enlace en tu navegador:<br>
+                <a href="{{inviteUrl}}">{{inviteUrl}}</a>
+            </p>
+
+            <p class="disclaimer">
+                Si no esperabas esta invitación, puedes ignorar este correo de forma segura.
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
+            <p>© {{storeName}}</p>
+        </div>
+    </div>
+</body>
+</html>
