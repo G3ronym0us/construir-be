@@ -20,6 +20,17 @@ export class CreateProductForV1Dto {
   @IsString()
   name: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Nombre personalizado del producto. Tiene mayor prioridad que el nombre original en el frontend.',
+    example: 'Martillo 16oz',
+    type: String,
+    maxLength: 255,
+  })
+  @IsOptional()
+  @IsString()
+  customName?: string;
+
   @ApiProperty({
     description: 'SKU único del producto',
     example: 'MART-001',

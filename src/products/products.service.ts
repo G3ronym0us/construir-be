@@ -85,7 +85,7 @@ export class ProductsService {
 
     if (search) {
       idsBuilder.andWhere(
-        '(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
+        '(product.name ILIKE :search OR product.custom_name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
         { search: `%${search}%` },
       );
     }
@@ -359,7 +359,7 @@ export class ProductsService {
 
     if (search) {
       idsBuilder.andWhere(
-        '(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
+        '(product.name ILIKE :search OR product.custom_name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
         { search: `%${search}%` },
       );
     }
@@ -439,7 +439,7 @@ export class ProductsService {
       .leftJoinAndSelect('product.images', 'images')
       .where('product.inventory > 0')
       .andWhere(
-        '(product.name ILIKE :query OR product.sku ILIKE :query OR product.barcode ILIKE :query)',
+        '(product.name ILIKE :query OR product.custom_name ILIKE :query OR product.sku ILIKE :query OR product.barcode ILIKE :query)',
         { query: `%${query}%` },
       )
       .take(20)

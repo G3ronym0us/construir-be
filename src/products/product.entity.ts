@@ -27,6 +27,9 @@ export class Product {
   @Column()
   name: string;
 
+  @Column({ name: 'custom_name', type: 'varchar', nullable: true })
+  customName: string | null;
+
   @Column({ unique: true })
   sku: string;
 
