@@ -84,6 +84,34 @@ export class CategoriesService {
     });
   }
 
+  async findAllPaginated(
+    page: number = 1,
+    limit: number = 20,
+    search?: string,
+  ): Promise<{
+    data: Category[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const qb = this.categoriesRepository
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .leftJoinAndSelect('category.childrens', 'childrens')
+      .orderBy('category.name', 'ASC');
+
+    if (search) {
+      qb.where('category.name ILIKE :search', { search: `%${search}%` });
+    }
+
+    const [data, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return { data, total, page, limit };
+  }
+
   async findAllVisible(): Promise<Category[]> {
     return await this.categoriesRepository.find({
       where: { visible: true },
@@ -230,6 +258,12 @@ export class CategoriesService {
   ): Promise<Category> {
     const category = await this.findByUuid(uuid);
     const oldImageUrl = category.image;
+
+    if (category.externalCode && updateCategoryDto.name !== undefined) {
+      throw new BadRequestException(
+        'El nombre de categorías sincronizadas desde el ERP no puede modificarse. Use customName para mostrar un nombre alternativo.',
+      );
+    }
 
     if (updateCategoryDto.name && updateCategoryDto.name !== category.name) {
       const existingCategory = await this.categoriesRepository.findOne({

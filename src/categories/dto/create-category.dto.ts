@@ -16,6 +16,10 @@ export class CreateCategoryDto {
   description?: string;
 
   @IsOptional()
+  @IsString()
+  customName?: string;
+
+  @IsOptional()
   @Transform(({ value }) => (value ? value.trim() : value))
   @IsString()
   externalCode?: string;

@@ -37,7 +37,18 @@ export class CategoriesController {
   }
 
   @Get()
-  findAll() {
+  findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    if (page || limit || search) {
+      return this.categoriesService.findAllPaginated(
+        page ? parseInt(page) : 1,
+        limit ? parseInt(limit) : 20,
+        search,
+      );
+    }
     return this.categoriesService.findAll();
   }
 

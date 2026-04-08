@@ -48,6 +48,9 @@ export class Category {
   @Column({ type: 'varchar', nullable: true })
   imageKey: string | null;
 
+  @Column({ name: 'custom_name', type: 'varchar', nullable: true })
+  customName: string | null;
+
   @Column({ type: 'boolean', default: false })
   isFeatured: boolean;
 
