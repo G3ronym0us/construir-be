@@ -11,7 +11,6 @@ import {
   UploadedFile,
   ParseIntPipe,
   Query,
-  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ProductsService } from './products.service';
@@ -157,16 +156,6 @@ export class ProductsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   async setPrimaryImage(@Param('imageUuid') imageUuid: string) {
     return this.productsService.setPrimaryImage(imageUuid);
-  }
-
-  @Patch(':uuid/inventory')
-  @Roles(UserRole.ADMIN)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  async updateInventory(
-    @Param('uuid', ParseUUIDPipe) uuid: string,
-    @Body('inventory') inventory: number,
-  ) {
-    return this.productsService.updateInventory(uuid, inventory);
   }
 
   @Patch('bulk/publish')

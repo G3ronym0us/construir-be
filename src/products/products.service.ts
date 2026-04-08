@@ -163,7 +163,7 @@ export class ProductsService {
 
   async updateBySku(
     sku: string,
-    updateProductDto: UpdateProductDto,
+    updateProductDto: UpdateProductDto & { price?: number; inventory?: number },
   ): Promise<Product> {
     const product = await this.findBySku(sku);
 
@@ -236,16 +236,6 @@ export class ProductsService {
 
     const { categoryUuids, ...productData } = updateProductDto;
     Object.assign(product, productData);
-
-    // Recalcular priceVes si cambió el precio
-    if (updateProductDto.price !== undefined) {
-      try {
-        const rate = await this.exchangeRatesService.getRate();
-        product.priceVes = Number((Number(product.price) * rate).toFixed(2));
-      } catch {
-        // Si no hay tasa de cambio disponible, mantener priceVes existente
-      }
-    }
 
     if (categoryUuids && categoryUuids.length > 0) {
       const categories = await this.categoriesRepository.findBy({
@@ -454,12 +444,6 @@ export class ProductsService {
       .andWhere('product.inventory > 0')
       .orderBy('product.inventory', 'ASC')
       .getMany();
-  }
-
-  async updateInventory(uuid: string, inventory: number): Promise<Product> {
-    const product = await this.findOne(uuid);
-    product.inventory = inventory;
-    return await this.productsRepository.save(product);
   }
 
   async bulkUpdatePublished(
