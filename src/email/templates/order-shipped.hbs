@@ -3,66 +3,129 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
     <title>Orden Enviada</title>
     <style>
+        :root { color-scheme: light dark; }
+
         body {
             font-family: Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
+            color: #1a1a1a;
+            background-color: #e8e8e8;
+            margin: 0;
             padding: 20px;
         }
+
+        .wrapper { max-width: 600px; margin: 0 auto; }
+
         .header {
-            background-color: #FF9800;
-            color: white;
-            padding: 20px;
+            background-color: #1e3a8a;
+            padding: 24px 20px;
             text-align: center;
-            border-radius: 5px 5px 0 0;
+            border-radius: 8px 8px 0 0;
         }
+
+        .header img { height: 44px; width: auto; display: block; margin: 0 auto; }
+
+        .header h1 {
+            margin: 12px 0 0;
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
         .content {
-            background-color: #f9f9f9;
-            padding: 20px;
-            border: 1px solid #ddd;
+            background-color: #f2f2f2;
+            padding: 24px;
+            border: 1px solid #cccccc;
         }
+
+        .content > p { color: #1a1a1a; margin: 0 0 16px; }
+
         .shipping-icon {
             text-align: center;
-            font-size: 60px;
-            margin: 20px 0;
+            font-size: 52px;
+            margin: 8px 0 20px;
         }
+
         .order-info {
-            background-color: white;
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 5px;
+            background-color: #ffffff;
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
         }
+
+        .order-info h3 {
+            margin: 0 0 12px;
+            font-size: 15px;
+            color: #1e3a8a;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 8px;
+        }
+
+        .order-info p { margin: 6px 0; color: #333333; }
+
+        .tracking-badge {
+            display: inline-block;
+            background-color: #eff6ff;
+            color: #1e40af;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 15px;
+            border: 1px solid #bfdbfe;
+        }
+
+        .button-wrap { text-align: center; margin: 20px 0 4px; }
+
         .button {
             display: inline-block;
-            padding: 12px 30px;
-            background-color: #FF9800;
-            color: white;
+            padding: 13px 32px;
+            background-color: #2563eb;
+            color: #ffffff !important;
             text-decoration: none;
-            border-radius: 5px;
-            margin: 15px 0;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 15px;
         }
+
         .footer {
             text-align: center;
             padding: 20px;
-            color: #777;
+            color: #777777;
             font-size: 12px;
+            background-color: #e8e8e8;
+            border-radius: 0 0 8px 8px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body { background-color: #121212 !important; color: #e8e8e8 !important; }
+            .wrapper { background-color: #121212; }
+            .header { background-color: #1e3a8a !important; }
+            .content { background-color: #1e1e1e !important; border-color: #333333 !important; }
+            .content > p { color: #e0e0e0 !important; }
+            .order-info { background-color: #2a2a2a !important; border-color: #3a3a3a !important; }
+            .order-info h3 { color: #93c5fd !important; border-color: #3a3a3a !important; }
+            .order-info p { color: #cccccc !important; }
+            .tracking-badge { background-color: #1e3a8a !important; color: #bfdbfe !important; border-color: #2563eb !important; }
+            .footer { background-color: #121212 !important; color: #888888 !important; }
         }
     </style>
 </head>
 <body>
+<div class="wrapper">
     <div class="header">
+        <img src="{{logoUrl}}" alt="Constru-ir" />
         <h1>¡Tu Orden Está en Camino!</h1>
     </div>
 
     <div class="content">
         <div class="shipping-icon">📦</div>
 
-        <p>Hola {{customerName}},</p>
-
+        <p>Hola <strong>{{customerName}}</strong>,</p>
         <p>Tu orden ha sido enviada y está en camino a tu dirección.</p>
 
         <div class="order-info">
@@ -70,29 +133,29 @@
             <p><strong>Número de Orden:</strong> {{orderNumber}}</p>
             <p><strong>Estado:</strong> En tránsito</p>
             {{#if trackingNumber}}
-            <p><strong>Número de Rastreo:</strong> {{trackingNumber}}</p>
+            <p><strong>Número de Rastreo:</strong> <span class="tracking-badge">{{trackingNumber}}</span></p>
             {{/if}}
         </div>
 
         <div class="order-info">
-            <h3>Dirección de Entrega</h3>
+            <h3>📍 Dirección de Entrega</h3>
             <p>
-                {{shippingAddress.firstName}} {{shippingAddress.lastName}}<br>
+                <strong>{{shippingAddress.firstName}} {{shippingAddress.lastName}}</strong><br>
                 {{shippingAddress.address}}<br>
                 {{shippingAddress.city}}, {{shippingAddress.state}} {{shippingAddress.zipCode}}<br>
-                Teléfono: {{shippingAddress.phone}}
+                📞 {{shippingAddress.phone}}
             </p>
         </div>
 
-        <p>Tiempo estimado de entrega: 3-5 días hábiles</p>
-
-        <center>
+        <div class="button-wrap">
             <a href="{{trackingUrl}}" class="button">Rastrear mi Orden</a>
-        </center>
+        </div>
     </div>
 
     <div class="footer">
+        <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
         <p>Gracias por tu compra.</p>
     </div>
+</div>
 </body>
 </html>

@@ -15,25 +15,28 @@ import { DiscountsService } from '../discounts/discounts.service';
 import { BanksService } from '../banks/banks.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 
-const mockRepository = () => ({ findOne: jest.fn(), save: jest.fn() });
 const mockService = () => ({});
 
 describe('OrdersService.completeOrder', () => {
   let service: OrdersService;
-  let orderRepo: ReturnType<typeof mockRepository>;
+  let orderRepo: { findOne: jest.Mock; save: jest.Mock };
+  let emailService: { sendPaymentConfirmed: jest.Mock };
 
   beforeEach(async () => {
+    orderRepo = { findOne: jest.fn(), save: jest.fn() };
+    emailService = { sendPaymentConfirmed: jest.fn().mockResolvedValue(undefined) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrdersService,
-        { provide: getRepositoryToken(Order), useFactory: mockRepository },
+        { provide: getRepositoryToken(Order), useValue: orderRepo },
         { provide: getRepositoryToken(OrderItem), useValue: {} },
         { provide: getRepositoryToken(ShippingAddress), useValue: {} },
         { provide: getRepositoryToken(PaymentInfo), useValue: {} },
         { provide: getRepositoryToken(Cart), useValue: {} },
         { provide: getRepositoryToken(Product), useValue: {} },
         { provide: getRepositoryToken(User), useValue: {} },
-        { provide: EmailService, useFactory: mockService },
+        { provide: EmailService, useValue: emailService },
         { provide: DiscountsService, useFactory: mockService },
         { provide: BanksService, useFactory: mockService },
         { provide: GuestCustomersService, useFactory: mockService },
@@ -42,14 +45,14 @@ describe('OrdersService.completeOrder', () => {
     }).compile();
 
     service = module.get(OrdersService);
-    orderRepo = module.get(getRepositoryToken(Order));
   });
 
   const makeOrder = (overrides: Partial<Order> = {}): Order =>
     ({
       id: 100,
+      uuid: 'order-uuid-100',
       status: OrderStatus.PENDING,
-      orderKey: 'OC-001',
+      orderKey: null,
       dateCompleted: null,
       ...overrides,
     }) as Order;
@@ -85,14 +88,13 @@ describe('OrdersService.completeOrder', () => {
   });
 
   it('saves the order with orderKey, status COMPLETED and dateCompleted', async () => {
-    const order = makeOrder({ status: OrderStatus.PENDING });
-    orderRepo.findOne.mockResolvedValue(order);
-    orderRepo.save.mockResolvedValue({
-      ...order,
-      orderKey: 'OC-001 / FAC-001',
-      status: OrderStatus.COMPLETED,
-      dateCompleted,
-    });
+    const order = makeOrder();
+    const savedOrder = { ...order, orderKey: 'OC-001 / FAC-001', status: OrderStatus.COMPLETED, dateCompleted };
+
+    orderRepo.findOne
+      .mockResolvedValueOnce(order)        // findOne by id
+      .mockResolvedValueOnce(savedOrder);  // findOneByUuid after save
+    orderRepo.save.mockResolvedValue(savedOrder);
 
     await service.completeOrder(100, 'OC-001 / FAC-001', dateCompleted);
 
@@ -105,23 +107,32 @@ describe('OrdersService.completeOrder', () => {
     );
   });
 
+  it('calls sendPaymentConfirmed with the full order after completing', async () => {
+    const order = makeOrder();
+    const savedOrder = { ...order, orderKey: 'OC-001 / FAC-001', status: OrderStatus.COMPLETED, dateCompleted };
+
+    orderRepo.findOne
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(savedOrder);
+    orderRepo.save.mockResolvedValue(savedOrder);
+
+    await service.completeOrder(100, 'OC-001 / FAC-001', dateCompleted);
+
+    expect(emailService.sendPaymentConfirmed).toHaveBeenCalledTimes(1);
+    expect(emailService.sendPaymentConfirmed).toHaveBeenCalledWith(savedOrder);
+  });
+
   it('returns the saved order', async () => {
-    const order = makeOrder({ status: OrderStatus.PENDING });
-    const updatedOrder = {
-      ...order,
-      orderKey: 'OC-001 / FAC-001',
-      status: OrderStatus.COMPLETED,
-      dateCompleted,
-    };
-    orderRepo.findOne.mockResolvedValue(order);
-    orderRepo.save.mockResolvedValue(updatedOrder);
+    const order = makeOrder();
+    const savedOrder = { ...order, orderKey: 'OC-001 / FAC-001', status: OrderStatus.COMPLETED, dateCompleted };
 
-    const result = await service.completeOrder(
-      100,
-      'OC-001 / FAC-001',
-      dateCompleted,
-    );
+    orderRepo.findOne
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(savedOrder);
+    orderRepo.save.mockResolvedValue(savedOrder);
 
-    expect(result).toBe(updatedOrder);
+    const result = await service.completeOrder(100, 'OC-001 / FAC-001', dateCompleted);
+
+    expect(result).toBe(savedOrder);
   });
 });

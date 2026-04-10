@@ -16,16 +16,10 @@ import { PaymentInfo } from './payment-info.entity';
 import { Discount } from '../discounts/discount.entity';
 
 export enum OrderStatus {
-  ON_HOLD = 'on-hold', // Orden creada, esperando confirmación de pago
-  PENDING = 'pending', // Creada en sistema externo, sin completar
-  PAYMENT_REVIEW = 'payment_review', // Pago en revisión
-  CONFIRMED = 'confirmed', // Pago confirmado
-  PROCESSING = 'processing', // Orden siendo procesada
-  SHIPPED = 'shipped', // Orden enviada
-  DELIVERED = 'delivered', // Orden entregada
-  COMPLETED = 'completed', // Orden completada (facturada en sistema externo)
-  CANCELLED = 'cancelled', // Orden cancelada
-  REFUNDED = 'refunded', // Orden reembolsada
+  ON_HOLD = 'on-hold',     // Orden creada, esperando procesamiento por ERP
+  PENDING = 'pending',     // Recibida por el ERP (post-acknowledge)
+  COMPLETED = 'completed', // Completada/facturada por el ERP
+  CANCELLED = 'cancelled', // Cancelada
 }
 
 export enum DeliveryMethod {

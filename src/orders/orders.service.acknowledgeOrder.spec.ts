@@ -71,9 +71,9 @@ describe('OrdersService.acknowledgeOrder', () => {
     );
   });
 
-  it('throws BadRequestException when status is PAYMENT_REVIEW', async () => {
+  it('throws BadRequestException when status is CANCELLED', async () => {
     orderRepo.findOne.mockResolvedValue(
-      makeOrder({ status: 'payment-review' as OrderStatus }),
+      makeOrder({ status: OrderStatus.CANCELLED }),
     );
 
     await expect(service.acknowledgeOrder(100, 'wc_key_abc')).rejects.toThrow(

@@ -3,86 +3,144 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
     <title>Pago Confirmado</title>
     <style>
+        :root { color-scheme: light dark; }
+
         body {
             font-family: Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
+            color: #1a1a1a;
+            background-color: #e8e8e8;
+            margin: 0;
             padding: 20px;
         }
+
+        .wrapper { max-width: 600px; margin: 0 auto; }
+
         .header {
-            background-color: #2196F3;
-            color: white;
-            padding: 20px;
+            background-color: #1e3a8a;
+            padding: 24px 20px;
             text-align: center;
-            border-radius: 5px 5px 0 0;
+            border-radius: 8px 8px 0 0;
         }
+
+        .header img { height: 44px; width: auto; display: block; margin: 0 auto; }
+
+        .header h1 {
+            margin: 12px 0 0;
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
         .content {
-            background-color: #f9f9f9;
-            padding: 20px;
-            border: 1px solid #ddd;
+            background-color: #f2f2f2;
+            padding: 24px;
+            border: 1px solid #cccccc;
         }
+
+        .content > p { color: #1a1a1a; margin: 0 0 16px; }
+
         .success-icon {
             text-align: center;
-            font-size: 60px;
-            color: #4CAF50;
-            margin: 20px 0;
+            font-size: 52px;
+            margin: 8px 0 20px;
         }
+
         .order-info {
-            background-color: white;
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 5px;
+            background-color: #ffffff;
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
         }
+
+        .order-info h3 {
+            margin: 0 0 12px;
+            font-size: 15px;
+            color: #1e3a8a;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 8px;
+        }
+
+        .order-info p { margin: 6px 0; color: #333333; }
+
+        .total-highlight {
+            font-size: 18px;
+            font-weight: 700;
+            color: #2563eb;
+        }
+
+        .button-wrap { text-align: center; margin: 20px 0 4px; }
+
         .button {
             display: inline-block;
-            padding: 12px 30px;
-            background-color: #2196F3;
-            color: white;
+            padding: 13px 32px;
+            background-color: #2563eb;
+            color: #ffffff !important;
             text-decoration: none;
-            border-radius: 5px;
-            margin: 15px 0;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 15px;
         }
+
         .footer {
             text-align: center;
             padding: 20px;
-            color: #777;
+            color: #777777;
             font-size: 12px;
+            background-color: #e8e8e8;
+            border-radius: 0 0 8px 8px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body { background-color: #121212 !important; color: #e8e8e8 !important; }
+            .wrapper { background-color: #121212; }
+            .header { background-color: #1e3a8a !important; }
+            .content { background-color: #1e1e1e !important; border-color: #333333 !important; }
+            .content > p { color: #e0e0e0 !important; }
+            .order-info { background-color: #2a2a2a !important; border-color: #3a3a3a !important; }
+            .order-info h3 { color: #93c5fd !important; border-color: #3a3a3a !important; }
+            .order-info p { color: #cccccc !important; }
+            .total-highlight { color: #93c5fd !important; }
+            .footer { background-color: #121212 !important; color: #888888 !important; }
         }
     </style>
 </head>
 <body>
+<div class="wrapper">
     <div class="header">
+        <img src="{{logoUrl}}" alt="Constru-ir" />
         <h1>¡Pago Confirmado!</h1>
     </div>
 
     <div class="content">
-        <div class="success-icon">✓</div>
+        <div class="success-icon">✅</div>
 
-        <p>Hola {{customerName}},</p>
-
+        <p>Hola <strong>{{customerName}}</strong>,</p>
         <p>¡Excelentes noticias! Hemos verificado tu pago y tu orden está siendo procesada.</p>
 
         <div class="order-info">
             <h3>Detalles de la Orden</h3>
             <p><strong>Número de Orden:</strong> {{orderNumber}}</p>
             <p><strong>Estado:</strong> {{orderStatus}}</p>
-            <p><strong>Total Pagado:</strong> ${{total}}</p>
+            <p><strong>Total Pagado:</strong> <span class="total-highlight">${{total}}</span></p>
         </div>
 
-        <p>Tu orden será enviada pronto. Te notificaremos cuando esté en camino.</p>
+        <p>Tu orden será preparada pronto. Te notificaremos cuando esté en camino.</p>
 
-        <center>
-            <a href="{{trackingUrl}}" class="button">Rastrear mi Orden</a>
-        </center>
+        <div class="button-wrap">
+            <a href="{{trackingUrl}}" class="button">Ver mi Orden</a>
+        </div>
     </div>
 
     <div class="footer">
-        <p>Gracias por tu compra.</p>
-        <p>Si tienes alguna pregunta, no dudes en contactarnos.</p>
+        <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
+        <p>Si tienes alguna pregunta, contáctanos.</p>
     </div>
+</div>
 </body>
 </html>

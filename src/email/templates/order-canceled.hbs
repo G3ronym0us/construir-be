@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
     <meta name="supported-color-schemes" content="light dark">
-    <title>Orden Entregada</title>
+    <title>Orden Cancelada</title>
     <style>
         :root { color-scheme: light dark; }
 
@@ -44,7 +44,7 @@
 
         .content > p { color: #1a1a1a; margin: 0 0 16px; }
 
-        .success-icon {
+        .cancel-icon {
             text-align: center;
             font-size: 52px;
             margin: 8px 0 20px;
@@ -94,28 +94,26 @@
 <div class="wrapper">
     <div class="header">
         <img src="{{logoUrl}}" alt="Constru-ir" />
-        <h1>¡Orden Entregada!</h1>
+        <h1>Orden Cancelada</h1>
     </div>
 
     <div class="content">
-        <div class="success-icon">🎉</div>
+        <div class="cancel-icon">❌</div>
 
         <p>Hola <strong>{{customerName}}</strong>,</p>
-        <p>Tu orden ha sido entregada exitosamente. ¡Esperamos que disfrutes tu compra!</p>
+        <p>Te informamos que tu orden ha sido cancelada.</p>
 
         <div class="order-info">
-            <h3>Detalles de la Entrega</h3>
+            <h3>Detalles de la Orden</h3>
             <p><strong>Número de Orden:</strong> {{orderNumber}}</p>
-            <p><strong>Estado:</strong> Entregada</p>
-            <p><strong>Fecha de Entrega:</strong> {{deliveryDate}}</p>
+            <p><strong>Estado:</strong> Cancelada</p>
         </div>
 
-        <p>Si tienes algún problema con tu pedido, no dudes en contactarnos.</p>
+        <p>Si tienes alguna pregunta o crees que esto fue un error, no dudes en contactarnos.</p>
     </div>
 
     <div class="footer">
         <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
-        <p>Gracias por confiar en nosotros.</p>
     </div>
 </div>
 </body>

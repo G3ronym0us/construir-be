@@ -7,9 +7,7 @@
     <meta name="supported-color-schemes" content="light dark">
     <title>Confirmación de Orden</title>
     <style>
-        :root {
-            color-scheme: light dark;
-        }
+        :root { color-scheme: light dark; }
 
         body {
             font-family: Arial, sans-serif;
@@ -20,23 +18,22 @@
             padding: 20px;
         }
 
-        .wrapper {
-            max-width: 600px;
-            margin: 0 auto;
-        }
+        .wrapper { max-width: 600px; margin: 0 auto; }
 
         .header {
-            background-color: #3a9e3e;
-            color: #ffffff;
-            padding: 28px 20px;
+            background-color: #1e3a8a;
+            padding: 24px 20px;
             text-align: center;
             border-radius: 8px 8px 0 0;
         }
 
+        .header img { height: 44px; width: auto; display: block; margin: 0 auto; }
+
         .header h1 {
-            margin: 0;
-            font-size: 24px;
+            margin: 12px 0 0;
+            font-size: 20px;
             font-weight: 700;
+            color: #ffffff;
         }
 
         .content {
@@ -45,10 +42,7 @@
             border: 1px solid #cccccc;
         }
 
-        .content > p {
-            color: #1a1a1a;
-            margin: 0 0 16px;
-        }
+        .content > p { color: #1a1a1a; margin: 0 0 16px; }
 
         .order-info {
             background-color: #ffffff;
@@ -61,25 +55,15 @@
         .order-info h3 {
             margin: 0 0 12px;
             font-size: 15px;
-            color: #1a1a1a;
+            color: #1e3a8a;
             border-bottom: 1px solid #e0e0e0;
             padding-bottom: 8px;
         }
 
-        .order-info p {
-            margin: 6px 0;
-            color: #333333;
-        }
+        .order-info p { margin: 6px 0; color: #333333; }
 
-        .order-items {
-            margin: 16px 0;
-        }
-
-        .order-items h3 {
-            font-size: 15px;
-            color: #1a1a1a;
-            margin: 0 0 8px;
-        }
+        .order-items { margin: 16px 0; }
+        .order-items h3 { font-size: 15px; color: #1a1a1a; margin: 0 0 8px; }
 
         .item {
             display: flex;
@@ -89,15 +73,8 @@
             color: #333333;
         }
 
-        .item-name {
-            font-weight: 600;
-            color: #1a1a1a;
-        }
-
-        .item-qty {
-            font-size: 13px;
-            color: #555555;
-        }
+        .item-name { font-weight: 600; color: #1a1a1a; }
+        .item-qty { font-size: 13px; color: #555555; }
 
         .item-price {
             font-weight: 600;
@@ -105,24 +82,16 @@
             white-space: nowrap;
         }
 
-        .totals {
-            margin: 8px 0 0;
-            text-align: right;
-        }
-
-        .totals p {
-            margin: 4px 0;
-            font-size: 14px;
-            color: #333333;
-        }
+        .totals { margin: 8px 0 0; text-align: right; }
+        .totals p { margin: 4px 0; font-size: 14px; color: #333333; }
 
         .totals .total-final {
             font-size: 20px;
             font-weight: 700;
-            color: #3a9e3e;
+            color: #2563eb;
             margin-top: 10px;
             padding-top: 10px;
-            border-top: 2px solid #3a9e3e;
+            border-top: 2px solid #2563eb;
         }
 
         .phone-highlight {
@@ -136,27 +105,16 @@
             margin: 6px 0;
         }
 
-        .hours {
-            font-size: 13px;
-            color: #555555;
-            margin: 6px 0;
-        }
+        .hours { font-size: 13px; color: #555555; margin: 6px 0; }
 
-        .map-link {
-            color: #3a9e3e;
-            font-weight: 600;
-            text-decoration: none;
-        }
+        .map-link { color: #2563eb; font-weight: 600; text-decoration: none; }
 
-        .button-wrap {
-            text-align: center;
-            margin: 16px 0 4px;
-        }
+        .button-wrap { text-align: center; margin: 16px 0 4px; }
 
         .button {
             display: inline-block;
             padding: 13px 32px;
-            background-color: #3a9e3e;
+            background-color: #2563eb;
             color: #ffffff !important;
             text-decoration: none;
             border-radius: 6px;
@@ -172,97 +130,33 @@
             background-color: #e8e8e8;
         }
 
-        /* ── Dark mode ── */
         @media (prefers-color-scheme: dark) {
-            body {
-                background-color: #121212 !important;
-                color: #e8e8e8 !important;
-            }
-
-            .wrapper {
-                background-color: #121212;
-            }
-
-            .header {
-                background-color: #2e7d32 !important;
-            }
-
-            .content {
-                background-color: #1e1e1e !important;
-                border-color: #333333 !important;
-            }
-
-            .content > p {
-                color: #e0e0e0 !important;
-            }
-
-            .order-info {
-                background-color: #2a2a2a !important;
-                border-color: #3a3a3a !important;
-            }
-
-            .order-info h3 {
-                color: #f0f0f0 !important;
-                border-color: #3a3a3a !important;
-            }
-
-            .order-info p {
-                color: #cccccc !important;
-            }
-
-            .order-items h3 {
-                color: #f0f0f0 !important;
-            }
-
-            .item {
-                border-color: #3a3a3a !important;
-                color: #cccccc !important;
-            }
-
-            .item-name {
-                color: #f0f0f0 !important;
-            }
-
-            .item-qty {
-                color: #aaaaaa !important;
-            }
-
-            .item-price {
-                color: #f0f0f0 !important;
-            }
-
-            .totals p {
-                color: #cccccc !important;
-            }
-
-            .totals .total-final {
-                color: #66bb6a !important;
-                border-color: #66bb6a !important;
-            }
-
-            .phone-highlight {
-                color: #f0f0f0 !important;
-                background-color: #333333 !important;
-            }
-
-            .hours {
-                color: #aaaaaa !important;
-            }
-
-            .map-link {
-                color: #66bb6a !important;
-            }
-
-            .footer {
-                background-color: #121212 !important;
-                color: #888888 !important;
-            }
+            body { background-color: #121212 !important; color: #e8e8e8 !important; }
+            .wrapper { background-color: #121212; }
+            .header { background-color: #1e3a8a !important; }
+            .content { background-color: #1e1e1e !important; border-color: #333333 !important; }
+            .content > p { color: #e0e0e0 !important; }
+            .order-info { background-color: #2a2a2a !important; border-color: #3a3a3a !important; }
+            .order-info h3 { color: #93c5fd !important; border-color: #3a3a3a !important; }
+            .order-info p { color: #cccccc !important; }
+            .order-items h3 { color: #f0f0f0 !important; }
+            .item { border-color: #3a3a3a !important; color: #cccccc !important; }
+            .item-name { color: #f0f0f0 !important; }
+            .item-qty { color: #aaaaaa !important; }
+            .item-price { color: #f0f0f0 !important; }
+            .totals p { color: #cccccc !important; }
+            .totals .total-final { color: #93c5fd !important; border-color: #93c5fd !important; }
+            .phone-highlight { color: #f0f0f0 !important; background-color: #333333 !important; }
+            .hours { color: #aaaaaa !important; }
+            .map-link { color: #93c5fd !important; }
+            .footer { background-color: #121212 !important; color: #888888 !important; }
         }
     </style>
 </head>
 <body>
 <div class="wrapper">
     <div class="header">
+        <img src="{{logoUrl}}" alt="Constru-ir" />
         <h1>¡Gracias por tu compra!</h1>
     </div>
 

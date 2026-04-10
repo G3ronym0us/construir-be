@@ -55,6 +55,12 @@ export class EmailService {
     }
   }
 
+  private getLogoUrl(): string {
+    const frontendUrl =
+      this.configService.get('app.frontendUrl') || 'http://localhost:4000';
+    return `${frontendUrl}/construir-logo.png`;
+  }
+
   async sendOrderConfirmation(order: Order): Promise<void> {
     const templateSource = await this.loadTemplate('order-confirmation');
     const template = handlebars.compile(templateSource);
@@ -64,6 +70,7 @@ export class EmailService {
     const isPickup = order.deliveryMethod === 'pickup';
 
     const html = template({
+      logoUrl: this.getLogoUrl(),
       customerName:
         order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
@@ -120,6 +127,7 @@ export class EmailService {
     const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
 
     const html = template({
+      logoUrl: this.getLogoUrl(),
       customerName:
         order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
@@ -148,6 +156,7 @@ export class EmailService {
     const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
 
     const html = template({
+      logoUrl: this.getLogoUrl(),
       customerName:
         order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
@@ -174,6 +183,7 @@ export class EmailService {
     const template = handlebars.compile(templateSource);
 
     const html = template({
+      logoUrl: this.getLogoUrl(),
       customerName:
         order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
@@ -197,6 +207,30 @@ export class EmailService {
     );
   }
 
+  async sendOrderCanceled(order: Order): Promise<void> {
+    const templateSource = await this.loadTemplate('order-canceled');
+    const template = handlebars.compile(templateSource);
+
+    const html = template({
+      logoUrl: this.getLogoUrl(),
+      customerName:
+        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+      orderNumber: order.orderNumber,
+    });
+
+    const recipientEmail = order.user?.email || order.guestEmail;
+    if (!recipientEmail) {
+      console.error('No recipient email found for order:', order.orderNumber);
+      return;
+    }
+
+    await this.sendEmail(
+      recipientEmail,
+      `Orden Cancelada #${order.orderNumber}`,
+      html,
+    );
+  }
+
   async sendInvitationEmail(params: {
     to: string;
     inviteUrl: string;
@@ -209,6 +243,7 @@ export class EmailService {
     const template = handlebars.compile(templateSource);
 
     const html = template({
+      logoUrl: this.getLogoUrl(),
       firstName: params.firstName,
       inviteUrl: params.inviteUrl,
       role: params.role,
@@ -226,14 +261,9 @@ export class EmailService {
   private translateStatus(status: string): string {
     const statusMap = {
       'on-hold': 'Pendiente',
-      pending: 'En proceso (sistema externo)',
-      payment_review: 'Pago en Revisión',
-      confirmed: 'Confirmada',
-      processing: 'Procesando',
-      shipped: 'Enviada',
-      delivered: 'Entregada',
+      pending: 'En proceso',
+      completed: 'Completada',
       cancelled: 'Cancelada',
-      refunded: 'Reembolsada',
     };
     return statusMap[status] || status;
   }

@@ -400,7 +400,6 @@ export class OrdersService {
     order.paymentInfo.receiptUrl = receiptUrl;
     order.paymentInfo.receiptKey = receiptKey;
     order.paymentInfo.status = PaymentStatus.PENDING;
-    order.status = OrderStatus.PAYMENT_REVIEW;
 
     await this.paymentInfoRepository.save(order.paymentInfo);
     return this.orderRepository.save(order);
@@ -442,26 +441,12 @@ export class OrdersService {
 
     const updatedOrder = await this.findOneByUuid(order.uuid);
 
-    // Enviar notificaciones según el cambio de estado
+    // Enviar notificación si el pago fue verificado manualmente por el admin
     if (
       previousPaymentStatus !== PaymentStatus.VERIFIED &&
       order.paymentInfo.status === PaymentStatus.VERIFIED
     ) {
       await this.emailService.sendPaymentConfirmed(updatedOrder);
-    }
-
-    if (
-      previousStatus !== OrderStatus.SHIPPED &&
-      order.status === OrderStatus.SHIPPED
-    ) {
-      await this.emailService.sendOrderShipped(updatedOrder);
-    }
-
-    if (
-      previousStatus !== OrderStatus.DELIVERED &&
-      order.status === OrderStatus.DELIVERED
-    ) {
-      await this.emailService.sendOrderDelivered(updatedOrder);
     }
 
     return updatedOrder;
@@ -528,11 +513,8 @@ export class OrdersService {
   async cancelOrder(uuid: string, userId?: number): Promise<Order> {
     const order = await this.findOneByUuid(uuid, userId);
 
-    if (
-      order.status !== OrderStatus.ON_HOLD &&
-      order.status !== OrderStatus.PAYMENT_REVIEW
-    ) {
-      throw new BadRequestException('Only pending orders can be cancelled');
+    if (order.status !== OrderStatus.ON_HOLD) {
+      throw new BadRequestException('Only on-hold orders can be cancelled');
     }
 
     // Restaurar inventario
@@ -545,7 +527,10 @@ export class OrdersService {
     }
 
     order.status = OrderStatus.CANCELLED;
-    return this.orderRepository.save(order);
+    const cancelledOrder = await this.orderRepository.save(order);
+    const fullOrder = await this.findOneByUuid(cancelledOrder.uuid);
+    await this.emailService.sendOrderCanceled(fullOrder);
+    return cancelledOrder;
   }
 
   /**
@@ -554,26 +539,19 @@ export class OrdersService {
   async getAdminStats(): Promise<any> {
     const [
       totalOrders,
+      onHoldOrders,
       pendingOrders,
-      confirmedOrders,
-      shippedOrders,
-      deliveredOrders,
+      completedOrders,
     ] = await Promise.all([
       this.orderRepository.count(),
       this.orderRepository.count({ where: { status: OrderStatus.ON_HOLD } }),
-      this.orderRepository.count({ where: { status: OrderStatus.CONFIRMED } }),
-      this.orderRepository.count({ where: { status: OrderStatus.SHIPPED } }),
-      this.orderRepository.count({ where: { status: OrderStatus.DELIVERED } }),
+      this.orderRepository.count({ where: { status: OrderStatus.PENDING } }),
+      this.orderRepository.count({ where: { status: OrderStatus.COMPLETED } }),
     ]);
 
     // Calcular ingresos totales
     const orders = await this.orderRepository.find({
-      where: [
-        { status: OrderStatus.CONFIRMED },
-        { status: OrderStatus.PROCESSING },
-        { status: OrderStatus.SHIPPED },
-        { status: OrderStatus.DELIVERED },
-      ],
+      where: { status: OrderStatus.COMPLETED },
     });
 
     const totalRevenue = orders.reduce(
@@ -600,18 +578,16 @@ export class OrdersService {
 
     return {
       totalOrders,
+      onHoldOrders,
       pendingOrders,
-      confirmedOrders,
-      shippedOrders,
-      deliveredOrders,
+      completedOrders,
       totalRevenue: Number(totalRevenue.toFixed(2)),
       todayOrders,
       monthOrders,
       ordersByStatus: {
+        onHold: onHoldOrders,
         pending: pendingOrders,
-        confirmed: confirmedOrders,
-        shipped: shippedOrders,
-        delivered: deliveredOrders,
+        completed: completedOrders,
       },
     };
   }
@@ -656,14 +632,7 @@ export class OrdersService {
       .createQueryBuilder('order')
       .where('order.createdAt >= :start', { start: startOfMonth })
       .andWhere('order.createdAt <= :end', { end: endOfMonth })
-      .andWhere('order.status IN (:...statuses)', {
-        statuses: [
-          OrderStatus.CONFIRMED,
-          OrderStatus.PROCESSING,
-          OrderStatus.SHIPPED,
-          OrderStatus.DELIVERED,
-        ],
-      })
+      .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
       .getMany();
 
     // Obtener órdenes confirmadas del mes anterior
@@ -671,14 +640,7 @@ export class OrdersService {
       .createQueryBuilder('order')
       .where('order.createdAt >= :start', { start: startOfPrevMonth })
       .andWhere('order.createdAt <= :end', { end: endOfPrevMonth })
-      .andWhere('order.status IN (:...statuses)', {
-        statuses: [
-          OrderStatus.CONFIRMED,
-          OrderStatus.PROCESSING,
-          OrderStatus.SHIPPED,
-          OrderStatus.DELIVERED,
-        ],
-      })
+      .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
       .getMany();
 
     // Calcular totales del mes actual
@@ -780,14 +742,7 @@ export class OrdersService {
       .innerJoin('item.product', 'product')
       .where('order.createdAt >= :start', { start: startOfMonth })
       .andWhere('order.createdAt <= :end', { end: endOfMonth })
-      .andWhere('order.status IN (:...statuses)', {
-        statuses: [
-          OrderStatus.CONFIRMED,
-          OrderStatus.PROCESSING,
-          OrderStatus.SHIPPED,
-          OrderStatus.DELIVERED,
-        ],
-      })
+      .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
       .groupBy('item.productId')
       .addGroupBy('item.productName')
       .orderBy('totalQuantity', 'DESC')
@@ -806,14 +761,7 @@ export class OrdersService {
       .innerJoin('item.product', 'product')
       .where('order.createdAt >= :start', { start: startOfMonth })
       .andWhere('order.createdAt <= :end', { end: endOfMonth })
-      .andWhere('order.status IN (:...statuses)', {
-        statuses: [
-          OrderStatus.CONFIRMED,
-          OrderStatus.PROCESSING,
-          OrderStatus.SHIPPED,
-          OrderStatus.DELIVERED,
-        ],
-      })
+      .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
       .groupBy('item.productId')
       .addGroupBy('item.productName')
       .orderBy('totalQuantity', 'ASC')
@@ -957,7 +905,10 @@ export class OrdersService {
     order.status = OrderStatus.COMPLETED;
     order.dateCompleted = dateCompleted;
 
-    return this.orderRepository.save(order);
+    const completedOrder = await this.orderRepository.save(order);
+    const fullOrder = await this.findOneByUuid(completedOrder.uuid);
+    await this.emailService.sendPaymentConfirmed(fullOrder);
+    return completedOrder;
   }
 
   /**
@@ -987,7 +938,10 @@ export class OrdersService {
     order.status = OrderStatus.CANCELLED;
     order.dateCompleted = dateCompleted;
 
-    return this.orderRepository.save(order);
+    const cancelledOrder = await this.orderRepository.save(order);
+    const fullOrder = await this.findOneByUuid(cancelledOrder.uuid);
+    await this.emailService.sendOrderCanceled(fullOrder);
+    return cancelledOrder;
   }
 
   /**

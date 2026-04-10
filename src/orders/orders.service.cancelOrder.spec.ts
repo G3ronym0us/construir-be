@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { Order, OrderStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
@@ -17,7 +17,7 @@ import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 
 const mockService = () => ({});
 
-describe('OrdersService.cancelPendingOrder', () => {
+describe('OrdersService.cancelOrder', () => {
   let service: OrdersService;
   let orderRepo: { findOne: jest.Mock; save: jest.Mock };
   let productRepo: { increment: jest.Mock };
@@ -53,106 +53,83 @@ describe('OrdersService.cancelPendingOrder', () => {
     ({
       id: 100,
       uuid: 'order-uuid-100',
-      status: OrderStatus.PENDING,
+      userId: 1,
+      status: OrderStatus.ON_HOLD,
       items: [
-        { id: 1, productId: 10, quantity: 2 },
-        { id: 2, productId: 20, quantity: 3 },
+        { id: 1, productId: 10, quantity: 1 },
+        { id: 2, productId: 20, quantity: 4 },
       ],
-      dateCompleted: null,
       ...overrides,
     }) as unknown as Order;
 
-  const dateCompleted = new Date('2026-03-07T10:00:00Z');
+  it('throws BadRequestException when status is PENDING', async () => {
+    orderRepo.findOne.mockResolvedValue(makeOrder({ status: OrderStatus.PENDING }));
 
-  it('throws NotFoundException when order does not exist', async () => {
-    orderRepo.findOne.mockResolvedValue(null);
-
-    await expect(
-      service.cancelPendingOrder(100, dateCompleted),
-    ).rejects.toThrow(NotFoundException);
-  });
-
-  it('throws BadRequestException when status is ON_HOLD', async () => {
-    orderRepo.findOne.mockResolvedValue(
-      makeOrder({ status: OrderStatus.ON_HOLD }),
+    await expect(service.cancelOrder('order-uuid-100')).rejects.toThrow(
+      BadRequestException,
     );
-
-    await expect(
-      service.cancelPendingOrder(100, dateCompleted),
-    ).rejects.toThrow(BadRequestException);
   });
 
-  it('throws BadRequestException when status is CANCELLED', async () => {
-    orderRepo.findOne.mockResolvedValue(
-      makeOrder({ status: OrderStatus.CANCELLED }),
+  it('throws BadRequestException when status is COMPLETED', async () => {
+    orderRepo.findOne.mockResolvedValue(makeOrder({ status: OrderStatus.COMPLETED }));
+
+    await expect(service.cancelOrder('order-uuid-100')).rejects.toThrow(
+      BadRequestException,
     );
-
-    await expect(
-      service.cancelPendingOrder(100, dateCompleted),
-    ).rejects.toThrow(BadRequestException);
   });
 
-  it('calls productRepo.increment once per item to restore inventory', async () => {
-    const order = makeOrder();
-    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+  it('restores inventory for each item', async () => {
+    const order = makeOrder({ status: OrderStatus.ON_HOLD });
+    const savedOrder = { ...order, status: OrderStatus.CANCELLED };
 
     orderRepo.findOne
       .mockResolvedValueOnce(order)
       .mockResolvedValueOnce(savedOrder);
     orderRepo.save.mockResolvedValue(savedOrder);
 
-    await service.cancelPendingOrder(100, dateCompleted);
+    await service.cancelOrder('order-uuid-100');
 
     expect(productRepo.increment).toHaveBeenCalledTimes(2);
-    expect(productRepo.increment).toHaveBeenCalledWith({ id: 10 }, 'inventory', 2);
-    expect(productRepo.increment).toHaveBeenCalledWith({ id: 20 }, 'inventory', 3);
+    expect(productRepo.increment).toHaveBeenCalledWith({ id: 10 }, 'inventory', 1);
+    expect(productRepo.increment).toHaveBeenCalledWith({ id: 20 }, 'inventory', 4);
   });
 
-  it('saves the order with status CANCELLED and dateCompleted', async () => {
-    const order = makeOrder();
-    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+  it('saves the order with status CANCELLED', async () => {
+    const order = makeOrder({ status: OrderStatus.ON_HOLD });
+    const savedOrder = { ...order, status: OrderStatus.CANCELLED };
 
     orderRepo.findOne
       .mockResolvedValueOnce(order)
       .mockResolvedValueOnce(savedOrder);
     orderRepo.save.mockResolvedValue(savedOrder);
 
-    await service.cancelPendingOrder(100, dateCompleted);
+    await service.cancelOrder('order-uuid-100');
 
     expect(orderRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: OrderStatus.CANCELLED,
-        dateCompleted,
-      }),
+      expect.objectContaining({ status: OrderStatus.CANCELLED }),
     );
   });
 
   it('calls sendOrderCanceled with the full order after cancelling', async () => {
-    const order = makeOrder();
-    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+    const order = makeOrder({ status: OrderStatus.ON_HOLD });
+    const savedOrder = { ...order, status: OrderStatus.CANCELLED };
 
     orderRepo.findOne
       .mockResolvedValueOnce(order)
       .mockResolvedValueOnce(savedOrder);
     orderRepo.save.mockResolvedValue(savedOrder);
 
-    await service.cancelPendingOrder(100, dateCompleted);
+    await service.cancelOrder('order-uuid-100');
 
     expect(emailService.sendOrderCanceled).toHaveBeenCalledTimes(1);
     expect(emailService.sendOrderCanceled).toHaveBeenCalledWith(savedOrder);
   });
 
-  it('returns the saved order', async () => {
-    const order = makeOrder();
-    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+  it('throws BadRequestException when status is CANCELLED (already cancelled)', async () => {
+    orderRepo.findOne.mockResolvedValue(makeOrder({ status: OrderStatus.CANCELLED }));
 
-    orderRepo.findOne
-      .mockResolvedValueOnce(order)
-      .mockResolvedValueOnce(savedOrder);
-    orderRepo.save.mockResolvedValue(savedOrder);
-
-    const result = await service.cancelPendingOrder(100, dateCompleted);
-
-    expect(result).toBe(savedOrder);
+    await expect(service.cancelOrder('order-uuid-100')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 });

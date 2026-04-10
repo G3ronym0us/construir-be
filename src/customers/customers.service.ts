@@ -153,13 +153,8 @@ export class CustomersService {
           where: { userId: user.id },
         });
 
-        const confirmedOrders = orders.filter((o) =>
-          [
-            OrderStatus.CONFIRMED,
-            OrderStatus.PROCESSING,
-            OrderStatus.SHIPPED,
-            OrderStatus.DELIVERED,
-          ].includes(o.status),
+        const confirmedOrders = orders.filter(
+          (o) => o.status === OrderStatus.COMPLETED,
         );
 
         const totalSpent = confirmedOrders.reduce(
@@ -204,13 +199,8 @@ export class CustomersService {
           where: { guestEmail: guest.email },
         });
 
-        const confirmedOrders = orders.filter((o) =>
-          [
-            OrderStatus.CONFIRMED,
-            OrderStatus.PROCESSING,
-            OrderStatus.SHIPPED,
-            OrderStatus.DELIVERED,
-          ].includes(o.status),
+        const confirmedOrders = orders.filter(
+          (o) => o.status === OrderStatus.COMPLETED,
         );
 
         const totalSpent = confirmedOrders.reduce(
@@ -257,13 +247,8 @@ export class CustomersService {
       order: { createdAt: 'DESC' },
     });
 
-    const confirmedOrders = orders.filter((o) =>
-      [
-        OrderStatus.CONFIRMED,
-        OrderStatus.PROCESSING,
-        OrderStatus.SHIPPED,
-        OrderStatus.DELIVERED,
-      ].includes(o.status),
+    const confirmedOrders = orders.filter(
+      (o) => o.status === OrderStatus.COMPLETED,
     );
 
     const totalSpentUSD = confirmedOrders.reduce(
@@ -324,13 +309,8 @@ export class CustomersService {
       order: { createdAt: 'DESC' },
     });
 
-    const confirmedOrders = orders.filter((o) =>
-      [
-        OrderStatus.CONFIRMED,
-        OrderStatus.PROCESSING,
-        OrderStatus.SHIPPED,
-        OrderStatus.DELIVERED,
-      ].includes(o.status),
+    const confirmedOrders = orders.filter(
+      (o) => o.status === OrderStatus.COMPLETED,
     );
 
     const totalSpentUSD = confirmedOrders.reduce(
