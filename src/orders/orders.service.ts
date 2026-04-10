@@ -921,9 +921,12 @@ export class OrdersService {
       throw new NotFoundException(`Order with id ${id} not found`);
     }
 
-    if (order.status !== OrderStatus.PENDING) {
+    if (
+      order.status !== OrderStatus.PENDING &&
+      order.status !== OrderStatus.ON_HOLD
+    ) {
       throw new BadRequestException(
-        `Only pending orders can be cancelled by external system. Current status: ${order.status}`,
+        `Order cannot be cancelled. Current status: ${order.status}`,
       );
     }
 

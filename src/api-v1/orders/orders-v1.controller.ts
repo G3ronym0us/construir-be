@@ -11,6 +11,7 @@ import {
   HttpStatus,
   ParseIntPipe,
   DefaultValuePipe,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -176,14 +177,13 @@ export class OrdersV1Controller {
   @RequireApiKeyPermission(ApiKeyPermission.WRITE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary:
-      'Actualizar orden desde sistema externo (OrbisNet): completar o anular',
+    summary: 'Actualizar orden desde sistema externo (OrbisNet)',
+    description:
+      'pending: registrar O/C en ERP (requiere order_key) | ' +
+      'completed: facturar (requiere order_key y date_completed) | ' +
+      'cancelled: anular (requiere date_completed)',
   })
-  @ApiParam({
-    name: 'id',
-    description: 'ID numérico de la orden',
-    type: Number,
-  })
+  @ApiParam({ name: 'id', description: 'ID numérico de la orden', type: Number })
   @ApiOkResponse({ description: 'Orden actualizada exitosamente' })
   @ApiWritePermissionResponses()
   @ApiNotFoundResponse({ description: 'Orden no encontrada' })
@@ -192,10 +192,27 @@ export class OrdersV1Controller {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateOrderExternalDto,
   ) {
-    const date = new Date(dto.date_completed);
-    if (dto.status === 'completed') {
-      return this.ordersService.completeOrder(id, dto.order_key!, date);
+    if (dto.status === 'pending') {
+      if (!dto.order_key) {
+        throw new BadRequestException('order_key is required when status is pending');
+      }
+      return this.ordersService.acknowledgeOrder(id, dto.order_key);
     }
-    return this.ordersService.cancelPendingOrder(id, date);
+
+    if (dto.status === 'completed') {
+      if (!dto.order_key) {
+        throw new BadRequestException('order_key is required when status is completed');
+      }
+      if (!dto.date_completed) {
+        throw new BadRequestException('date_completed is required when status is completed');
+      }
+      return this.ordersService.completeOrder(id, dto.order_key, new Date(dto.date_completed));
+    }
+
+    // cancelled
+    if (!dto.date_completed) {
+      throw new BadRequestException('date_completed is required when status is cancelled');
+    }
+    return this.ordersService.cancelPendingOrder(id, new Date(dto.date_completed));
   }
 }
