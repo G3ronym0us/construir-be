@@ -7,7 +7,12 @@ export class SimplifyOrderStatus1744200000000 implements MigrationInterface {
       UPDATE orders SET status = 'on-hold' WHERE status = 'payment_review'
     `);
 
-    // Remove obsolete statuses from the enum
+    // Drop the default before changing the enum type
+    await queryRunner.query(`
+      ALTER TABLE orders ALTER COLUMN status DROP DEFAULT
+    `);
+
+    // Swap enum type
     await queryRunner.query(`
       ALTER TYPE orders_status_enum RENAME TO orders_status_enum_old
     `);
@@ -22,9 +27,17 @@ export class SimplifyOrderStatus1744200000000 implements MigrationInterface {
     await queryRunner.query(`
       DROP TYPE orders_status_enum_old
     `);
+
+    // Restore the default
+    await queryRunner.query(`
+      ALTER TABLE orders ALTER COLUMN status SET DEFAULT 'on-hold'
+    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      ALTER TABLE orders ALTER COLUMN status DROP DEFAULT
+    `);
     await queryRunner.query(`
       ALTER TYPE orders_status_enum RENAME TO orders_status_enum_old
     `);
@@ -41,6 +54,9 @@ export class SimplifyOrderStatus1744200000000 implements MigrationInterface {
     `);
     await queryRunner.query(`
       DROP TYPE orders_status_enum_old
+    `);
+    await queryRunner.query(`
+      ALTER TABLE orders ALTER COLUMN status SET DEFAULT 'on-hold'
     `);
   }
 }
