@@ -8,6 +8,7 @@ import {
   OneToOne,
   OneToMany,
   JoinColumn,
+  Generated,
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { CartItem } from './cart-item.entity';
@@ -18,7 +19,8 @@ export class Cart {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'uuid', unique: true, default: () => 'uuid_generate_v4()' })
+  @Column({ type: 'uuid', unique: true })
+  @Generated('uuid')
   uuid: string;
 
   @Column({ name: 'user_id' })

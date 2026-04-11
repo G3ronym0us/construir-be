@@ -21,12 +21,15 @@ describe('OrdersService.cancelPendingOrder', () => {
   let service: OrdersService;
   let orderRepo: { findOne: jest.Mock; save: jest.Mock };
   let productRepo: { increment: jest.Mock };
-  let emailService: { sendOrderCanceled: jest.Mock };
+  let emailService: { sendOrderCanceled: jest.Mock; sendAdminOrderCancelled: jest.Mock };
 
   beforeEach(async () => {
     orderRepo = { findOne: jest.fn(), save: jest.fn() };
     productRepo = { increment: jest.fn().mockResolvedValue(undefined) };
-    emailService = { sendOrderCanceled: jest.fn().mockResolvedValue(undefined) };
+    emailService = {
+      sendOrderCanceled: jest.fn().mockResolvedValue(undefined),
+      sendAdminOrderCancelled: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -72,14 +75,18 @@ describe('OrdersService.cancelPendingOrder', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('throws BadRequestException when status is ON_HOLD', async () => {
-    orderRepo.findOne.mockResolvedValue(
-      makeOrder({ status: OrderStatus.ON_HOLD }),
-    );
+  it('allows cancelling an ON_HOLD order', async () => {
+    const order = makeOrder({ status: OrderStatus.ON_HOLD });
+    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+
+    orderRepo.findOne
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(savedOrder);
+    orderRepo.save.mockResolvedValue(savedOrder);
 
     await expect(
       service.cancelPendingOrder(100, dateCompleted),
-    ).rejects.toThrow(BadRequestException);
+    ).resolves.not.toThrow();
   });
 
   it('throws BadRequestException when status is CANCELLED', async () => {

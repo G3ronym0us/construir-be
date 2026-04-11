@@ -375,6 +375,7 @@ export class OrdersService {
     // 11. Enviar email de confirmación
     const finalOrder = await this.findOneByUuid(order.uuid);
     await this.emailService.sendOrderConfirmation(finalOrder);
+    await this.emailService.sendAdminNewOrder(finalOrder);
 
     // 12. Retornar la orden completa
     return finalOrder;
@@ -530,6 +531,7 @@ export class OrdersService {
     const cancelledOrder = await this.orderRepository.save(order);
     const fullOrder = await this.findOneByUuid(cancelledOrder.uuid);
     await this.emailService.sendOrderCanceled(fullOrder);
+    await this.emailService.sendAdminOrderCancelled(fullOrder);
     return cancelledOrder;
   }
 
@@ -840,8 +842,6 @@ export class OrdersService {
       );
     }
 
-    query.andWhere('order.status != :status', { status: OrderStatus.ON_HOLD });
-
     const total = await query.getCount();
 
     query.orderBy('order.createdAt', 'DESC');
@@ -944,6 +944,7 @@ export class OrdersService {
     const cancelledOrder = await this.orderRepository.save(order);
     const fullOrder = await this.findOneByUuid(cancelledOrder.uuid);
     await this.emailService.sendOrderCanceled(fullOrder);
+    await this.emailService.sendAdminOrderCancelled(fullOrder);
     return cancelledOrder;
   }
 

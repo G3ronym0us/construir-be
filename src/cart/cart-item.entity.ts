@@ -7,6 +7,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Generated,
 } from 'typeorm';
 import { Cart } from './cart.entity';
 import { Product } from '../products/product.entity';
@@ -16,6 +17,10 @@ export class CartItem {
   @Exclude()
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'uuid', unique: true })
+  @Generated('uuid')
+  uuid: string;
 
   @Column({ name: 'cart_id' })
   cartId: number;

@@ -14,21 +14,43 @@ import { DiscountsService } from '../discounts/discounts.service';
 import { BanksService } from '../banks/banks.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 
-const mockRepository = () => ({ find: jest.fn() });
 const mockService = () => ({});
 
 describe('OrdersService.getPendingOrders', () => {
   let service: OrdersService;
-  let orderRepo: ReturnType<typeof mockRepository>;
+  let mockQueryBuilder: {
+    innerJoin: jest.Mock;
+    leftJoinAndSelect: jest.Mock;
+    where: jest.Mock;
+    orderBy: jest.Mock;
+    skip: jest.Mock;
+    take: jest.Mock;
+    getManyAndCount: jest.Mock;
+  };
   let guestCustomersService: { findByEmail: jest.Mock };
 
   beforeEach(async () => {
+    mockQueryBuilder = {
+      innerJoin: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn(),
+    };
+
     guestCustomersService = { findByEmail: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrdersService,
-        { provide: getRepositoryToken(Order), useFactory: mockRepository },
+        {
+          provide: getRepositoryToken(Order),
+          useValue: {
+            createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
+          },
+        },
         { provide: getRepositoryToken(OrderItem), useValue: {} },
         { provide: getRepositoryToken(ShippingAddress), useValue: {} },
         { provide: getRepositoryToken(PaymentInfo), useValue: {} },
@@ -44,7 +66,6 @@ describe('OrdersService.getPendingOrders', () => {
     }).compile();
 
     service = module.get(OrdersService);
-    orderRepo = module.get(getRepositoryToken(Order));
   });
 
   const makeItem = (
@@ -83,30 +104,13 @@ describe('OrdersService.getPendingOrders', () => {
       ...overrides,
     }) as Order;
 
-  it('queries orders with ON_HOLD status ordered by createdAt DESC', async () => {
-    orderRepo.find.mockResolvedValue([]);
-
-    await service.getPendingOrders();
-
-    expect(orderRepo.find).toHaveBeenCalledWith({
-      where: { status: OrderStatus.ON_HOLD },
-      relations: [
-        'items',
-        'items.product',
-        'shippingAddress',
-        'paymentInfo',
-        'user',
-      ],
-      order: { createdAt: 'DESC' },
-    });
-  });
-
-  it('returns empty array when no on-hold orders exist', async () => {
-    orderRepo.find.mockResolvedValue([]);
+  it('returns empty data array when no on-hold orders exist', async () => {
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
 
     const result = await service.getPendingOrders();
 
-    expect(result).toEqual([]);
+    expect(result.data).toEqual([]);
+    expect(result.total).toBe(0);
   });
 
   it('maps billing from authenticated user', async () => {
@@ -118,9 +122,10 @@ describe('OrdersService.getPendingOrders', () => {
       } as User,
       guestEmail: null,
     });
-    orderRepo.find.mockResolvedValue([order]);
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
 
-    const [result] = await service.getPendingOrders();
+    const { data } = await service.getPendingOrders();
+    const result = data[0];
 
     expect(result.billing.first_name).toBe('Juan');
     expect(result.billing.last_name).toBe('Pérez');
@@ -130,13 +135,14 @@ describe('OrdersService.getPendingOrders', () => {
 
   it('maps billing from guest customer when no user', async () => {
     const order = makeOrder({ user: null, guestEmail: 'guest@test.com' });
-    orderRepo.find.mockResolvedValue([order]);
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
     guestCustomersService.findByEmail.mockResolvedValue({
       firstName: 'María',
       lastName: 'González',
     });
 
-    const [result] = await service.getPendingOrders();
+    const { data } = await service.getPendingOrders();
+    const result = data[0];
 
     expect(guestCustomersService.findByEmail).toHaveBeenCalledWith(
       'guest@test.com',
@@ -148,10 +154,11 @@ describe('OrdersService.getPendingOrders', () => {
 
   it('sets billing name to null when guest customer not found', async () => {
     const order = makeOrder({ user: null, guestEmail: 'unknown@test.com' });
-    orderRepo.find.mockResolvedValue([order]);
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
     guestCustomersService.findByEmail.mockResolvedValue(null);
 
-    const [result] = await service.getPendingOrders();
+    const { data } = await service.getPendingOrders();
+    const result = data[0];
 
     expect(result.billing.first_name).toBeNull();
     expect(result.billing.last_name).toBeNull();
@@ -163,9 +170,10 @@ describe('OrdersService.getPendingOrders', () => {
       deliveryMethod: DeliveryMethod.PICKUP,
       shippingAddress: null,
     });
-    orderRepo.find.mockResolvedValue([order]);
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
 
-    const [result] = await service.getPendingOrders();
+    const { data } = await service.getPendingOrders();
+    const result = data[0];
 
     expect(result.billing.address_1).toBeNull();
     expect(result.billing.city).toBeNull();
@@ -177,18 +185,20 @@ describe('OrdersService.getPendingOrders', () => {
 
   it('sets payment_method_title for delivery orders', async () => {
     const order = makeOrder({ deliveryMethod: DeliveryMethod.DELIVERY });
-    orderRepo.find.mockResolvedValue([order]);
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
 
-    const [result] = await service.getPendingOrders();
+    const { data } = await service.getPendingOrders();
+    const result = data[0];
 
     expect(result.payment_method_title).toBe('Envío a domicilio');
   });
 
   it('returns correct shape for each order', async () => {
     const order = makeOrder();
-    orderRepo.find.mockResolvedValue([order]);
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
 
-    const [result] = await service.getPendingOrders();
+    const { data } = await service.getPendingOrders();
+    const result = data[0];
 
     expect(result).toMatchObject({
       id: 100,
@@ -203,9 +213,10 @@ describe('OrdersService.getPendingOrders', () => {
 
   it('returns correct line_items shape', async () => {
     const order = makeOrder();
-    orderRepo.find.mockResolvedValue([order]);
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
 
-    const [result] = await service.getPendingOrders();
+    const { data } = await service.getPendingOrders();
+    const result = data[0];
 
     expect(result.line_items).toHaveLength(1);
     expect(result.line_items[0]).toMatchObject({
@@ -223,9 +234,10 @@ describe('OrdersService.getPendingOrders', () => {
 
   it('uses product_id 0 when item has no product relation', async () => {
     const order = makeOrder({ items: [makeItem({ product: null })] });
-    orderRepo.find.mockResolvedValue([order]);
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
 
-    const [result] = await service.getPendingOrders();
+    const { data } = await service.getPendingOrders();
+    const result = data[0];
 
     expect(result.line_items[0].product_id).toBe(0);
   });

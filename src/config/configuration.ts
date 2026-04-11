@@ -38,6 +38,7 @@ export interface EmailConfig {
   user: string;
   password: string;
   from: string;
+  adminNotificationEmail: string;
 }
 
 export const databaseConfig = registerAs(
@@ -94,5 +95,6 @@ export const emailConfig = registerAs(
     user: process.env.EMAIL_USER || '',
     password: process.env.EMAIL_PASSWORD || '',
     from: process.env.EMAIL_FROM || '"Construir" <noreply@construir.com>',
+    adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL || '',
   }),
 );

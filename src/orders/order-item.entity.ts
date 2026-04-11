@@ -6,6 +6,7 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Generated,
 } from 'typeorm';
 import { Order } from './order.entity';
 import { Product } from '../products/product.entity';
@@ -16,7 +17,8 @@ export class OrderItem {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'uuid', unique: true, default: () => 'uuid_generate_v4()' })
+  @Column({ type: 'uuid', unique: true })
+  @Generated('uuid')
   uuid: string;
 
   @Column({ name: 'order_id' })

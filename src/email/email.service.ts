@@ -231,6 +231,78 @@ export class EmailService {
     );
   }
 
+  async sendAdminNewOrder(order: Order): Promise<void> {
+    const adminEmail = this.configService.get<string>(
+      'email.adminNotificationEmail',
+    );
+    if (!adminEmail) return;
+
+    const templateSource = await this.loadTemplate('admin-new-order');
+    const template = handlebars.compile(templateSource);
+
+    const frontendUrl =
+      this.configService.get('app.frontendUrl') || 'http://localhost:3001';
+    const customerName =
+      order.shippingAddress
+        ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
+        : order.user?.email || order.guestEmail || 'Cliente invitado';
+
+    const html = template({
+      orderNumber: order.orderNumber,
+      orderDate: new Date(order.createdAt).toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      customerName,
+      customerEmail: order.user?.email || order.guestEmail || '—',
+      total: Number(order.total).toFixed(2),
+      paymentMethod: this.translatePaymentMethod(order.paymentInfo?.method),
+      deliveryMethod: order.deliveryMethod === 'pickup' ? 'Retiro en tienda' : 'Delivery',
+      itemCount: order.items?.length || 0,
+      adminUrl: `${frontendUrl}/admin/dashboard/ordenes/${order.uuid}`,
+    });
+
+    await this.sendEmail(
+      adminEmail,
+      `🛒 Nueva orden #${order.orderNumber}`,
+      html,
+    );
+  }
+
+  async sendAdminOrderCancelled(order: Order): Promise<void> {
+    const adminEmail = this.configService.get<string>(
+      'email.adminNotificationEmail',
+    );
+    if (!adminEmail) return;
+
+    const templateSource = await this.loadTemplate('admin-order-cancelled');
+    const template = handlebars.compile(templateSource);
+
+    const frontendUrl =
+      this.configService.get('app.frontendUrl') || 'http://localhost:3001';
+    const customerName =
+      order.shippingAddress
+        ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
+        : order.user?.email || order.guestEmail || 'Cliente invitado';
+
+    const html = template({
+      orderNumber: order.orderNumber,
+      customerName,
+      customerEmail: order.user?.email || order.guestEmail || '—',
+      total: Number(order.total).toFixed(2),
+      adminUrl: `${frontendUrl}/admin/dashboard/ordenes/${order.uuid}`,
+    });
+
+    await this.sendEmail(
+      adminEmail,
+      `❌ Orden cancelada #${order.orderNumber}`,
+      html,
+    );
+  }
+
   async sendInvitationEmail(params: {
     to: string;
     inviteUrl: string;

@@ -95,12 +95,12 @@ export class CartService {
 
   async updateItem(
     userId: number,
-    itemId: number,
+    itemId: string,
     updateCartItemDto: UpdateCartItemDto,
   ): Promise<Cart> {
     const cart = await this.getCart(userId);
 
-    const cartItem = cart.items?.find((item) => item.id === itemId);
+    const cartItem = cart.items?.find((item) => item.uuid === itemId);
 
     if (!cartItem) {
       throw new NotFoundException(`Cart item with ID ${itemId} not found`);
@@ -130,10 +130,10 @@ export class CartService {
     return this.getCart(userId);
   }
 
-  async removeItem(userId: number, itemId: number): Promise<Cart> {
+  async removeItem(userId: number, itemId: string): Promise<Cart> {
     const cart = await this.getCart(userId);
 
-    const cartItem = cart.items?.find((item) => item.id === itemId);
+    const cartItem = cart.items?.find((item) => item.uuid === itemId);
 
     if (!cartItem) {
       throw new NotFoundException(`Cart item with ID ${itemId} not found`);

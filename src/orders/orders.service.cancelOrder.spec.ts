@@ -21,12 +21,15 @@ describe('OrdersService.cancelOrder', () => {
   let service: OrdersService;
   let orderRepo: { findOne: jest.Mock; save: jest.Mock };
   let productRepo: { increment: jest.Mock };
-  let emailService: { sendOrderCanceled: jest.Mock };
+  let emailService: { sendOrderCanceled: jest.Mock; sendAdminOrderCancelled: jest.Mock };
 
   beforeEach(async () => {
     orderRepo = { findOne: jest.fn(), save: jest.fn() };
     productRepo = { increment: jest.fn().mockResolvedValue(undefined) };
-    emailService = { sendOrderCanceled: jest.fn().mockResolvedValue(undefined) };
+    emailService = {
+      sendOrderCanceled: jest.fn().mockResolvedValue(undefined),
+      sendAdminOrderCancelled: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

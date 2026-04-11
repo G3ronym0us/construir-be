@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -20,6 +21,8 @@ import { ApiKeysModule } from './api-keys/api-keys.module';
 import { ApiV1Module } from './api-v1/api-v1.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { ApiRequestLogsModule } from './api-request-logs/api-request-logs.module';
+import { AdminAuditLogsModule } from './admin-audit-logs/admin-audit-logs.module';
+import { AuditLogInterceptor } from './admin-audit-logs/audit-log.interceptor';
 import {
   databaseConfig,
   jwtConfig,
@@ -67,8 +70,12 @@ import {
     ApiV1Module,
     WebhooksModule,
     ApiRequestLogsModule,
+    AdminAuditLogsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
+  ],
 })
 export class AppModule {}

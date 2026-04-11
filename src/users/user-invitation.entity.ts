@@ -5,9 +5,11 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
-  Generated,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 import { UserRole } from './user.entity';
 
 @Entity('user_invitations')
@@ -18,8 +20,7 @@ export class UserInvitation {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true })
-  @Generated('uuid')
+  @Column({ type: 'varchar', unique: true })
   uuid: string;
 
   @Column()
@@ -28,6 +29,7 @@ export class UserInvitation {
   @Column({
     type: 'enum',
     enum: UserRole,
+    enumName: 'users_role_enum',
     default: UserRole.USER,
   })
   role: UserRole;
@@ -51,9 +53,13 @@ export class UserInvitation {
   @Column({ name: 'invited_by_user_id', type: 'int', nullable: true })
   invitedByUserId: number | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'invited_by_user_id', foreignKeyConstraintName: 'user_invitations_invited_by_user_id_fkey' })
+  invitedBy: User | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

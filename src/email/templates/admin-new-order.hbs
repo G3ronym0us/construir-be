@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nueva orden #{{orderNumber}}</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #f4f4f4; font-family: Arial, sans-serif; }
+    .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+    .header { background-color: #1e3a8a; padding: 24px 32px; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 20px; }
+    .body { padding: 32px; }
+    .row { display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding: 10px 0; font-size: 14px; color: #374151; }
+    .label { color: #6b7280; }
+    .value { font-weight: 600; color: #111827; }
+    .total-row { border-bottom: none; font-size: 16px; }
+    .btn { display: inline-block; margin-top: 24px; padding: 12px 24px; background-color: #1e3a8a; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600; }
+    .footer { padding: 16px 32px; background: #f9fafb; font-size: 12px; color: #9ca3af; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🛒 Nueva orden recibida</h1>
+    </div>
+    <div class="body">
+      <div class="row">
+        <span class="label">Número de orden</span>
+        <span class="value">#{{orderNumber}}</span>
+      </div>
+      <div class="row">
+        <span class="label">Fecha</span>
+        <span class="value">{{orderDate}}</span>
+      </div>
+      <div class="row">
+        <span class="label">Cliente</span>
+        <span class="value">{{customerName}}</span>
+      </div>
+      <div class="row">
+        <span class="label">Email</span>
+        <span class="value">{{customerEmail}}</span>
+      </div>
+      <div class="row">
+        <span class="label">Método de pago</span>
+        <span class="value">{{paymentMethod}}</span>
+      </div>
+      <div class="row">
+        <span class="label">Entrega</span>
+        <span class="value">{{deliveryMethod}}</span>
+      </div>
+      <div class="row">
+        <span class="label">Productos</span>
+        <span class="value">{{itemCount}} artículo(s)</span>
+      </div>
+      <div class="row total-row">
+        <span class="label">Total</span>
+        <span class="value">${{total}}</span>
+      </div>
+      <a href="{{adminUrl}}" class="btn">Ver en el panel admin</a>
+    </div>
+    <div class="footer">Este es un correo automático del sistema Construir.</div>
+  </div>
+</body>
+</html>

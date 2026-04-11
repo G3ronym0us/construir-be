@@ -35,12 +35,12 @@ export class CartController {
     @Param('id') id: string,
     @Body() updateCartItemDto: UpdateCartItemDto,
   ) {
-    return this.cartService.updateItem(req.user.userId, +id, updateCartItemDto);
+    return this.cartService.updateItem(req.user.userId, id, updateCartItemDto);
   }
 
   @Delete('items/:id')
   async removeItem(@Request() req, @Param('id') id: string) {
-    return this.cartService.removeItem(req.user.userId, +id);
+    return this.cartService.removeItem(req.user.userId, id);
   }
 
   @Delete()
