@@ -10,6 +10,8 @@ import {
   UseGuards,
   Request,
   NotFoundException,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { InvitationsService } from './invitations.service';
@@ -45,8 +47,28 @@ export class UsersController {
   @Post('register')
   async register(@Body() createUserDto: CreateUserDto) {
     const user = await this.usersService.create(createUserDto);
-    const { password, ...result } = user;
+    const { password, emailVerificationToken, emailVerificationExpiresAt, ...result } = user;
     return result;
+  }
+
+  /**
+   * Verify email with token
+   */
+  @Get('verify-email')
+  @HttpCode(HttpStatus.OK)
+  async verifyEmail(@Query('token') token: string) {
+    await this.usersService.verifyEmail(token);
+    return { message: 'Correo verificado exitosamente' };
+  }
+
+  /**
+   * Resend verification email
+   */
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.OK)
+  async resendVerification(@Body('email') email: string) {
+    await this.usersService.resendVerification(email);
+    return { message: 'Si el correo existe y no está verificado, recibirás un nuevo enlace de verificación' };
   }
 
   // ==================== USER PROFILE ENDPOINTS ====================

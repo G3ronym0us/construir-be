@@ -1,4 +1,5 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IdentificationType } from '../../orders/guest-customer.entity';
 
 export class CreateUserDto {
   @IsNotEmpty()
@@ -17,4 +18,16 @@ export class CreateUserDto {
   @IsString()
   @MinLength(6)
   password: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsEnum(IdentificationType)
+  identificationType?: IdentificationType;
+
+  @IsOptional()
+  @IsString()
+  identificationNumber?: string;
 }

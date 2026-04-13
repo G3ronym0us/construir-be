@@ -23,6 +23,11 @@ export class AuthService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
+    // Check if email is verified (only required for customer/user roles)
+    if (!user.emailVerified && (user.role === 'customer' || user.role === 'user')) {
+      throw new UnauthorizedException('Email not verified');
+    }
+
     // Check if account is soft deleted
     if (user.deletedAt) {
       throw new UnauthorizedException('Account not found');

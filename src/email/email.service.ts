@@ -303,6 +303,29 @@ export class EmailService {
     );
   }
 
+  async sendEmailVerification(params: {
+    to: string;
+    firstName?: string;
+    verificationUrl: string;
+    storeName: string;
+  }): Promise<void> {
+    const templateSource = await this.loadTemplate('email-verification');
+    const template = handlebars.compile(templateSource);
+
+    const html = template({
+      logoUrl: this.getLogoUrl(),
+      firstName: params.firstName,
+      verificationUrl: params.verificationUrl,
+      storeName: params.storeName,
+    });
+
+    await this.sendEmail(
+      params.to,
+      `Confirma tu correo electrónico - ${params.storeName}`,
+      html,
+    );
+  }
+
   async sendInvitationEmail(params: {
     to: string;
     inviteUrl: string;

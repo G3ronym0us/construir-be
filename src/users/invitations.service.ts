@@ -153,6 +153,7 @@ export class InvitationsService {
           password: hashedPassword,
           role: invitation.role,
           isActive: true,
+          emailVerified: true,
         });
 
         await em.save(User, user);

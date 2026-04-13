@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   ConflictException,
   NotFoundException,
@@ -6,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as crypto from 'crypto';
+import { ConfigService } from '@nestjs/config';
 import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { CreateUserAdminDto } from './dto/create-user-admin.dto';
@@ -16,12 +19,15 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GetUsersDto } from './dto/get-users.dto';
 import * as bcrypt from 'bcrypt';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+    private emailService: EmailService,
+    private configService: ConfigService,
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
@@ -34,15 +40,85 @@ export class UsersService {
     }
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    const token = crypto.randomBytes(48).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const user = this.usersRepository.create({
       firstName: createUserDto.firstName,
       lastName: createUserDto.lastName,
       email: createUserDto.email,
       password: hashedPassword,
+      phone: createUserDto.phone ?? null,
+      identificationType: createUserDto.identificationType ?? null,
+      identificationNumber: createUserDto.identificationNumber ?? null,
+      emailVerified: false,
+      emailVerificationToken: token,
+      emailVerificationExpiresAt: expiresAt,
     });
 
-    return await this.usersRepository.save(user);
+    await this.usersRepository.save(user);
+
+    this.sendVerificationEmail(user).catch((err) =>
+      console.error('Error sending verification email:', err),
+    );
+
+    return user;
+  }
+
+  async verifyEmail(token: string): Promise<void> {
+    const user = await this.usersRepository.findOne({
+      where: { emailVerificationToken: token },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Token de verificación inválido');
+    }
+
+    if (!user.emailVerificationExpiresAt || user.emailVerificationExpiresAt < new Date()) {
+      throw new BadRequestException(
+        'El token de verificación ha expirado. Solicita uno nuevo.',
+      );
+    }
+
+    user.emailVerified = true;
+    user.emailVerificationToken = null;
+    user.emailVerificationExpiresAt = null;
+    await this.usersRepository.save(user);
+  }
+
+  async resendVerification(email: string): Promise<void> {
+    const user = await this.usersRepository.findOne({ where: { email } });
+
+    if (!user) {
+      // No revelar si el correo existe o no
+      return;
+    }
+
+    if (user.emailVerified) {
+      throw new BadRequestException('Este correo ya fue verificado');
+    }
+
+    const token = crypto.randomBytes(48).toString('hex');
+    user.emailVerificationToken = token;
+    user.emailVerificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await this.usersRepository.save(user);
+
+    this.sendVerificationEmail(user).catch((err) =>
+      console.error('Error sending verification email:', err),
+    );
+  }
+
+  private async sendVerificationEmail(user: User): Promise<void> {
+    const frontendUrl = this.configService.get<string>('app.frontendUrl') || 'http://localhost:4000';
+    const storeName = this.configService.get<string>('app.storeName') || 'Construir';
+    const verificationUrl = `${frontendUrl}/verify-email?token=${user.emailVerificationToken}`;
+
+    await this.emailService.sendEmailVerification({
+      to: user.email,
+      firstName: user.firstName,
+      verificationUrl,
+      storeName,
+    });
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -79,6 +155,7 @@ export class UsersService {
       password: hashedPassword,
       role: createUserAdminDto.role,
       isActive: createUserAdminDto.isActive ?? true,
+      emailVerified: true,
     });
 
     return await this.usersRepository.save(user);

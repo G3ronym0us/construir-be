@@ -8,6 +8,7 @@ import {
   DeleteDateColumn,
   Generated,
 } from 'typeorm';
+import { IdentificationType } from '../orders/guest-customer.entity';
 
 export enum UserRole {
   ADMIN = 'admin',
@@ -45,8 +46,26 @@ export class User {
   })
   role: UserRole;
 
+  @Column({ name: 'phone', type: 'varchar', length: 20, nullable: true })
+  phone: string | null;
+
+  @Column({ name: 'identification_type', type: 'enum', enum: IdentificationType, nullable: true })
+  identificationType: IdentificationType | null;
+
+  @Column({ name: 'identification_number', type: 'varchar', length: 50, nullable: true })
+  identificationNumber: string | null;
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
+
+  @Column({ name: 'email_verified', type: 'boolean', default: false })
+  emailVerified: boolean;
+
+  @Column({ name: 'email_verification_token', type: 'varchar', length: 128, nullable: true, unique: true })
+  emailVerificationToken: string | null;
+
+  @Column({ name: 'email_verification_expires_at', type: 'timestamptz', nullable: true })
+  emailVerificationExpiresAt: Date | null;
 
   @DeleteDateColumn({ name: 'deleted_at' })
   deletedAt: Date | null;
