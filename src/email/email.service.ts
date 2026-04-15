@@ -242,10 +242,9 @@ export class EmailService {
 
     const frontendUrl =
       this.configService.get('app.frontendUrl') || 'http://localhost:3001';
-    const customerName =
-      order.shippingAddress
-        ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
-        : order.user?.email || order.guestEmail || 'Cliente invitado';
+    const customerName = order.shippingAddress
+      ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
+      : order.user?.email || order.guestEmail || 'Cliente invitado';
 
     const html = template({
       orderNumber: order.orderNumber,
@@ -260,7 +259,8 @@ export class EmailService {
       customerEmail: order.user?.email || order.guestEmail || '—',
       total: Number(order.total).toFixed(2),
       paymentMethod: this.translatePaymentMethod(order.paymentInfo?.method),
-      deliveryMethod: order.deliveryMethod === 'pickup' ? 'Retiro en tienda' : 'Delivery',
+      deliveryMethod:
+        order.deliveryMethod === 'pickup' ? 'Retiro en tienda' : 'Delivery',
       itemCount: order.items?.length || 0,
       adminUrl: `${frontendUrl}/admin/dashboard/ordenes/${order.uuid}`,
     });
@@ -283,10 +283,9 @@ export class EmailService {
 
     const frontendUrl =
       this.configService.get('app.frontendUrl') || 'http://localhost:3001';
-    const customerName =
-      order.shippingAddress
-        ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
-        : order.user?.email || order.guestEmail || 'Cliente invitado';
+    const customerName = order.shippingAddress
+      ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
+      : order.user?.email || order.guestEmail || 'Cliente invitado';
 
     const html = template({
       orderNumber: order.orderNumber,
@@ -322,6 +321,29 @@ export class EmailService {
     await this.sendEmail(
       params.to,
       `Confirma tu correo electrónico - ${params.storeName}`,
+      html,
+    );
+  }
+
+  async sendPasswordReset(params: {
+    to: string;
+    firstName?: string;
+    resetUrl: string;
+    storeName: string;
+  }): Promise<void> {
+    const templateSource = await this.loadTemplate('password-reset');
+    const template = handlebars.compile(templateSource);
+
+    const html = template({
+      logoUrl: this.getLogoUrl(),
+      firstName: params.firstName,
+      resetUrl: params.resetUrl,
+      storeName: params.storeName,
+    });
+
+    await this.sendEmail(
+      params.to,
+      `Restablece tu contraseña - ${params.storeName}`,
       html,
     );
   }

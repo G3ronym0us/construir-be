@@ -74,7 +74,10 @@ export class UsersService {
       throw new BadRequestException('Token de verificación inválido');
     }
 
-    if (!user.emailVerificationExpiresAt || user.emailVerificationExpiresAt < new Date()) {
+    if (
+      !user.emailVerificationExpiresAt ||
+      user.emailVerificationExpiresAt < new Date()
+    ) {
       throw new BadRequestException(
         'El token de verificación ha expirado. Solicita uno nuevo.',
       );
@@ -100,7 +103,9 @@ export class UsersService {
 
     const token = crypto.randomBytes(48).toString('hex');
     user.emailVerificationToken = token;
-    user.emailVerificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    user.emailVerificationExpiresAt = new Date(
+      Date.now() + 24 * 60 * 60 * 1000,
+    );
     await this.usersRepository.save(user);
 
     this.sendVerificationEmail(user).catch((err) =>
@@ -109,8 +114,11 @@ export class UsersService {
   }
 
   private async sendVerificationEmail(user: User): Promise<void> {
-    const frontendUrl = this.configService.get<string>('app.frontendUrl') || 'http://localhost:4000';
-    const storeName = this.configService.get<string>('app.storeName') || 'Construir';
+    const frontendUrl =
+      this.configService.get<string>('app.frontendUrl') ||
+      'http://localhost:4000';
+    const storeName =
+      this.configService.get<string>('app.storeName') || 'Construir';
     const verificationUrl = `${frontendUrl}/verify-email?token=${user.emailVerificationToken}`;
 
     await this.emailService.sendEmailVerification({
@@ -361,5 +369,56 @@ export class UsersService {
       deleted,
       byRole,
     };
+  }
+
+  async requestPasswordReset(email: string): Promise<void> {
+    const user = await this.usersRepository.findOne({ where: { email } });
+
+    if (!user || !user.isActive || !user.emailVerified) {
+      return;
+    }
+
+    const token = crypto.randomBytes(48).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    user.passwordResetToken = token;
+    user.passwordResetExpiresAt = expiresAt;
+    await this.usersRepository.save(user);
+
+    const frontendUrl =
+      this.configService.get<string>('app.frontendUrl') ||
+      'http://localhost:4000';
+    const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+    const storeName =
+      this.configService.get<string>('app.storeName') || 'Construir';
+
+    await this.emailService.sendPasswordReset({
+      to: user.email,
+      firstName: user.firstName,
+      resetUrl,
+      storeName,
+    });
+  }
+
+  async confirmPasswordReset(
+    token: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.usersRepository.findOne({
+      where: { passwordResetToken: token },
+    });
+
+    if (
+      !user ||
+      !user.passwordResetExpiresAt ||
+      user.passwordResetExpiresAt < new Date()
+    ) {
+      throw new BadRequestException('Token inválido o expirado');
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.passwordResetToken = null;
+    user.passwordResetExpiresAt = null;
+    await this.usersRepository.save(user);
   }
 }
