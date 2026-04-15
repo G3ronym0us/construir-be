@@ -5,9 +5,11 @@ import {
   Min,
   IsOptional,
   IsArray,
+  IsEnum,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { IvaType } from '../../products/enums/iva-type.enum';
 
 export class CreateProductForV1Dto {
   @ApiProperty({
@@ -112,6 +114,16 @@ export class CreateProductForV1Dto {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Tipo de IVA aplicable al producto. 0=Normal (16%), 1=Exento (0%), 2=Reducido (8%), 3=Lujo (24%)',
+    enum: IvaType,
+    default: IvaType.NORMAL,
+  })
+  @IsOptional()
+  @IsEnum(IvaType)
+  ivaType?: IvaType;
 }
 
 export class UpdateProductForV1Dto extends PartialType(CreateProductForV1Dto) {}

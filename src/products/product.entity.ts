@@ -13,6 +13,7 @@ import {
 import { Exclude } from 'class-transformer';
 import { ProductImage } from './product-image.entity';
 import { Category } from '../categories/category.entity';
+import { IvaType } from './enums/iva-type.enum';
 
 @Entity('products')
 export class Product {
@@ -47,6 +48,9 @@ export class Product {
     nullable: true,
   })
   priceVes: number;
+
+  @Column({ name: 'iva_type', type: 'smallint', default: 0 })
+  ivaType: IvaType;
 
   @ManyToMany(() => Category, (category) => category.products, { eager: true })
   @JoinTable({

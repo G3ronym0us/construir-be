@@ -6,8 +6,10 @@ import {
   IsOptional,
   IsBoolean,
   IsArray,
+  IsEnum,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IvaType } from '../enums/iva-type.enum';
 
 export class CreateProductDto {
   @ApiProperty({
@@ -150,4 +152,14 @@ export class CreateProductDto {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Tipo de IVA aplicable al producto. 0=Normal (16%), 1=Exento (0%), 2=Reducido (8%), 3=Lujo (24%)',
+    enum: IvaType,
+    default: IvaType.NORMAL,
+  })
+  @IsOptional()
+  @IsEnum(IvaType)
+  ivaType?: IvaType;
 }

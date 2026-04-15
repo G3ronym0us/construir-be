@@ -76,10 +76,12 @@ export class ProductsService {
     lastPage: number;
   }> {
     // Step 1: paginate IDs only (no joins) — avoids TypeORM leftJoinAndSelect + skip/take bug
-    // where LIMIT is applied to joined rows instead of root entities
+    // where LIMIT is applied to joined rows instead of root entities.
+    // sortBy must also be in SELECT so the DISTINCT wrapper can reference it when a JOIN is added.
     const idsBuilder = this.productsRepository
       .createQueryBuilder('product')
       .select('product.id')
+      .addSelect(`product.${sortBy}`)
       .andWhere('product.inventory > 0')
       .andWhere('product.published = true');
 
@@ -342,10 +344,12 @@ export class ProductsService {
     page: number;
     lastPage: number;
   }> {
-    // Step 1: paginate IDs only (no joins) — avoids TypeORM leftJoinAndSelect + skip/take bug
+    // Step 1: paginate IDs only (no joins) — avoids TypeORM leftJoinAndSelect + skip/take bug.
+    // sortBy must also be in SELECT so the DISTINCT wrapper can reference it when a JOIN is added.
     const idsBuilder = this.productsRepository
       .createQueryBuilder('product')
-      .select('product.id');
+      .select('product.id')
+      .addSelect(`product.${sortBy}`);
 
     if (search) {
       idsBuilder.andWhere(
