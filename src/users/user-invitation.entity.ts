@@ -54,7 +54,10 @@ export class UserInvitation {
   invitedByUserId: number | null;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'invited_by_user_id', foreignKeyConstraintName: 'user_invitations_invited_by_user_id_fkey' })
+  @JoinColumn({
+    name: 'invited_by_user_id',
+    foreignKeyConstraintName: 'user_invitations_invited_by_user_id_fkey',
+  })
   invitedBy: User | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

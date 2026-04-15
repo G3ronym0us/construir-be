@@ -24,7 +24,10 @@ export class AuthService {
     }
 
     // Check if email is verified (only required for customer/user roles)
-    if (!user.emailVerified && (user.role === 'customer' || user.role === 'user')) {
+    if (
+      !user.emailVerified &&
+      (user.role === 'customer' || user.role === 'user')
+    ) {
       throw new UnauthorizedException('Email not verified');
     }
 

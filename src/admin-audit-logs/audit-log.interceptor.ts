@@ -46,18 +46,20 @@ export class AuditLogInterceptor implements NestInterceptor {
           try {
             const action = this.inferAction(method, req.path);
             const resource = this.inferResource(req.route?.path ?? req.path);
-            const resourceId =
-              req.params?.uuid ?? req.params?.id ?? null;
+            const resourceId = req.params?.uuid ?? req.params?.id ?? null;
             const details = this.sanitizeBody(req.body);
             const ipAddress =
-              (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ??
+              (req.headers['x-forwarded-for'] as string)
+                ?.split(',')[0]
+                ?.trim() ??
               req.ip ??
               null;
 
             this.auditLogService.log({
               userId: user.userId ?? null,
               userEmail: user.email ?? '',
-              userFullName: `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim(),
+              userFullName:
+                `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim(),
               action,
               resource,
               resourceId,
@@ -65,7 +67,10 @@ export class AuditLogInterceptor implements NestInterceptor {
               ipAddress,
             });
           } catch (err) {
-            console.error('[AuditLogInterceptor] Error building log entry:', err);
+            console.error(
+              '[AuditLogInterceptor] Error building log entry:',
+              err,
+            );
           }
         },
       }),
@@ -76,9 +81,12 @@ export class AuditLogInterceptor implements NestInterceptor {
     if (path.includes('/bulk/')) return AuditAction.BULK;
     if (path.includes('/revoke')) return AuditAction.UPDATE;
     switch (method) {
-      case 'POST': return AuditAction.CREATE;
-      case 'DELETE': return AuditAction.DELETE;
-      default: return AuditAction.UPDATE;
+      case 'POST':
+        return AuditAction.CREATE;
+      case 'DELETE':
+        return AuditAction.DELETE;
+      default:
+        return AuditAction.UPDATE;
     }
   }
 

@@ -539,17 +539,15 @@ export class OrdersService {
    * Obtiene estadísticas del dashboard de admin
    */
   async getAdminStats(): Promise<any> {
-    const [
-      totalOrders,
-      onHoldOrders,
-      pendingOrders,
-      completedOrders,
-    ] = await Promise.all([
-      this.orderRepository.count(),
-      this.orderRepository.count({ where: { status: OrderStatus.ON_HOLD } }),
-      this.orderRepository.count({ where: { status: OrderStatus.PENDING } }),
-      this.orderRepository.count({ where: { status: OrderStatus.COMPLETED } }),
-    ]);
+    const [totalOrders, onHoldOrders, pendingOrders, completedOrders] =
+      await Promise.all([
+        this.orderRepository.count(),
+        this.orderRepository.count({ where: { status: OrderStatus.ON_HOLD } }),
+        this.orderRepository.count({ where: { status: OrderStatus.PENDING } }),
+        this.orderRepository.count({
+          where: { status: OrderStatus.COMPLETED },
+        }),
+      ]);
 
     // Calcular ingresos totales
     const orders = await this.orderRepository.find({
@@ -954,7 +952,13 @@ export class OrdersService {
   async getPendingOrders(
     page: number = 1,
     perPage: number = 10,
-  ): Promise<{ data: any[]; total: number; page: number; perPage: number; lastPage: number }> {
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    perPage: number;
+    lastPage: number;
+  }> {
     const [orders, total] = await this.orderRepository
       .createQueryBuilder('order')
       .innerJoin('order.items', 'itemCheck')

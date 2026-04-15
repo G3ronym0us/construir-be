@@ -21,7 +21,10 @@ describe('OrdersService.cancelPendingOrder', () => {
   let service: OrdersService;
   let orderRepo: { findOne: jest.Mock; save: jest.Mock };
   let productRepo: { increment: jest.Mock };
-  let emailService: { sendOrderCanceled: jest.Mock; sendAdminOrderCancelled: jest.Mock };
+  let emailService: {
+    sendOrderCanceled: jest.Mock;
+    sendAdminOrderCancelled: jest.Mock;
+  };
 
   beforeEach(async () => {
     orderRepo = { findOne: jest.fn(), save: jest.fn() };
@@ -77,7 +80,11 @@ describe('OrdersService.cancelPendingOrder', () => {
 
   it('allows cancelling an ON_HOLD order', async () => {
     const order = makeOrder({ status: OrderStatus.ON_HOLD });
-    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+    const savedOrder = {
+      ...order,
+      status: OrderStatus.CANCELLED,
+      dateCompleted,
+    };
 
     orderRepo.findOne
       .mockResolvedValueOnce(order)
@@ -101,7 +108,11 @@ describe('OrdersService.cancelPendingOrder', () => {
 
   it('calls productRepo.increment once per item to restore inventory', async () => {
     const order = makeOrder();
-    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+    const savedOrder = {
+      ...order,
+      status: OrderStatus.CANCELLED,
+      dateCompleted,
+    };
 
     orderRepo.findOne
       .mockResolvedValueOnce(order)
@@ -111,13 +122,25 @@ describe('OrdersService.cancelPendingOrder', () => {
     await service.cancelPendingOrder(100, dateCompleted);
 
     expect(productRepo.increment).toHaveBeenCalledTimes(2);
-    expect(productRepo.increment).toHaveBeenCalledWith({ id: 10 }, 'inventory', 2);
-    expect(productRepo.increment).toHaveBeenCalledWith({ id: 20 }, 'inventory', 3);
+    expect(productRepo.increment).toHaveBeenCalledWith(
+      { id: 10 },
+      'inventory',
+      2,
+    );
+    expect(productRepo.increment).toHaveBeenCalledWith(
+      { id: 20 },
+      'inventory',
+      3,
+    );
   });
 
   it('saves the order with status CANCELLED and dateCompleted', async () => {
     const order = makeOrder();
-    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+    const savedOrder = {
+      ...order,
+      status: OrderStatus.CANCELLED,
+      dateCompleted,
+    };
 
     orderRepo.findOne
       .mockResolvedValueOnce(order)
@@ -136,7 +159,11 @@ describe('OrdersService.cancelPendingOrder', () => {
 
   it('calls sendOrderCanceled with the full order after cancelling', async () => {
     const order = makeOrder();
-    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+    const savedOrder = {
+      ...order,
+      status: OrderStatus.CANCELLED,
+      dateCompleted,
+    };
 
     orderRepo.findOne
       .mockResolvedValueOnce(order)
@@ -151,7 +178,11 @@ describe('OrdersService.cancelPendingOrder', () => {
 
   it('returns the saved order', async () => {
     const order = makeOrder();
-    const savedOrder = { ...order, status: OrderStatus.CANCELLED, dateCompleted };
+    const savedOrder = {
+      ...order,
+      status: OrderStatus.CANCELLED,
+      dateCompleted,
+    };
 
     orderRepo.findOne
       .mockResolvedValueOnce(order)

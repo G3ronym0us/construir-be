@@ -21,7 +21,10 @@ describe('OrdersService.cancelOrder', () => {
   let service: OrdersService;
   let orderRepo: { findOne: jest.Mock; save: jest.Mock };
   let productRepo: { increment: jest.Mock };
-  let emailService: { sendOrderCanceled: jest.Mock; sendAdminOrderCancelled: jest.Mock };
+  let emailService: {
+    sendOrderCanceled: jest.Mock;
+    sendAdminOrderCancelled: jest.Mock;
+  };
 
   beforeEach(async () => {
     orderRepo = { findOne: jest.fn(), save: jest.fn() };
@@ -66,7 +69,9 @@ describe('OrdersService.cancelOrder', () => {
     }) as unknown as Order;
 
   it('throws BadRequestException when status is PENDING', async () => {
-    orderRepo.findOne.mockResolvedValue(makeOrder({ status: OrderStatus.PENDING }));
+    orderRepo.findOne.mockResolvedValue(
+      makeOrder({ status: OrderStatus.PENDING }),
+    );
 
     await expect(service.cancelOrder('order-uuid-100')).rejects.toThrow(
       BadRequestException,
@@ -74,7 +79,9 @@ describe('OrdersService.cancelOrder', () => {
   });
 
   it('throws BadRequestException when status is COMPLETED', async () => {
-    orderRepo.findOne.mockResolvedValue(makeOrder({ status: OrderStatus.COMPLETED }));
+    orderRepo.findOne.mockResolvedValue(
+      makeOrder({ status: OrderStatus.COMPLETED }),
+    );
 
     await expect(service.cancelOrder('order-uuid-100')).rejects.toThrow(
       BadRequestException,
@@ -93,8 +100,16 @@ describe('OrdersService.cancelOrder', () => {
     await service.cancelOrder('order-uuid-100');
 
     expect(productRepo.increment).toHaveBeenCalledTimes(2);
-    expect(productRepo.increment).toHaveBeenCalledWith({ id: 10 }, 'inventory', 1);
-    expect(productRepo.increment).toHaveBeenCalledWith({ id: 20 }, 'inventory', 4);
+    expect(productRepo.increment).toHaveBeenCalledWith(
+      { id: 10 },
+      'inventory',
+      1,
+    );
+    expect(productRepo.increment).toHaveBeenCalledWith(
+      { id: 20 },
+      'inventory',
+      4,
+    );
   });
 
   it('saves the order with status CANCELLED', async () => {
@@ -129,7 +144,9 @@ describe('OrdersService.cancelOrder', () => {
   });
 
   it('throws BadRequestException when status is CANCELLED (already cancelled)', async () => {
-    orderRepo.findOne.mockResolvedValue(makeOrder({ status: OrderStatus.CANCELLED }));
+    orderRepo.findOne.mockResolvedValue(
+      makeOrder({ status: OrderStatus.CANCELLED }),
+    );
 
     await expect(service.cancelOrder('order-uuid-100')).rejects.toThrow(
       BadRequestException,

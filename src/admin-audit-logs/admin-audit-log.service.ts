@@ -41,7 +41,9 @@ export class AdminAuditLogService {
     const query = this.repo.createQueryBuilder('log');
 
     if (filters.resource) {
-      query.andWhere('log.resource = :resource', { resource: filters.resource });
+      query.andWhere('log.resource = :resource', {
+        resource: filters.resource,
+      });
     }
     if (filters.action) {
       query.andWhere('log.action = :action', { action: filters.action });
@@ -50,7 +52,9 @@ export class AdminAuditLogService {
       query.andWhere('log.userId = :userId', { userId: filters.userId });
     }
     if (filters.startDate) {
-      query.andWhere('log.createdAt >= :startDate', { startDate: filters.startDate });
+      query.andWhere('log.createdAt >= :startDate', {
+        startDate: filters.startDate,
+      });
     }
     if (filters.endDate) {
       query.andWhere('log.createdAt <= :endDate', { endDate: filters.endDate });

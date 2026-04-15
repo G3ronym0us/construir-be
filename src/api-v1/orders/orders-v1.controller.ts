@@ -183,7 +183,11 @@ export class OrdersV1Controller {
       'completed: facturar (requiere order_key y date_completed) | ' +
       'cancelled: anular (requiere date_completed)',
   })
-  @ApiParam({ name: 'id', description: 'ID numérico de la orden', type: Number })
+  @ApiParam({
+    name: 'id',
+    description: 'ID numérico de la orden',
+    type: Number,
+  })
   @ApiOkResponse({ description: 'Orden actualizada exitosamente' })
   @ApiWritePermissionResponses()
   @ApiNotFoundResponse({ description: 'Orden no encontrada' })
@@ -194,25 +198,40 @@ export class OrdersV1Controller {
   ) {
     if (dto.status === 'pending') {
       if (!dto.order_key) {
-        throw new BadRequestException('order_key is required when status is pending');
+        throw new BadRequestException(
+          'order_key is required when status is pending',
+        );
       }
       return this.ordersService.acknowledgeOrder(id, dto.order_key);
     }
 
     if (dto.status === 'completed') {
       if (!dto.order_key) {
-        throw new BadRequestException('order_key is required when status is completed');
+        throw new BadRequestException(
+          'order_key is required when status is completed',
+        );
       }
       if (!dto.date_completed) {
-        throw new BadRequestException('date_completed is required when status is completed');
+        throw new BadRequestException(
+          'date_completed is required when status is completed',
+        );
       }
-      return this.ordersService.completeOrder(id, dto.order_key, new Date(dto.date_completed));
+      return this.ordersService.completeOrder(
+        id,
+        dto.order_key,
+        new Date(dto.date_completed),
+      );
     }
 
     // cancelled
     if (!dto.date_completed) {
-      throw new BadRequestException('date_completed is required when status is cancelled');
+      throw new BadRequestException(
+        'date_completed is required when status is cancelled',
+      );
     }
-    return this.ordersService.cancelPendingOrder(id, new Date(dto.date_completed));
+    return this.ordersService.cancelPendingOrder(
+      id,
+      new Date(dto.date_completed),
+    );
   }
 }

@@ -47,7 +47,12 @@ export class UsersController {
   @Post('register')
   async register(@Body() createUserDto: CreateUserDto) {
     const user = await this.usersService.create(createUserDto);
-    const { password, emailVerificationToken, emailVerificationExpiresAt, ...result } = user;
+    const {
+      password,
+      emailVerificationToken,
+      emailVerificationExpiresAt,
+      ...result
+    } = user;
     return result;
   }
 
@@ -68,7 +73,10 @@ export class UsersController {
   @HttpCode(HttpStatus.OK)
   async resendVerification(@Body('email') email: string) {
     await this.usersService.resendVerification(email);
-    return { message: 'Si el correo existe y no está verificado, recibirás un nuevo enlace de verificación' };
+    return {
+      message:
+        'Si el correo existe y no está verificado, recibirás un nuevo enlace de verificación',
+    };
   }
 
   // ==================== USER PROFILE ENDPOINTS ====================
@@ -234,10 +242,7 @@ export class UsersController {
   @Post('admin/invite')
   @Roles(UserRole.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  async sendInvitation(
-    @Body() dto: SendInvitationDto,
-    @Request() req,
-  ) {
+  async sendInvitation(@Body() dto: SendInvitationDto, @Request() req) {
     const invitation = await this.invitationsService.createInvitation(
       dto,
       req.user.id,

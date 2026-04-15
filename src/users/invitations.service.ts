@@ -80,9 +80,7 @@ export class InvitationsService {
     return invitation;
   }
 
-  private async sendInvitationEmail(
-    invitation: UserInvitation,
-  ): Promise<void> {
+  private async sendInvitationEmail(invitation: UserInvitation): Promise<void> {
     const frontendUrl = this.configService.get<string>('app.frontendUrl');
     const storeName =
       this.configService.get<string>('app.storeName') || 'Construir';
@@ -135,35 +133,33 @@ export class InvitationsService {
   async completeRegistration(dto: CompleteInvitationDto): Promise<User> {
     const invitation = await this.validateToken(dto.token);
 
-    return await this.invitationsRepository.manager.transaction(
-      async (em) => {
-        const existingUser = await em.findOne(User, {
-          where: { email: invitation.email },
-        });
-        if (existingUser) {
-          throw new ConflictException('Este correo ya está registrado');
-        }
+    return await this.invitationsRepository.manager.transaction(async (em) => {
+      const existingUser = await em.findOne(User, {
+        where: { email: invitation.email },
+      });
+      if (existingUser) {
+        throw new ConflictException('Este correo ya está registrado');
+      }
 
-        const hashedPassword = await bcrypt.hash(dto.password, 10);
+      const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-        const user = em.create(User, {
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          email: invitation.email,
-          password: hashedPassword,
-          role: invitation.role,
-          isActive: true,
-          emailVerified: true,
-        });
+      const user = em.create(User, {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        email: invitation.email,
+        password: hashedPassword,
+        role: invitation.role,
+        isActive: true,
+        emailVerified: true,
+      });
 
-        await em.save(User, user);
+      await em.save(User, user);
 
-        invitation.usedAt = new Date();
-        await em.save(UserInvitation, invitation);
+      invitation.usedAt = new Date();
+      await em.save(UserInvitation, invitation);
 
-        return user;
-      },
-    );
+      return user;
+    });
   }
 
   async listInvitations(dto: GetInvitationsDto): Promise<{

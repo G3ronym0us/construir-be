@@ -17,8 +17,8 @@ import { PaymentInfo } from './payment-info.entity';
 import { Discount } from '../discounts/discount.entity';
 
 export enum OrderStatus {
-  ON_HOLD = 'on-hold',     // Orden creada, esperando procesamiento por ERP
-  PENDING = 'pending',     // Recibida por el ERP (post-acknowledge)
+  ON_HOLD = 'on-hold', // Orden creada, esperando procesamiento por ERP
+  PENDING = 'pending', // Recibida por el ERP (post-acknowledge)
   COMPLETED = 'completed', // Completada/facturada por el ERP
   CANCELLED = 'cancelled', // Cancelada
 }
