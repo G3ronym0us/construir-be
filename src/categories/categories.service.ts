@@ -113,14 +113,15 @@ export class CategoriesService {
   }
 
   async findAllVisible(): Promise<Category[]> {
-    return await this.categoriesRepository.find({
-      where: { visible: true },
-      relations: {
-        parent: true,
-        childrens: true,
-      },
-      order: { name: 'ASC' },
-    });
+    return await this.categoriesRepository
+      .createQueryBuilder('category')
+      .leftJoinAndSelect('category.parent', 'parent')
+      .leftJoinAndSelect('category.childrens', 'childrens')
+      .innerJoin('category.products', 'product')
+      .where('category.visible = :visible', { visible: true })
+      .orderBy('category.name', 'ASC')
+      .distinct(true)
+      .getMany();
   }
 
   async findParentCategories(): Promise<Category[]> {
