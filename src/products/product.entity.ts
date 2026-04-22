@@ -19,26 +19,32 @@ import { IvaType } from './enums/iva-type.enum';
 export class Product {
   @PrimaryGeneratedColumn()
   @Exclude()
-  id: number;
+  id!: number;
 
   @Column({ unique: true })
   @Generated('uuid')
-  uuid: string;
+  uuid!: string;
 
   @Column()
-  name: string;
+  name!: string;
 
   @Column({ name: 'custom_name', type: 'varchar', nullable: true })
-  customName: string | null;
+  customName!: string | null;
 
   @Column({ unique: true })
-  sku: string;
+  sku!: string;
 
   @Column({ type: 'int', default: 0 })
-  inventory: number;
+  inventory!: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
-  price: number;
+  price!: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  iva!: number;
+
+  @Column({ type: 'decimal', name: 'price_with_iva', precision: 10, scale: 2 })
+  priceWithIva!: number;
 
   @Column({
     name: 'price_ves',
@@ -47,10 +53,28 @@ export class Product {
     scale: 2,
     nullable: true,
   })
-  priceVes: number;
+  priceVes!: number;
+
+  @Column({
+    name: 'iva_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  ivaVes!: number;
+
+  @Column({
+    name: 'price_with_iva_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  priceWithIvaVes!: number;
 
   @Column({ name: 'iva_type', type: 'smallint', default: 0 })
-  ivaType: IvaType;
+  ivaType!: IvaType;
 
   @ManyToMany(() => Category, (category) => category.products, { eager: true })
   @JoinTable({
@@ -58,44 +82,44 @@ export class Product {
     joinColumn: { name: 'product_id', referencedColumnName: 'id' },
     inverseJoinColumn: { name: 'category_id', referencedColumnName: 'id' },
   })
-  categories: Category[];
+  categories!: Category[];
 
   @Column({ type: 'text', nullable: true })
-  description: string | null;
+  description!: string | null;
 
   @Column({ type: 'text', nullable: true })
-  shortDescription: string | null;
+  shortDescription!: string | null;
 
   @Column({ type: 'varchar', length: 20, default: 'simple' })
-  type: string;
+  type!: string;
 
   @Column({ type: 'boolean', default: true })
-  published: boolean;
+  published!: boolean;
 
   @Column({ type: 'boolean', default: false })
-  featured: boolean;
+  featured!: boolean;
 
   @Column({ type: 'varchar', length: 50, default: 'visible' })
-  visibility: string;
+  visibility!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  barcode: string;
+  barcode!: string;
 
   @Column({ type: 'simple-array', nullable: true })
-  tags: string[];
+  tags!: string[];
 
   @OneToMany(() => ProductImage, (image) => image.product, {
     cascade: true,
     eager: true,
   })
-  images: ProductImage[];
+  images!: ProductImage[];
 
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @DeleteDateColumn({ name: 'deleted_at' })
-  deletedAt: Date | null;
+  deletedAt!: Date | null;
 }

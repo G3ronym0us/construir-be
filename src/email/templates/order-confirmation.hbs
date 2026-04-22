@@ -216,6 +216,12 @@
         <div class="order-info">
             <h3>💳 Información de Pago</h3>
             <p><strong>Método:</strong> {{paymentMethod}}</p>
+            {{#if isZelle}}
+            <div style="margin: 12px 0 0; padding: 12px 14px; background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 4px;">
+                <p style="margin: 0 0 6px; font-weight: 700; color: #b45309; font-size: 14px;">⚠️ Instrucciones de Pago Zelle</p>
+                <p style="margin: 0; color: #78350f; font-size: 13px;">Un <strong>vendedor de Construir</strong> se comunicará contigo a la brevedad para suministrarte los datos de la cuenta Zelle a la que debes realizar el pago. Por favor, mantén tu teléfono disponible.</p>
+            </div>
+            {{/if}}
             <div class="button-wrap">
                 <a href="{{trackingUrl}}" class="button">Ver mi Orden</a>
             </div>

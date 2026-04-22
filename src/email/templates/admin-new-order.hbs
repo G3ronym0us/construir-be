@@ -44,6 +44,14 @@
         <span class="label">Método de pago</span>
         <span class="value">{{paymentMethod}}</span>
       </div>
+      {{#if isZelle}}
+      <div style="margin: 16px 0; padding: 14px 16px; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+        <p style="margin: 0 0 6px; font-weight: 700; color: #92400e; font-size: 14px;">⚠️ ACCIÓN REQUERIDA — Pago por Zelle</p>
+        <p style="margin: 0; font-size: 13px; color: #78350f;">
+          Debes contactar al cliente <strong>{{customerName}}</strong> ({{customerEmail}}) para proporcionarle los datos de tu cuenta Zelle y coordinar el pago. Puedes hacerlo por WhatsApp o el canal que prefieras.
+        </p>
+      </div>
+      {{/if}}
       <div class="row">
         <span class="label">Entrega</span>
         <span class="value">{{deliveryMethod}}</span>

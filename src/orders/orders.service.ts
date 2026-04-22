@@ -128,7 +128,7 @@ export class OrdersService {
         );
       }
 
-      subtotal += Number(product.price) * item.quantity;
+      subtotal += Number(product.priceWithIva) * item.quantity;
       validatedItems.push({
         productUuid: item.productUuid,
         quantity: item.quantity,
@@ -299,9 +299,9 @@ export class OrdersService {
     const createdOrderItems: OrderItem[] = [];
 
     for (const item of validatedItems) {
-      const itemSubtotal = Number(item.product.price) * item.quantity;
+      const itemSubtotal = Number(item.product.priceWithIva) * item.quantity;
       const itemPriceVes = exchangeRate
-        ? Number((Number(item.product.price) * exchangeRate).toFixed(2))
+        ? Number((Number(item.product.priceWithIva) * exchangeRate).toFixed(2))
         : null;
       const itemSubtotalVes = exchangeRate
         ? Number((itemSubtotal * exchangeRate).toFixed(2))
@@ -313,7 +313,7 @@ export class OrdersService {
         productName: item.product.name,
         productSku: item.product.sku,
         quantity: item.quantity,
-        price: item.product.price,
+        price: item.product.priceWithIva,
         subtotal: itemSubtotal,
         priceVes: itemPriceVes,
         subtotalVes: itemSubtotalVes,

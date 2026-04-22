@@ -5,6 +5,7 @@ import * as handlebars from 'handlebars';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Order } from '../orders/order.entity';
+import { PaymentMethod } from '../orders/payment-info.entity';
 
 @Injectable()
 export class EmailService {
@@ -103,6 +104,7 @@ export class EmailService {
           }
         : null,
       paymentMethod: this.translatePaymentMethod(order.paymentInfo.method),
+      isZelle: order.paymentInfo.method === PaymentMethod.ZELLE,
       notes: order.notes,
       trackingUrl: `${appUrl}/orders/track/${order.orderNumber}`,
     });
@@ -259,6 +261,7 @@ export class EmailService {
       customerEmail: order.user?.email || order.guestEmail || '—',
       total: Number(order.total).toFixed(2),
       paymentMethod: this.translatePaymentMethod(order.paymentInfo?.method),
+      isZelle: order.paymentInfo?.method === PaymentMethod.ZELLE,
       deliveryMethod:
         order.deliveryMethod === 'pickup' ? 'Retiro en tienda' : 'Delivery',
       itemCount: order.items?.length || 0,
