@@ -18,6 +18,7 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { Discount } from '../discounts/discount.entity';
+import { IVA_RATES } from '../products/enums/iva-type.enum';
 import { BanksService } from '../banks/banks.service';
 import { GuestCustomersService } from './guest-customers.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
@@ -983,11 +984,15 @@ export class OrdersService {
         let firstName: string | null = null;
         let lastName: string | null = null;
         let email: string | null = null;
+        let identificationType: string | null = null;
+        let identificationNumber: string | null = null;
 
         if (order.user) {
           firstName = order.user.firstName;
           lastName = order.user.lastName;
           email = order.user.email;
+          identificationType = order.user.identificationType ?? null;
+          identificationNumber = order.user.identificationNumber ?? null;
         } else if (order.guestEmail) {
           const guest = await this.guestCustomersService.findByEmail(
             order.guestEmail,
@@ -995,9 +1000,22 @@ export class OrdersService {
           firstName = guest?.firstName ?? null;
           lastName = guest?.lastName ?? null;
           email = order.guestEmail;
+          identificationType = guest?.identificationType ?? null;
+          identificationNumber = guest?.identificationNumber ?? null;
         }
 
         const addr = order.shippingAddress;
+
+        // shippingAddress takes priority over user/guest profile
+        if (addr?.identificationType && addr?.identificationNumber) {
+          identificationType = addr.identificationType;
+          identificationNumber = addr.identificationNumber;
+        }
+
+        const identification =
+          identificationType && identificationNumber
+            ? `${identificationType}-${identificationNumber}`
+            : null;
 
         return {
           id: order.id,
@@ -1010,10 +1028,7 @@ export class OrdersService {
             last_name: lastName,
             company: null,
             address_1: addr?.address ?? null,
-            identification:
-              addr?.identificationType && addr?.identificationNumber
-                ? `${addr.identificationType}-${addr.identificationNumber}`
-                : null,
+            identification,
             city: addr?.city ?? null,
             email,
             phone: addr?.phone ?? null,
@@ -1021,17 +1036,23 @@ export class OrdersService {
           payment_method_title: deliveryMethodTitles[order.deliveryMethod],
           customer_note: order.notes,
           number: String(order.id),
-          line_items: order.items.map((item) => ({
-            id: item.id,
-            name: item.productName,
-            product_id: item.product?.id ?? 0,
-            quantity: item.quantity,
-            tax_class: '',
-            total: Number(item.subtotal).toFixed(2),
-            total_tax: '0',
-            sku: item.productSku ?? null,
-            price: Number(item.price),
-          })),
+          line_items: order.items.map((item) => {
+            const ivaType = item.product?.ivaType ?? 0;
+            const ivaRate = IVA_RATES[ivaType];
+            const subtotal = Number(item.subtotal);
+            const itemTax = (subtotal * ivaRate) / (1 + ivaRate);
+            return {
+              id: item.id,
+              name: item.productName,
+              product_id: item.product?.id ?? 0,
+              quantity: item.quantity,
+              tax_class: ivaType,
+              total: subtotal.toFixed(2),
+              total_tax: itemTax.toFixed(2),
+              sku: item.productSku ?? null,
+              price: Number(item.price),
+            };
+          }),
         };
       }),
     );
