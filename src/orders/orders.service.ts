@@ -177,14 +177,20 @@ export class OrdersService {
     }
 
     // 5. Guardar/actualizar datos de guest customer para futuras compras
+    let guestCustomerId: number | null = null;
     if (!userId && createOrderDto.customerInfo) {
-      await this.guestCustomersService.createOrUpdate(
+      const guestCustomer = await this.guestCustomersService.createOrUpdate(
         createOrderDto.customerInfo,
         createOrderDto.shippingAddress,
       );
+      guestCustomerId = guestCustomer.id;
     }
 
-    const tax = 0; // Implementar cálculo de impuestos si es necesario
+    const tax = validatedItems.reduce((sum, item) => {
+      const ivaRate = IVA_RATES[item.product.ivaType ?? 0];
+      const itemSubtotal = Number(item.product.priceWithIva) * item.quantity;
+      return sum + (itemSubtotal * ivaRate) / (1 + ivaRate);
+    }, 0);
 
     // 3.5 Validar y aplicar descuento si existe
     let discountAmount = 0;
@@ -278,6 +284,7 @@ export class OrdersService {
     order.guestEmail = !userId
       ? createOrderDto.customerInfo?.email || null
       : null;
+    order.guestCustomerId = guestCustomerId;
     order.deliveryMethod = createOrderDto.deliveryMethod;
     order.shippingAddressId = shippingAddress?.id || null;
     order.paymentInfoId = paymentInfo.id;
@@ -968,6 +975,7 @@ export class OrdersService {
       .leftJoinAndSelect('order.shippingAddress', 'shippingAddress')
       .leftJoinAndSelect('order.paymentInfo', 'paymentInfo')
       .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.guestCustomer', 'guestCustomer')
       .where('order.status = :status', { status: OrderStatus.ON_HOLD })
       .orderBy('order.createdAt', 'DESC')
       .skip((page - 1) * perPage)
@@ -993,15 +1001,15 @@ export class OrdersService {
           email = order.user.email;
           identificationType = order.user.identificationType ?? null;
           identificationNumber = order.user.identificationNumber ?? null;
+        } else if (order.guestCustomer) {
+          firstName = order.guestCustomer.firstName;
+          lastName = order.guestCustomer.lastName;
+          email = order.guestCustomer.email;
+          identificationType = order.guestCustomer.identificationType ?? null;
+          identificationNumber =
+            order.guestCustomer.identificationNumber ?? null;
         } else if (order.guestEmail) {
-          const guest = await this.guestCustomersService.findByEmail(
-            order.guestEmail,
-          );
-          firstName = guest?.firstName ?? null;
-          lastName = guest?.lastName ?? null;
           email = order.guestEmail;
-          identificationType = guest?.identificationType ?? null;
-          identificationNumber = guest?.identificationNumber ?? null;
         }
 
         const addr = order.shippingAddress;

@@ -15,6 +15,7 @@ import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
 import { PaymentInfo } from './payment-info.entity';
 import { Discount } from '../discounts/discount.entity';
+import { GuestCustomer } from './guest-customer.entity';
 
 export enum OrderStatus {
   ON_HOLD = 'on-hold', // Orden creada, esperando procesamiento por ERP
@@ -49,6 +50,13 @@ export class Order {
 
   @Column({ name: 'guest_email', type: 'varchar', nullable: true })
   guestEmail: string | null;
+
+  @Column({ name: 'guest_customer_id', nullable: true })
+  guestCustomerId: number | null;
+
+  @ManyToOne(() => GuestCustomer, { eager: true, nullable: true })
+  @JoinColumn({ name: 'guest_customer_id' })
+  guestCustomer: GuestCustomer | null;
 
   @OneToMany(() => OrderItem, (orderItem) => orderItem.order, {
     cascade: true,
