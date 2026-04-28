@@ -68,6 +68,7 @@ export class Order {
     cascade: true,
     eager: true,
     nullable: true,
+    onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'shipping_address_id' })
   shippingAddress: ShippingAddress | null;
@@ -75,7 +76,7 @@ export class Order {
   @Column({ name: 'shipping_address_id', nullable: true })
   shippingAddressId: number | null;
 
-  @OneToOne(() => PaymentInfo, { cascade: true, eager: true })
+  @OneToOne(() => PaymentInfo, { cascade: true, eager: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'payment_info_id' })
   paymentInfo: PaymentInfo;
 
