@@ -1055,6 +1055,7 @@ export class OrdersService {
               product_id: item.product?.id ?? 0,
               quantity: item.quantity,
               tax_class: ivaType,
+              tax_rate: ivaRate * 100,
               total: subtotal.toFixed(2),
               total_tax: itemTax.toFixed(2),
               sku: item.productSku ?? null,
