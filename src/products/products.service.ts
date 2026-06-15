@@ -12,6 +12,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { S3Service } from './s3.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
+import { applyVesPrices } from './pricing.util';
 
 @Injectable()
 export class ProductsService {
@@ -38,12 +39,12 @@ export class ProductsService {
     const { categoryUuids, ...productData } = createProductDto;
     const product = this.productsRepository.create(productData);
 
-    // Calcular priceVes con la tasa de cambio actual
+    // Calcular precios en VES (base, IVA y total con IVA) con la tasa actual
     try {
       const rate = await this.exchangeRatesService.getRate();
-      product.priceVes = Number((Number(product.price) * rate).toFixed(2));
+      applyVesPrices(product, rate);
     } catch {
-      // Si no hay tasa de cambio disponible, dejar priceVes sin calcular
+      // Si no hay tasa de cambio disponible, dejar los precios VES sin calcular
     }
 
     if (categoryUuids && categoryUuids.length > 0) {
@@ -182,13 +183,16 @@ export class ProductsService {
     const { categoryUuids, ...productData } = updateProductDto;
     Object.assign(product, productData);
 
-    // Recalcular priceVes si cambió el precio
-    if (updateProductDto.price !== undefined) {
+    // Recalcular precios en VES si cambió el precio o el tipo de IVA
+    if (
+      updateProductDto.price !== undefined ||
+      updateProductDto.ivaType !== undefined
+    ) {
       try {
         const rate = await this.exchangeRatesService.getRate();
-        product.priceVes = Number((Number(product.price) * rate).toFixed(2));
+        applyVesPrices(product, rate);
       } catch {
-        // Si no hay tasa de cambio disponible, mantener priceVes existente
+        // Si no hay tasa de cambio disponible, mantener los precios VES existentes
       }
     }
 
@@ -238,6 +242,16 @@ export class ProductsService {
 
     const { categoryUuids, ...productData } = updateProductDto;
     Object.assign(product, productData);
+
+    // UpdateProductDto omite price; recalcular precios VES si cambió el IVA
+    if (updateProductDto.ivaType !== undefined) {
+      try {
+        const rate = await this.exchangeRatesService.getRate();
+        applyVesPrices(product, rate);
+      } catch {
+        // Si no hay tasa de cambio disponible, mantener los precios VES existentes
+      }
+    }
 
     if (categoryUuids && categoryUuids.length > 0) {
       const categories = await this.categoriesRepository.findBy({

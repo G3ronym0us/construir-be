@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ExchangeRatesService } from './exchange-rates.service';
 import { Product } from '../products/product.entity';
+import { applyVesPrices } from '../products/pricing.util';
 
 @Injectable()
 export class ExchangeRateTasksService {
@@ -32,9 +33,7 @@ export class ExchangeRateTasksService {
       this.logger.log(`Updating VES prices for ${products.length} products...`);
 
       const updatePromises = products.map(async (product) => {
-        product.priceVes = Number(
-          (Number(product.price) * Number(exchangeRate.rate)).toFixed(2),
-        );
+        applyVesPrices(product, Number(exchangeRate.rate));
         return this.productsRepository.save(product);
       });
 
@@ -60,9 +59,7 @@ export class ExchangeRateTasksService {
       const products = await this.productsRepository.find();
 
       const updatePromises = products.map(async (product) => {
-        product.priceVes = Number(
-          (Number(product.price) * Number(exchangeRate.rate)).toFixed(2),
-        );
+        applyVesPrices(product, Number(exchangeRate.rate));
         return this.productsRepository.save(product);
       });
 
