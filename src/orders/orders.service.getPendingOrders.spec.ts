@@ -8,6 +8,7 @@ import { PaymentInfo } from './payment-info.entity';
 import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
+import { GuestCustomer } from './guest-customer.entity';
 import { GuestCustomersService } from './guest-customers.service';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
@@ -133,29 +134,29 @@ describe('OrdersService.getPendingOrders', () => {
     expect(guestCustomersService.findByEmail).not.toHaveBeenCalled();
   });
 
-  it('maps billing from guest customer when no user', async () => {
-    const order = makeOrder({ user: null, guestEmail: 'guest@test.com' });
-    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
-    guestCustomersService.findByEmail.mockResolvedValue({
-      firstName: 'María',
-      lastName: 'González',
+  it('maps billing from linked guest customer when no user', async () => {
+    const order = makeOrder({
+      user: null,
+      guestEmail: 'guest@test.com',
+      guestCustomer: {
+        firstName: 'María',
+        lastName: 'González',
+        email: 'guest@test.com',
+      } as GuestCustomer,
     });
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
 
     const { data } = await service.getPendingOrders();
     const result = data[0];
 
-    expect(guestCustomersService.findByEmail).toHaveBeenCalledWith(
-      'guest@test.com',
-    );
     expect(result.billing.first_name).toBe('María');
     expect(result.billing.last_name).toBe('González');
     expect(result.billing.email).toBe('guest@test.com');
   });
 
-  it('sets billing name to null when guest customer not found', async () => {
+  it('sets billing name to null when no linked guest customer', async () => {
     const order = makeOrder({ user: null, guestEmail: 'unknown@test.com' });
     mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
-    guestCustomersService.findByEmail.mockResolvedValue(null);
 
     const { data } = await service.getPendingOrders();
     const result = data[0];
@@ -224,9 +225,11 @@ describe('OrdersService.getPendingOrders', () => {
       name: 'Cemento',
       product_id: 10,
       quantity: 2,
-      tax_class: '',
+      tax_class: 0,
+      tax_rate: 16,
       total: '20.00',
-      total_tax: '0',
+      // IVA incluido en el subtotal: 20 * 0.16 / 1.16
+      total_tax: '2.76',
       sku: 'CEM-001',
       price: 10,
     });
