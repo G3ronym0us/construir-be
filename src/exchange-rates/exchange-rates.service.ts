@@ -67,18 +67,21 @@ export class ExchangeRatesService {
     };
   }
 
+  /**
+   * Tasa con la que se cotiza y se factura hoy: la fila más reciente por fecha
+   * valor, **sin tope superior**.
+   *
+   * En modo `published` esa fila puede tener fecha valor futura: entre las
+   * ~17:00 y medianoche de Caracas el BCV ya publicó la tasa que entra en
+   * vigencia mañana, y el cron la guarda bajo esa fecha. Devolverla es lo
+   * deseado: el catálogo (`product.priceVes`) ya se recalculó con ella, y
+   * catálogo y factura tienen que coincidir — el cliente ve y paga el mismo
+   * número.
+   *
+   * Para la tasa vigente en una fecha dada, usar `findByDate()`.
+   */
   async findCurrent(): Promise<ExchangeRate> {
-    // Obtener el tipo de cambio de hoy o el más reciente
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Intentar obtener el tipo de cambio de hoy o anterior
-    const exchangeRate = await this.exchangeRatesRepository.findOne({
-      where: {
-        date: LessThanOrEqual(today),
-      },
-      order: { date: 'DESC' },
-    });
+    const exchangeRate = await this.findLatest();
 
     if (!exchangeRate) {
       throw new NotFoundException('No exchange rate found');
@@ -119,9 +122,9 @@ export class ExchangeRatesService {
   /**
    * Última fila guardada por fecha valor, sin filtrar por la fecha de hoy.
    *
-   * `findCurrent()` no sirve para esto: en modo `published` la tasa se guarda
-   * bajo la fecha valor del BCV, que entre las ~17:00 y medianoche es la de
-   * mañana, y `findCurrent()` la excluiría por su filtro `date <= hoy`.
+   * Es la consulta sobre la que se apoya `findCurrent()`; se mantiene aparte
+   * porque el cron de detección necesita la fila cruda (puede no haber
+   * ninguna) sin que eso sea un `NotFoundException`.
    */
   async findLatest(): Promise<ExchangeRate | null> {
     return this.exchangeRatesRepository.findOne({
