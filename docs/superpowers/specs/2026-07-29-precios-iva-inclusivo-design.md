@@ -282,4 +282,6 @@ Suites existentes a actualizar (afirman los totales del cálculo viejo):
 
 ## Riesgo operativo
 
-Aunque no se toque el contrato v1, **el ERP verá totales distintos el día del despliegue**: `order.total` se corrige y baja ~14% en órdenes con productos gravados. Hay que avisarlo antes de desplegar.
+Aunque no se toque el contrato v1, **el ERP verá totales distintos el día del despliegue**: `order.total` se corrige y baja ~12% en órdenes con productos gravados. Un pedido de 2 unidades a 11.60 (base 10.00 al 16%) facturaba 26.40 — subtotal inclusivo 23.20 más el IVA extraído 3.20 — y pasa a facturar 23.20.
+
+Las dos cifras miden cosas distintas y conviene no confundirlas: el total estaba **inflado un 13.8%** respecto del correcto, y **baja un 12.1%** respecto del inflado. Hay que avisarlo antes de desplegar.
