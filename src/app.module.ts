@@ -29,13 +29,21 @@ import {
   awsConfig,
   appConfig,
   emailConfig,
+  bcvRatesConfig,
 } from './config/configuration';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig, awsConfig, appConfig, emailConfig],
+      load: [
+        databaseConfig,
+        jwtConfig,
+        awsConfig,
+        appConfig,
+        emailConfig,
+        bcvRatesConfig,
+      ],
     }),
     ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({

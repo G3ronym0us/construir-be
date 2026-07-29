@@ -32,6 +32,12 @@ export interface AppConfig {
   storeMapUrl: string;
 }
 
+export interface BcvRatesConfig {
+  url: string;
+  apiKey: string;
+  timeoutMs: number;
+}
+
 export interface EmailConfig {
   host: string;
   port: number;
@@ -84,6 +90,18 @@ export const appConfig = registerAs(
       process.env.STORE_HOURS ||
       'Lunes a Viernes: 8am - 6pm, Sábados: 9am - 2pm',
     storeMapUrl: process.env.STORE_MAP_URL || '',
+  }),
+);
+
+// Servicio centralizado de tasas BCV. La API key es obligatoria: sin ella el
+// servicio responde 401 y `BCVService` se queda sirviendo su caché / la tasa
+// ya guardada en `exchange_rates`.
+export const bcvRatesConfig = registerAs(
+  'bcvRates',
+  (): BcvRatesConfig => ({
+    url: process.env.BCV_RATES_URL || 'https://rates.cambiosloscriollitos.com',
+    apiKey: process.env.BCV_RATES_API_KEY || '',
+    timeoutMs: parseInt(process.env.BCV_RATES_TIMEOUT_MS || '10000', 10),
   }),
 );
 
