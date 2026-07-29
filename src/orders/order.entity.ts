@@ -160,6 +160,24 @@ export class Order {
   })
   totalVes: number | null;
 
+  @Column({
+    name: 'tax_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  taxVes: number | null;
+
+  @Column({
+    name: 'discount_amount_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  discountAmountVes: number | null;
+
   @Column({ name: 'order_key', type: 'varchar', nullable: true })
   orderKey: string | null;
 
