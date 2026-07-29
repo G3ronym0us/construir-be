@@ -660,6 +660,7 @@ import { DiscountsService } from '../discounts/discounts.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { Product } from '../products/product.entity';
 import { IvaType } from '../products/enums/iva-type.enum';
+import { round2 } from '../products/iva.util';
 
 const producto = (priceWithIva: number, ivaType: IvaType): Product =>
   ({ priceWithIva, ivaType, id: 1 }) as unknown as Product;
@@ -804,6 +805,38 @@ describe('OrderPricingService', () => {
     expect(result.totalVes).toBe(result.subtotalVes! + result.taxVes!);
   });
 
+  it('agrega los montos VES desde las líneas, así los renglones suman el total', async () => {
+    // Tres líneas con alícuotas distintas: si los agregados se calcularan
+    // convirtiendo los totales en USD en vez de sumando las líneas, la suma de
+    // los renglones podría diferir del total por centavos.
+    const result = await service.price({
+      items: [
+        { product: producto(11.6, IvaType.NORMAL), quantity: 3 },
+        { product: producto(10.8, IvaType.REDUCIDO), quantity: 2 },
+        { product: producto(7.77, IvaType.EXENTO), quantity: 1 },
+      ],
+    });
+
+    const sumaBases = round2(
+      result.lines.reduce((s, l) => s + (l.baseVes ?? 0), 0),
+    );
+    const sumaIvas = round2(
+      result.lines.reduce((s, l) => s + (l.ivaVes ?? 0), 0),
+    );
+    const sumaTotales = round2(
+      result.lines.reduce((s, l) => s + (l.totalVes ?? 0), 0),
+    );
+
+    expect(result.subtotalVes).toBe(sumaBases);
+    expect(result.taxVes).toBe(sumaIvas);
+    expect(result.totalVes).toBe(sumaTotales);
+
+    // Y cada línea cuadra internamente.
+    for (const line of result.lines) {
+      expect(line.totalVes).toBe(round2(line.baseVes! + line.ivaVes!));
+    }
+  });
+
   it('sigue calculando en USD si no hay tasa de cambio disponible', async () => {
     exchangeRatesService.findCurrent.mockRejectedValue(
       new Error('No exchange rate found'),
@@ -817,6 +850,9 @@ describe('OrderPricingService', () => {
     expect(result.exchangeRate).toBeNull();
     expect(result.totalVes).toBeNull();
     expect(result.taxVes).toBeNull();
+    expect(result.lines[0].baseVes).toBeNull();
+    expect(result.lines[0].ivaVes).toBeNull();
+    expect(result.lines[0].totalVes).toBeNull();
   });
 
   it('normaliza rateDate cuando el driver devuelve un Date', async () => {
@@ -892,6 +928,15 @@ export interface PricedLine {
   iva: number;
   /** `lineTotal - discount`, y siempre exactamente `base + iva`. */
   total: number;
+  /**
+   * El desglose de la línea en bolívares. Se convierte por línea, y los
+   * agregados del pedido salen de sumar estas líneas, para que la suma de los
+   * renglones dé exactamente el total en las tres monedas de la respuesta.
+   * Nulos si no hay tasa disponible.
+   */
+  baseVes: number | null;
+  ivaVes: number | null;
+  totalVes: number | null;
 }
 
 export interface OrderPricing {
@@ -950,6 +995,10 @@ export class OrderPricingService {
 
     const perLine = this.prorate(discount, lineTotals, itemsTotal);
 
+    // La tasa se resuelve antes de armar las líneas porque cada línea convierte
+    // sus propios montos a bolívares.
+    const { exchangeRate, rateDate } = await this.resolveRate();
+
     const lines: PricedLine[] = items.map((item, index) => {
       const lineTotal = lineTotals[index];
       const lineDiscount = perLine[index];
@@ -958,6 +1007,9 @@ export class OrderPricingService {
       // Hacerla sobre el agregado con una tasa mezclada le cobraría IVA a los
       // productos exentos.
       const { base, iva } = fromTotal(net, item.product.ivaType);
+
+      const baseVes = exchangeRate !== null ? round2(base * exchangeRate) : null;
+      const ivaVes = exchangeRate !== null ? round2(iva * exchangeRate) : null;
 
       return {
         product: item.product,
@@ -968,6 +1020,10 @@ export class OrderPricingService {
         base,
         iva,
         total: net,
+        baseVes,
+        ivaVes,
+        totalVes:
+          baseVes !== null && ivaVes !== null ? round2(baseVes + ivaVes) : null,
       };
     });
 
@@ -975,6 +1031,18 @@ export class OrderPricingService {
     const subtotal = round2(lines.reduce((sum, line) => sum + line.base, 0));
     const shipping = OrderPricingService.SHIPPING;
     const total = round2(subtotal + tax + shipping);
+
+    // Los agregados en bolívares salen de sumar las líneas, no de convertir los
+    // agregados en USD. Así la suma de los renglones que ve el cliente da
+    // exactamente el total, en USD y en bolívares.
+    const subtotalVes =
+      exchangeRate !== null
+        ? round2(lines.reduce((sum, line) => sum + (line.baseVes ?? 0), 0))
+        : null;
+    const taxVes =
+      exchangeRate !== null
+        ? round2(lines.reduce((sum, line) => sum + (line.ivaVes ?? 0), 0))
+        : null;
 
     return {
       lines,
@@ -986,7 +1054,16 @@ export class OrderPricingService {
       tax,
       shipping,
       total,
-      ...(await this.convertToVes({ subtotal, tax, discount })),
+      exchangeRate,
+      rateDate,
+      subtotalVes,
+      taxVes,
+      discountVes:
+        exchangeRate !== null ? round2(discount * exchangeRate) : null,
+      totalVes:
+        subtotalVes !== null && taxVes !== null
+          ? round2(subtotalVes + taxVes)
+          : null,
     };
   }
 
@@ -1062,60 +1139,26 @@ export class OrderPricingService {
   }
 
   /**
-   * Convierte el desglose a bolívares.
+   * Resuelve la tasa de facturación.
    *
-   * `totalVes` sale de sumar sus partes y no de convertir el total por
-   * separado: la diferencia es de un céntimo como máximo, pero garantiza que
-   * los tres números que ve el cliente en pantalla sumen exacto.
-   *
-   * Si no hay tasa disponible se devuelven nulos y el pedido sigue en USD, que
+   * Si no hay tasa disponible devuelve nulos y el pedido sigue sólo en USD, que
    * es el comportamiento que ya tenía `createOrder`.
    */
-  private async convertToVes({
-    subtotal,
-    tax,
-    discount,
-  }: {
-    subtotal: number;
-    tax: number;
-    discount: number;
-  }): Promise<
-    Pick<
-      OrderPricing,
-      | 'exchangeRate'
-      | 'rateDate'
-      | 'subtotalVes'
-      | 'taxVes'
-      | 'discountVes'
-      | 'totalVes'
-    >
-  > {
+  private async resolveRate(): Promise<{
+    exchangeRate: number | null;
+    rateDate: string | null;
+  }> {
     try {
       const current = await this.exchangeRatesService.findCurrent();
-      const rate = Number(current.rate);
-      const subtotalVes = round2(subtotal * rate);
-      const taxVes = round2(tax * rate);
-
       return {
-        exchangeRate: rate,
+        exchangeRate: Number(current.rate),
         rateDate: this.formatRateDate(current.date),
-        subtotalVes,
-        taxVes,
-        discountVes: round2(discount * rate),
-        totalVes: round2(subtotalVes + taxVes),
       };
     } catch {
       console.warn(
         'Exchange rate not available, continuing without VES prices',
       );
-      return {
-        exchangeRate: null,
-        rateDate: null,
-        subtotalVes: null,
-        taxVes: null,
-        discountVes: null,
-        totalVes: null,
-      };
+      return { exchangeRate: null, rateDate: null };
     }
   }
 
@@ -1321,6 +1364,9 @@ describe('OrdersService.quoteOrder', () => {
         base: 20,
         iva: 3.2,
         total: 23.2,
+        baseVes: 4910,
+        ivaVes: 785.6,
+        totalVes: 5695.6,
       },
     ],
     itemsTotal: 23.2,
@@ -1602,10 +1648,9 @@ Este método sí va **dentro de la clase** `OrdersService`, inmediatamente antes
           product?.priceWithIvaVes != null
             ? Number(product.priceWithIvaVes)
             : null,
-        totalVes:
-          line && pricing.exchangeRate !== null
-            ? Number((line.total * pricing.exchangeRate).toFixed(2))
-            : null,
+        // Se toma de la línea, ya convertida por OrderPricingService, para que
+        // la suma de los renglones dé exactamente el total del bloque totals.
+        totalVes: line?.totalVes ?? null,
         issue,
       };
     });
@@ -1830,7 +1875,11 @@ Expected: FAIL — el total da 26.40 en vez de 23.20 (el doble conteo), y `Confl
 
 En `src/orders/orders.service.ts`:
 
-**4a.** Agregar `ConflictException` al import de `@nestjs/common`.
+**4a.** Agregar `ConflictException` al import de `@nestjs/common`, y `round2` desde el módulo de IVA:
+
+```ts
+import { round2 } from '../products/iva.util';
+```
 
 **4b.** Reemplazar el loop de validación (líneas ~103-138) por esto, que conserva las validaciones duras — acá sí se rechaza, a diferencia del quote — pero deja de acumular el subtotal a mano:
 
@@ -1937,12 +1986,11 @@ En `src/orders/orders.service.ts`:
         subtotal: line.total,
         priceVes:
           pricing.exchangeRate !== null
-            ? Number((line.unitPrice * pricing.exchangeRate).toFixed(2))
+            ? round2(line.unitPrice * pricing.exchangeRate)
             : null,
-        subtotalVes:
-          pricing.exchangeRate !== null
-            ? Number((line.total * pricing.exchangeRate).toFixed(2))
-            : null,
+        // Del desglose de la línea, no recalculado, para que los montos VES de
+        // los items sumen exactamente los de la orden.
+        subtotalVes: line.totalVes,
       });
 
       createdOrderItems.push(orderItem);
