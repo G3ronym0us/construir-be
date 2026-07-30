@@ -1,4 +1,5 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -9,21 +10,41 @@ export class GuestCustomersController {
   constructor(private readonly guestCustomersService: GuestCustomersService) {}
 
   /**
-   * Busca datos de un cliente guest por su identificación
-   * Endpoint público para autocompletar formularios
+   * Autocompleta el formulario de checkout de un invitado que ya compró antes.
+   *
+   * Es público porque el checkout de invitados no tiene sesión, pero **exige un
+   * segundo dato**: además de la identificación hay que enviar el correo o el
+   * teléfono, y tiene que coincidir con el registrado.
+   *
+   * El motivo es que las cédulas venezolanas son secuenciales. Cuando bastaba
+   * la cédula, cualquiera podía recorrerlas en orden y descargar nombre,
+   * correo, teléfono, domicilio y coordenadas de todos los clientes que
+   * hubieran comprado alguna vez. Con el segundo dato eso deja de ser posible:
+   * hay que conocer de antemano el par identificación + contacto.
+   *
+   * Devuelve `null` de forma indistinguible ante cualquier fallo, para no
+   * confirmar qué identificaciones están registradas.
+   *
+   * El límite de tasa es la segunda línea de defensa: encarece la prueba masiva
+   * de pares identificación + contacto aunque alguien tuviera una lista.
    */
   @Get('search')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async searchByIdentification(
     @Query('identificationType') identificationType: IdentificationType,
     @Query('identificationNumber') identificationNumber: string,
+    @Query('email') email?: string,
+    @Query('phone') phone?: string,
   ): Promise<GuestCustomer | null> {
     if (!identificationType || !identificationNumber) {
       return null;
     }
 
-    return this.guestCustomersService.findByIdentification(
+    return this.guestCustomersService.findForAutocomplete(
       identificationType,
       identificationNumber,
+      { email, phone },
     );
   }
 
