@@ -6,6 +6,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Order } from '../orders/order.entity';
 import { PaymentMethod } from '../orders/payment-info.entity';
+import { round2 } from '../products/iva.util';
+import { IVA_RATES } from '../products/enums/iva-type.enum';
 
 @Injectable()
 export class EmailService {
@@ -70,6 +72,19 @@ export class EmailService {
 
     const isPickup = order.deliveryMethod === 'pickup';
 
+    // Monto bruto (con IVA) de todos los renglones, sumando cantidad ×
+    // precio unitario. No existe persistido en la orden -- `order.subtotal`
+    // es la BASE ya neta del descuento (ver docs/pricing-iva.md) -- así que
+    // se recalcula acá con los mismos ítems que arma el correo, para que
+    // "Subtotal (con IVA)" coincida exactamente con la suma de los renglones
+    // que el cliente ve arriba.
+    const itemsGrossTotal = round2(
+      order.items.reduce(
+        (sum, item) => sum + item.quantity * Number(item.price),
+        0,
+      ),
+    );
+
     const html = template({
       logoUrl: this.getLogoUrl(),
       customerName:
@@ -85,11 +100,43 @@ export class EmailService {
         productName: item.productName,
         quantity: item.quantity,
         price: Number(item.price).toFixed(2),
-        subtotal: Number(item.subtotal).toFixed(2),
+        // Monto BRUTO del renglón (cantidad × precio unitario), no
+        // `item.subtotal`: desde que el checkout desglosa el descuento por
+        // línea, `item.subtotal` viene NETO de la porción de descuento que
+        // le tocó a esa línea, así que `quantity × price` ya no es igual a
+        // `subtotal` (con cupón, el correo mostraba "3 × $3.00" al lado de
+        // "$8.37", una aritmética que no cierra a la vista). Mostrando el
+        // bruto acá, y el descuento una sola vez en el bloque de totales, el
+        // renglón vuelve a sumar a mano: "3 × $3.00 = $9.00", con los $4.27
+        // en su propia fila.
+        lineAmount: round2(item.quantity * Number(item.price)).toFixed(2),
       })),
+      // "Subtotal (con IVA)" sólo tiene sentido cuando hay descuento: es el
+      // punto de partida desde el que se resta el cupón. Sin descuento sería
+      // un segundo subtotal idéntico al de siempre, así que el template lo
+      // omite (ver condicional `discountAmount` más abajo).
+      itemsGrossTotal: itemsGrossTotal.toFixed(2),
+      // `order.subtotal` es la BASE imponible, ya neta del descuento (nunca
+      // el "subtotal bruto" que sugiere el nombre del campo). Se relabelea acá
+      // como "Base imponible" en el template para que no compita con
+      // "Subtotal (con IVA)".
       subtotal: Number(order.subtotal).toFixed(2),
       tax: order.tax > 0 ? Number(order.tax).toFixed(2) : null,
+      // El rótulo del IVA sólo lleva porcentaje cuando se puede afirmar una
+      // única alícuota para todo el pedido: si algún ítem tiene alícuotas
+      // mezcladas (o su producto fue borrado y no se puede consultar), un
+      // único "16%" sería falso para las líneas que tributan distinto. "IVA"
+      // a secas es siempre correcto; el detalle por línea ya lo tiene el
+      // panel admin.
+      ivaLabel: this.ivaLabel(order),
       shipping: order.shipping > 0 ? Number(order.shipping).toFixed(2) : null,
+      // El descuento no aparecía en ningún lado del comprobante: el cliente
+      // no tenía forma de reconciliar el total con lo que veía por renglón.
+      discountAmount:
+        Number(order.discountAmount) > 0
+          ? Number(order.discountAmount).toFixed(2)
+          : null,
+      discountCode: order.discountCode || null,
       total: Number(order.total).toFixed(2),
       isPickup,
       shippingAddress: isPickup ? null : order.shippingAddress,
@@ -376,6 +423,30 @@ export class EmailService {
       `Invitación para unirte a ${params.storeName}`,
       html,
     );
+  }
+
+  /**
+   * Rótulo del renglón de IVA del comprobante.
+   *
+   * Sólo agrega el porcentaje cuando TODOS los ítems comparten la misma
+   * alícuota y ninguno tiene el producto borrado (soft-delete deja
+   * `item.product` en `null`, y sin el producto no hay forma de conocer su
+   * `ivaType`). Mezclar alícuotas y mostrar un solo porcentaje le mentiría al
+   * cliente sobre cómo se calculó el impuesto de alguna línea.
+   */
+  private ivaLabel(order: Order): string {
+    const ivaTypes = new Set(order.items.map((item) => item.product?.ivaType));
+    if (ivaTypes.size !== 1) {
+      return 'IVA';
+    }
+
+    const [ivaType] = ivaTypes;
+    if (ivaType === undefined || ivaType === null) {
+      return 'IVA';
+    }
+
+    const rate = IVA_RATES[ivaType];
+    return `IVA (${Math.round(rate * 100)}%)`;
   }
 
   private translateStatus(status: string): string {

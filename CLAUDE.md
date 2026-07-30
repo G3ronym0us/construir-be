@@ -70,7 +70,7 @@ The app exposes two distinct API surfaces:
 
 ### Exchange Rate System
 
-`BCVService` scrapes the BCV (Banco Central de Venezuela) for the official USD/VES rate. `ExchangeRateTasksService` runs a scheduled job to keep it updated. Products store prices in USD; the API returns calculated VES prices.
+`BCVService` scrapes the BCV (Banco Central de Venezuela) for the official USD/VES rate. `ExchangeRateTasksService` runs a scheduled job to keep it updated. Products store prices in USD; the API returns calculated VES prices. Los productos guardan la base sin IVA en USD; el IVA y los precios en VES se derivan. Ver `docs/pricing-iva.md` para el modelo completo, las reglas de redondeo y el contrato del checkout.
 
 ### Webhook System
 

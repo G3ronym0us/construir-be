@@ -13,6 +13,8 @@ import {
   BadRequestException,
   Query,
   Res,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -23,6 +25,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { QuoteOrderDto } from './dto/quote-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderStatus } from './order.entity';
 import { PaymentStatus } from './payment-info.entity';
@@ -46,6 +49,26 @@ export class OrdersController {
   async createOrder(@Request() req, @Body() createOrderDto: CreateOrderDto) {
     const userId = req.user?.userId || null;
     return this.ordersService.createOrder(createOrderDto, userId);
+  }
+
+  /**
+   * Previsualizar el desglose de un pedido sin crearlo.
+   *
+   * El checkout lo usa para mostrar base + IVA = total. No requiere
+   * autenticación, igual que la creación de órdenes, porque el checkout
+   * funciona para invitados. Cuando SÍ hay usuario autenticado, se pasa su
+   * `userId` para que el servicio cotice el mismo carrito que `createOrder`
+   * va a facturar — antes se descartaba y el quote sólo miraba el body.
+   *
+   * `@HttpCode(OK)`: es una previsualización sin efectos secundarios, no una
+   * creación; el 201 por defecto de `@Post` no correspondía.
+   */
+  @Post('quote')
+  @UseGuards(OptionalJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async quoteOrder(@Request() req, @Body() quoteOrderDto: QuoteOrderDto) {
+    const userId = req.user?.userId || null;
+    return this.ordersService.quoteOrder(quoteOrderDto, userId);
   }
 
   /**

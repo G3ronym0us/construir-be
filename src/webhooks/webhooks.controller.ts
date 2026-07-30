@@ -25,7 +25,7 @@ export class WebhooksController {
 
   @Post()
   async create(@Body() createDto: CreateWebhookDto) {
-    const webhook = await this.webhooksService.create(
+    const { webhook, secret } = await this.webhooksService.create(
       createDto.url,
       createDto.events,
       createDto.secret,
@@ -35,6 +35,7 @@ export class WebhooksController {
     return {
       message: 'Webhook created successfully',
       webhook,
+      secret,
       warning: 'Save the webhook secret securely for signature verification.',
     };
   }

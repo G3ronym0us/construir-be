@@ -14,6 +14,7 @@ import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { BanksService } from '../banks/banks.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
+import { OrderPricingService } from './order-pricing.service';
 
 const mockService = () => ({});
 
@@ -63,6 +64,7 @@ describe('OrdersService.getPendingOrders', () => {
         { provide: BanksService, useFactory: mockService },
         { provide: GuestCustomersService, useValue: guestCustomersService },
         { provide: ExchangeRatesService, useFactory: mockService },
+        { provide: OrderPricingService, useFactory: mockService },
       ],
     }).compile();
 

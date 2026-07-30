@@ -76,14 +76,17 @@ export class CartService {
       }
 
       existingItem.quantity = newQuantity;
-      existingItem.price = product.price;
+      existingItem.price = product.priceWithIva;
       await this.cartItemRepository.save(existingItem);
     } else {
       // Crear nuevo item
+      // El carrito guarda el precio con IVA incluido: es el que el cliente
+      // vio en el catálogo y el que se le facturará. Guardar la base acá
+      // hacía que el monto saltara entre carrito y checkout.
       const cartItem = this.cartItemRepository.create({
         cartId: cart.id,
         quantity,
-        price: product.price,
+        price: product.priceWithIva,
         product,
       });
       await this.cartItemRepository.save(cartItem);
@@ -124,7 +127,7 @@ export class CartService {
     }
 
     cartItem.quantity = updateCartItemDto.quantity;
-    cartItem.price = product.price; // Actualizar precio por si cambió
+    cartItem.price = product.priceWithIva; // Actualizar precio por si cambió
     await this.cartItemRepository.save(cartItem);
 
     return this.getCart(userId);
@@ -168,8 +171,8 @@ export class CartService {
           where: { uuid: item.product.uuid },
         });
 
-        if (product && item.price !== product.price) {
-          item.price = product.price;
+        if (product && item.price !== product.priceWithIva) {
+          item.price = product.priceWithIva;
           await this.cartItemRepository.save(item);
         }
       }

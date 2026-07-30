@@ -1,25 +1,24 @@
 import { Product } from './product.entity';
-import { IVA_RATES } from './enums/iva-type.enum';
+import { fromBase, round2 } from './iva.util';
 
 /**
  * Recalcula los tres campos en bolívares de un producto (base, IVA y total con
- * IVA) a partir de su precio en USD, su tipo de IVA y la tasa de cambio actual.
+ * IVA) a partir de su precio en USD, su tipo de IVA y la tasa de cambio dada.
  *
- * Mantiene la misma fórmula que la migración AddIvaToProductsTable: el IVA en
- * VES se calcula sobre el precio base en VES, no convirtiendo el IVA en USD,
- * para que `priceWithIvaVes` quede siempre consistente con `priceVes`.
+ * El IVA en VES se calcula sobre la base ya convertida a VES, no convirtiendo
+ * el IVA en USD, para que `priceWithIvaVes` quede siempre consistente con
+ * `priceVes`. Es el mismo criterio de la migración AddIvaToProductsTable.
  *
- * Debe llamarse en TODO punto que setee precios (creación, edición admin,
- * edición v1 y sincronización diaria de tasa) para evitar que los campos de
- * IVA en VES queden congelados en una tasa vieja.
+ * Debe llamarse en todo punto que setee precios (creación, edición v1 y
+ * sincronización diaria de tasa) para que los campos VES no queden congelados
+ * en una tasa vieja. Los campos USD ya no dependen de esta función: los deriva
+ * `Product.syncUsdIvaFields()` por hook de entidad.
  */
 export function applyVesPrices(product: Product, rate: number): void {
-  const ivaPct = IVA_RATES[product.ivaType] ?? 0;
+  const priceVes = round2(Number(product.price) * rate);
+  const { base, iva, total } = fromBase(priceVes, product.ivaType);
 
-  const priceVes = Number((Number(product.price) * rate).toFixed(2));
-  const ivaVes = Number((priceVes * ivaPct).toFixed(2));
-
-  product.priceVes = priceVes;
-  product.ivaVes = ivaVes;
-  product.priceWithIvaVes = Number((priceVes + ivaVes).toFixed(2));
+  product.priceVes = base;
+  product.ivaVes = iva;
+  product.priceWithIvaVes = total;
 }

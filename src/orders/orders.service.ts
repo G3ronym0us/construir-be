@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -17,12 +18,64 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
-import { Discount } from '../discounts/discount.entity';
-import { IVA_RATES } from '../products/enums/iva-type.enum';
+import { IVA_RATES, IvaType } from '../products/enums/iva-type.enum';
 import { BanksService } from '../banks/banks.service';
 import { GuestCustomersService } from './guest-customers.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
+import { OrderPricingService } from './order-pricing.service';
+import { QuoteOrderDto } from './dto/quote-order.dto';
+import { round2 } from '../products/iva.util';
 import * as bcrypt from 'bcrypt';
+
+export type QuoteIssue =
+  | { code: 'NOT_FOUND' }
+  | { code: 'NOT_PUBLISHED' }
+  | { code: 'INSUFFICIENT_INVENTORY'; available: number };
+
+export interface QuoteItem {
+  productUuid: string | null;
+  /**
+   * UUID del renglón de carrito cuando el producto ya no puede resolverse
+   * (borrado con soft-delete después de agregarse al carrito): sin él no
+   * hay `productUuid` que devolver, pero el frontend igual necesita algo
+   * para identificar qué línea de SU carrito está fallando y ofrecer
+   * quitarla. `null` para ítems resueltos normalmente.
+   */
+  cartItemUuid: string | null;
+  name: string | null;
+  sku: string | null;
+  quantity: number;
+  ivaType: number | null;
+  ivaRate: number | null;
+  unitPrice: number | null;
+  lineTotal: number | null;
+  discount: number | null;
+  base: number | null;
+  iva: number | null;
+  total: number | null;
+  unitPriceVes: number | null;
+  totalVes: number | null;
+  issue: QuoteIssue | null;
+}
+
+export interface OrderQuote {
+  exchangeRate: number | null;
+  rateDate: string | null;
+  items: QuoteItem[];
+  totals: {
+    itemsTotal: number;
+    discount: number;
+    subtotal: number;
+    tax: number;
+    shipping: number;
+    total: number;
+    subtotalVes: number | null;
+    taxVes: number | null;
+    discountVes: number | null;
+    totalVes: number | null;
+  };
+  canCheckout: boolean;
+}
 
 @Injectable()
 export class OrdersService {
@@ -46,6 +99,7 @@ export class OrdersService {
     private readonly banksService: BanksService,
     private readonly guestCustomersService: GuestCustomersService,
     private readonly exchangeRatesService: ExchangeRatesService,
+    private readonly orderPricingService: OrderPricingService,
   ) {}
 
   /**
@@ -58,17 +112,36 @@ export class OrdersService {
   }
 
   /**
-   * Crea una nueva orden desde el carrito del usuario (backend) o items guest
+   * Resuelve de dónde salen los ítems de un pedido — la MISMA regla para
+   * `quoteOrder` y `createOrder`.
+   *
+   * Un usuario autenticado siempre se cotiza y se factura con el contenido
+   * de su carrito en el servidor; cualquier `items` que venga en el body se
+   * ignora. Un invitado no tiene carrito en el servidor, así que usa los
+   * `items` del body.
+   *
+   * Antes de este arreglo cada método aplicaba esta regla por su cuenta:
+   * `createOrder` la tenía, `quoteOrder` no (leía sólo `dto.items`, incluso
+   * para un usuario logueado). Un cliente autenticado podía cotizar con un
+   * `items` armado a mano y recibir un total; al confirmar, `createOrder`
+   * facturaba el contenido real de su carrito — un número distinto, con
+   * 201 y sin ningún guard que lo detectara.
+   *
+   * Separa los ítems del carrito en resolubles y "missing": `Product` tiene
+   * `@DeleteDateColumn`, así que si un admin borra (soft-delete) un producto
+   * que está en el carrito de un cliente, TypeORM excluye esa fila del join
+   * y `item.product` llega en `null`. Devolver esos renglones aparte, en vez
+   * de leer `item.product.uuid` sin guarda, es lo que evita el 500: cada
+   * llamador decide qué hacer con ellos (ver `quoteOrder` y `createOrder`).
    */
-  async createOrder(
-    createOrderDto: CreateOrderDto,
-    userId?: number | null,
-  ): Promise<Order> {
-    // 1. Determinar el origen de los items
-    let orderItems: Array<{ productUuid: string; quantity: number }> = [];
-
+  private async resolveOrderItems(
+    userId: number | null,
+    items?: Array<{ productUuid: string; quantity: number }>,
+  ): Promise<{
+    items: Array<{ productUuid: string; quantity: number }>;
+    missingItems: Array<{ cartItemUuid: string; quantity: number }>;
+  }> {
     if (userId) {
-      // Usuario autenticado: obtener items del carrito backend
       const cart = await this.cartRepository.findOne({
         where: { userId },
         relations: {
@@ -82,31 +155,252 @@ export class OrdersService {
         throw new BadRequestException('Cart is empty');
       }
 
-      orderItems = cart.items.map((item) => ({
-        productUuid: item.product.uuid,
-        quantity: item.quantity,
-      }));
-    } else {
-      // Usuario guest: obtener items del DTO
-      if (!createOrderDto.items || createOrderDto.items.length === 0) {
-        throw new BadRequestException(
-          'Cart items are required for guest orders',
-        );
+      const resolved: Array<{ productUuid: string; quantity: number }> = [];
+      const missingItems: Array<{ cartItemUuid: string; quantity: number }> =
+        [];
+
+      for (const item of cart.items) {
+        if (!item.product) {
+          missingItems.push({
+            cartItemUuid: item.uuid,
+            quantity: item.quantity,
+          });
+          continue;
+        }
+        resolved.push({
+          productUuid: item.product.uuid,
+          quantity: item.quantity,
+        });
       }
 
-      orderItems = createOrderDto.items.map((item) => ({
-        productUuid: item.productUuid,
-        quantity: item.quantity,
-      }));
+      return { items: resolved, missingItems };
     }
 
-    // 2. Validar inventario y calcular totales
-    let subtotal = 0;
-    const validatedItems: Array<{
-      productUuid: string;
-      quantity: number;
-      product: Product;
-    }> = [];
+    if (!items || items.length === 0) {
+      throw new BadRequestException('Cart items are required for guest orders');
+    }
+
+    return {
+      items: items.map((item) => ({
+        productUuid: item.productUuid,
+        quantity: item.quantity,
+      })),
+      missingItems: [],
+    };
+  }
+
+  /**
+   * Previsualiza el desglose de un pedido sin persistir nada.
+   *
+   * Existe porque el checkout no tenía forma de pedirle el desglose al
+   * backend: los totales sólo existían después del POST /orders, así que el
+   * frontend calculaba su propio IVA y mostraba un número que el backend
+   * nunca validó.
+   *
+   * A diferencia de `createOrder`, no lanza excepción por stock insuficiente
+   * ni por producto despublicado: los reporta como `issue` por ítem y baja
+   * `canCheckout`. Un 400 dejaría la página de checkout en blanco sin decirle
+   * al cliente cuál de sus productos falló.
+   */
+  async quoteOrder(
+    quoteOrderDto: QuoteOrderDto,
+    userId?: number | null,
+  ): Promise<OrderQuote> {
+    // Misma regla de resolución que `createOrder`: un usuario autenticado se
+    // cotiza (y se factura) con SU carrito del servidor, ignorando cualquier
+    // `items` que venga en el body; un invitado usa los `items` del body. Dos
+    // reglas distintas para la misma decisión era exactamente el bug que esta
+    // rama vino a arreglar: el cliente veía un total en el quote y otro,
+    // mayor, al confirmar. Un carrito vacío se rechaza con la MISMA
+    // excepción que `createOrder` (no un quote vacío con `canCheckout:
+    // false`): el frontend no tiene nada que previsualizar, así que dejar
+    // pasar la request sólo pospone el mismo rechazo al POST /orders.
+    const { items: orderItems, missingItems } = await this.resolveOrderItems(
+      userId ?? null,
+      quoteOrderDto.items,
+    );
+
+    // Anotamos el tipo de retorno explícitamente: sin esto, TypeScript infiere
+    // una unión discriminada por rama (product: null sólo en NOT_FOUND) y
+    // termina angostando `issue` en el filtro de abajo al punto de marcar la
+    // comparación con 'NOT_FOUND' como imposible, aunque la lógica es correcta.
+    const resolved = await Promise.all(
+      orderItems.map(
+        async (
+          item,
+        ): Promise<{
+          item: { productUuid: string; quantity: number };
+          product: Product | null;
+          issue: QuoteIssue | null;
+        }> => {
+          const product = await this.productRepository.findOne({
+            where: { uuid: item.productUuid },
+          });
+
+          if (!product) {
+            return { item, product: null, issue: { code: 'NOT_FOUND' } };
+          }
+
+          if (!product.published) {
+            return {
+              item,
+              product,
+              issue: { code: 'NOT_PUBLISHED' },
+            };
+          }
+
+          if (product.inventory < item.quantity) {
+            return {
+              item,
+              product,
+              issue: {
+                code: 'INSUFFICIENT_INVENTORY' as const,
+                available: product.inventory,
+              },
+            };
+          }
+
+          return { item, product, issue: null };
+        },
+      ),
+    );
+
+    // Sólo se cotiza lo que está a la venta. El stock insuficiente sí se
+    // cotiza: el cliente necesita ver el monto para poder ajustar la cantidad.
+    const priceable = resolved.filter(
+      (entry) =>
+        entry.product !== null &&
+        entry.issue?.code !== 'NOT_FOUND' &&
+        entry.issue?.code !== 'NOT_PUBLISHED',
+    );
+
+    const pricing = await this.orderPricingService.price({
+      items: priceable.map((entry) => ({
+        product: entry.product as Product,
+        quantity: entry.item.quantity,
+      })),
+      discountCode: quoteOrderDto.discountCode,
+    });
+
+    // Asociamos por posición, no por UUID: `price()` arma `pricing.lines` con
+    // `items.map((item, index) => ...)`, así que `pricing.lines[i]`
+    // corresponde exactamente a `priceable[i]`, en el mismo orden. Un `Map`
+    // por UUID de producto colapsa cuando el mismo producto aparece dos veces
+    // en el pedido (carrito con el mismo ítem agregado en momentos distintos
+    // sin fusionar cantidades): sólo sobrevive la última línea, y todas las
+    // entradas repetidas terminan mostrando su monto. Usamos la identidad de
+    // cada `entry` de `priceable` como clave para no tener que llevar el
+    // índice a mano.
+    const lineByEntry = new Map(
+      priceable.map((entry, index) => [entry, pricing.lines[index]]),
+    );
+
+    const items: QuoteItem[] = resolved.map((entry) => {
+      const { item, product, issue } = entry;
+      const line = lineByEntry.get(entry);
+      const ivaRate = product
+        ? IVA_RATES[product.ivaType ?? IvaType.NORMAL] * 100
+        : null;
+
+      return {
+        productUuid: item.productUuid,
+        cartItemUuid: null,
+        name: product?.name ?? null,
+        sku: product?.sku ?? null,
+        quantity: item.quantity,
+        ivaType: product?.ivaType ?? null,
+        ivaRate,
+        unitPrice: line?.unitPrice ?? null,
+        lineTotal: line?.lineTotal ?? null,
+        discount: line?.discount ?? null,
+        base: line?.base ?? null,
+        iva: line?.iva ?? null,
+        total: line?.total ?? null,
+        unitPriceVes:
+          product?.priceWithIvaVes != null
+            ? Number(product.priceWithIvaVes)
+            : null,
+        // Se toma de la línea, ya convertida por OrderPricingService, para que
+        // la suma de los renglones dé exactamente el total del bloque totals.
+        totalVes: line?.totalVes ?? null,
+        issue,
+      };
+    });
+
+    // Renglones de carrito cuyo producto ya no existe (soft-delete): no hay
+    // `productUuid` que resolver, así que se agregan aparte, con
+    // `issue: NOT_FOUND` como cualquier otro producto no encontrado. El
+    // resto del pedido se sigue cotizando con normalidad — es exactamente el
+    // "nunca fallar duro" que este endpoint promete: un carrito con un ítem
+    // borrado no tumba el checkout entero.
+    const missingQuoteItems: QuoteItem[] = missingItems.map((missing) => ({
+      productUuid: null,
+      cartItemUuid: missing.cartItemUuid,
+      name: null,
+      sku: null,
+      quantity: missing.quantity,
+      ivaType: null,
+      ivaRate: null,
+      unitPrice: null,
+      lineTotal: null,
+      discount: null,
+      base: null,
+      iva: null,
+      total: null,
+      unitPriceVes: null,
+      totalVes: null,
+      issue: { code: 'NOT_FOUND' },
+    }));
+
+    const allItems = [...items, ...missingQuoteItems];
+
+    return {
+      exchangeRate: pricing.exchangeRate,
+      rateDate: pricing.rateDate,
+      items: allItems,
+      totals: {
+        itemsTotal: pricing.itemsTotal,
+        discount: pricing.discount,
+        subtotal: pricing.subtotal,
+        tax: pricing.tax,
+        shipping: pricing.shipping,
+        total: pricing.total,
+        subtotalVes: pricing.subtotalVes,
+        taxVes: pricing.taxVes,
+        discountVes: pricing.discountVes,
+        totalVes: pricing.totalVes,
+      },
+      canCheckout: allItems.every((item) => item.issue === null),
+    };
+  }
+
+  /**
+   * Crea una nueva orden desde el carrito del usuario (backend) o items guest
+   */
+  async createOrder(
+    createOrderDto: CreateOrderDto,
+    userId?: number | null,
+  ): Promise<Order> {
+    // 1. Determinar el origen de los items (compartido con quoteOrder: ver
+    //    `resolveOrderItems`).
+    const { items: orderItems, missingItems } = await this.resolveOrderItems(
+      userId ?? null,
+      createOrderDto.items,
+    );
+
+    // A diferencia de `quoteOrder`, acá no corresponde "seguir de largo":
+    // facturar una orden que omite en silencio un producto borrado del
+    // carrito del cliente cobraría menos de lo que él espera pagar, sin
+    // avisarle por qué. Se rechaza con 400 (antes: 500, por el mismo
+    // `item.product.uuid` sin guarda que se arregló en `resolveOrderItems`).
+    if (missingItems.length > 0) {
+      throw new BadRequestException(
+        'Uno o más productos de tu carrito ya no están disponibles. Actualizá tu carrito e intentá de nuevo.',
+      );
+    }
+
+    // 2. Validar inventario y disponibilidad
+    const validatedItems: Array<{ product: Product; quantity: number }> = [];
 
     for (const item of orderItems) {
       const product = await this.productRepository.findOne({
@@ -129,12 +423,7 @@ export class OrdersService {
         );
       }
 
-      subtotal += Number(product.priceWithIva) * item.quantity;
-      validatedItems.push({
-        productUuid: item.productUuid,
-        quantity: item.quantity,
-        product,
-      });
+      validatedItems.push({ product, quantity: item.quantity });
     }
 
     // 3. Validar customerInfo para usuarios guest
@@ -144,9 +433,74 @@ export class OrdersService {
       );
     }
 
+    // 3.5 Calcular el desglose con el calculador único, el mismo que usa
+    //     POST /orders/quote. Nunca se aceptan montos del cliente.
+    //
+    // Va acá, antes de cualquier escritura persistente (dirección de envío,
+    // guest customer), a propósito: un cupón inválido (400, desde `price()`)
+    // o una tasa que rotó desde el quote (409, más abajo) no son casos raros
+    // — son el camino esperado cuando el cliente tarda en completar el
+    // checkout. Si el cálculo corriera después de guardar la dirección o el
+    // guest customer, cada uno de esos rechazos dejaría una fila huérfana sin
+    // orden que la referencie.
+    const pricing = await this.orderPricingService.price({
+      items: validatedItems,
+      discountCode: createOrderDto.discountCode,
+    });
+
+    // Se factura con la tasa publicada. Si cambió entre que el cliente vio el
+    // desglose y confirmó, el total ya no es el que aceptó: se rechaza para
+    // que la UI le pida reconfirmación en vez de cobrarle otro monto.
+    //
+    // Si el cliente mandó `expectedExchangeRate` y hoy no hay NINGUNA tasa
+    // disponible (`resolveRate()` traga el error y devuelve null), antes se
+    // seguía de largo: la orden quedaba en 201 con los campos VES en NULL,
+    // pero el cliente esperaba pagar en bolívares un monto que el backend
+    // nunca llegó a registrar. Se rechaza explícitamente con el mismo código
+    // que el caso de tasa rotada, en vez de facturar silenciosamente sólo en
+    // USD.
+    if (createOrderDto.expectedExchangeRate !== undefined) {
+      if (pricing.exchangeRate === null) {
+        throw new ConflictException({
+          message:
+            'La tasa de cambio no está disponible en este momento. Intentá de nuevo en unos minutos.',
+          code: 'EXCHANGE_RATE_CHANGED',
+          exchangeRate: null,
+          rateDate: null,
+          totals: {
+            subtotal: pricing.subtotal,
+            tax: pricing.tax,
+            total: pricing.total,
+            subtotalVes: null,
+            taxVes: null,
+            totalVes: null,
+          },
+        });
+      }
+
+      if (
+        Number(createOrderDto.expectedExchangeRate) !== pricing.exchangeRate
+      ) {
+        throw new ConflictException({
+          message:
+            'La tasa de cambio cambió desde que se calculó el pedido. Confirmá el nuevo total.',
+          code: 'EXCHANGE_RATE_CHANGED',
+          exchangeRate: pricing.exchangeRate,
+          rateDate: pricing.rateDate,
+          totals: {
+            subtotal: pricing.subtotal,
+            tax: pricing.tax,
+            total: pricing.total,
+            subtotalVes: pricing.subtotalVes,
+            taxVes: pricing.taxVes,
+            totalVes: pricing.totalVes,
+          },
+        });
+      }
+    }
+
     // 4. Validar y crear la dirección de envío (solo para delivery)
     let shippingAddress: ShippingAddress | null = null;
-    let shippingCost = 0;
 
     if (createOrderDto.deliveryMethod === DeliveryMethod.DELIVERY) {
       if (!createOrderDto.shippingAddress) {
@@ -172,8 +526,9 @@ export class OrdersService {
       });
       await this.shippingAddressRepository.save(shippingAddress);
 
-      // Calcular costo de envío si es necesario
-      shippingCost = 0; // TODO: Implementar cálculo de envío basado en ubicación
+      // El costo de envío queda en 0: `pricing.shipping` lo trae del
+      // calculador (ver el TODO real en OrderPricingService.SHIPPING) hasta
+      // que se implemente el cálculo basado en ubicación.
     }
 
     // 5. Guardar/actualizar datos de guest customer para futuras compras
@@ -184,53 +539,6 @@ export class OrdersService {
         createOrderDto.shippingAddress,
       );
       guestCustomerId = guestCustomer.id;
-    }
-
-    const tax = validatedItems.reduce((sum, item) => {
-      const ivaRate = IVA_RATES[item.product.ivaType ?? 0];
-      const itemSubtotal = Number(item.product.priceWithIva) * item.quantity;
-      return sum + (itemSubtotal * ivaRate) / (1 + ivaRate);
-    }, 0);
-
-    // 3.5 Validar y aplicar descuento si existe
-    let discountAmount = 0;
-    let discount: Discount | null = null;
-    const orderTotalBeforeDiscount = subtotal + tax + shippingCost;
-
-    if (createOrderDto.discountCode) {
-      const discountValidation = await this.discountsService.validateDiscount(
-        createOrderDto.discountCode,
-        orderTotalBeforeDiscount,
-      );
-
-      if (!discountValidation.valid) {
-        throw new BadRequestException(
-          discountValidation.error || 'Invalid discount code',
-        );
-      }
-
-      discountAmount = discountValidation.discount?.discountAmount || 0;
-      discount = await this.discountsService.findByCode(
-        createOrderDto.discountCode,
-      );
-    }
-
-    const total = Math.max(0, orderTotalBeforeDiscount - discountAmount);
-
-    // 3.6 Obtener tipo de cambio actual y calcular precios en VES
-    let exchangeRate: number | null = null;
-    let subtotalVes: number | null = null;
-    let totalVes: number | null = null;
-
-    try {
-      exchangeRate = await this.exchangeRatesService.getRate();
-      subtotalVes = Number((subtotal * exchangeRate).toFixed(2));
-      totalVes = Number((total * exchangeRate).toFixed(2));
-    } catch (error) {
-      // Si no hay tipo de cambio disponible, continuar sin precios VES
-      console.warn(
-        'Exchange rate not available, continuing without VES prices',
-      );
     }
 
     // 4. Crear la información de pago
@@ -289,16 +597,18 @@ export class OrdersService {
     order.shippingAddressId = shippingAddress?.id || null;
     order.paymentInfoId = paymentInfo.id;
     order.status = OrderStatus.ON_HOLD;
-    order.subtotal = subtotal;
-    order.tax = tax;
-    order.shipping = shippingCost;
-    order.discountId = discount?.id || null;
-    order.discountCode = discount?.code || null;
-    order.discountAmount = discountAmount;
-    order.total = total;
-    order.exchangeRate = exchangeRate;
-    order.subtotalVes = subtotalVes;
-    order.totalVes = totalVes;
+    order.subtotal = pricing.subtotal;
+    order.tax = pricing.tax;
+    order.shipping = pricing.shipping;
+    order.discountId = pricing.discountId;
+    order.discountCode = pricing.discountCode;
+    order.discountAmount = pricing.discount;
+    order.total = pricing.total;
+    order.exchangeRate = pricing.exchangeRate;
+    order.subtotalVes = pricing.subtotalVes;
+    order.taxVes = pricing.taxVes;
+    order.discountAmountVes = pricing.discountVes;
+    order.totalVes = pricing.totalVes;
     order.notes = createOrderDto.notes || null;
 
     await this.orderRepository.save(order);
@@ -306,25 +616,24 @@ export class OrdersService {
     // 6. Crear los items de la orden
     const createdOrderItems: OrderItem[] = [];
 
-    for (const item of validatedItems) {
-      const itemSubtotal = Number(item.product.priceWithIva) * item.quantity;
-      const itemPriceVes = exchangeRate
-        ? Number((Number(item.product.priceWithIva) * exchangeRate).toFixed(2))
-        : null;
-      const itemSubtotalVes = exchangeRate
-        ? Number((itemSubtotal * exchangeRate).toFixed(2))
-        : null;
-
+    for (const line of pricing.lines) {
       const orderItem = this.orderItemRepository.create({
         orderId: order.id,
-        productId: item.product.id,
-        productName: item.product.name,
-        productSku: item.product.sku,
-        quantity: item.quantity,
-        price: item.product.priceWithIva,
-        subtotal: itemSubtotal,
-        priceVes: itemPriceVes,
-        subtotalVes: itemSubtotalVes,
+        productId: line.product.id,
+        productName: line.product.name,
+        productSku: line.product.sku,
+        quantity: line.quantity,
+        // `price` y `subtotal` son inclusivos de IVA; `subtotal` ya viene neto
+        // de la porción de descuento que le tocó a la línea.
+        price: line.unitPrice,
+        subtotal: line.total,
+        priceVes:
+          pricing.exchangeRate !== null
+            ? round2(line.unitPrice * pricing.exchangeRate)
+            : null,
+        // Del desglose de la línea, no recalculado, para que los montos VES de
+        // los items sumen exactamente los de la orden.
+        subtotalVes: line.totalVes,
       });
 
       createdOrderItems.push(orderItem);
@@ -335,7 +644,7 @@ export class OrdersService {
     // 7. Reducir inventario
     for (const item of validatedItems) {
       await this.productRepository.decrement(
-        { uuid: item.productUuid },
+        { uuid: item.product.uuid },
         'inventory',
         item.quantity,
       );
@@ -376,8 +685,12 @@ export class OrdersService {
     }
 
     // 10. Incrementar uso del cupón si se aplicó uno
-    if (discount) {
-      await this.discountsService.incrementUsage(discount.uuid);
+    // `pricing.discountUuid` ya viene resuelto de `price()`: no hace falta
+    // volver a buscar el cupón por código acá. Buscarlo de nuevo después de
+    // persistir la orden podía devolver 404 si alguien lo borraba en esa
+    // ventana, dejando la orden creada pero la respuesta al cliente rota.
+    if (pricing.discountUuid) {
+      await this.discountsService.incrementUsage(pricing.discountUuid);
     }
 
     // 11. Enviar email de confirmación

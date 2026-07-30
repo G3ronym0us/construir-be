@@ -9,11 +9,14 @@ import {
   OneToMany,
   ManyToMany,
   JoinTable,
+  BeforeInsert,
+  BeforeUpdate,
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { ProductImage } from './product-image.entity';
 import { Category } from '../categories/category.entity';
 import { IvaType } from './enums/iva-type.enum';
+import { fromBase } from './iva.util';
 
 @Entity('products')
 export class Product {
@@ -122,4 +125,27 @@ export class Product {
 
   @DeleteDateColumn({ name: 'deleted_at' })
   deletedAt!: Date | null;
+
+  /**
+   * Deriva los campos de IVA en USD desde `price` y `ivaType`.
+   *
+   * Vive en la entidad, y no en un servicio, porque la operación es pura: no
+   * necesita la tasa de cambio. Así ningún punto de escritura puede guardar un
+   * producto con `iva` y `priceWithIva` desincronizados de `price`, que es
+   * exactamente cómo esos campos quedaron congelados en la tasa de la
+   * migración inicial.
+   *
+   * Los campos en VES no se pueden derivar acá porque sí necesitan la tasa;
+   * quedan en `applyVesPrices()`, que se invoca donde la tasa está disponible.
+   *
+   * ATENCIÓN: `repository.update()` y los query builders NO disparan estos
+   * hooks. Todo código que modifique `price` o `ivaType` debe usar `.save()`.
+   */
+  @BeforeInsert()
+  @BeforeUpdate()
+  syncUsdIvaFields(): void {
+    const { iva, total } = fromBase(Number(this.price), this.ivaType);
+    this.iva = iva;
+    this.priceWithIva = total;
+  }
 }

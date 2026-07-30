@@ -40,6 +40,13 @@ export class UserInvitation {
   @Column({ name: 'last_name', type: 'varchar', nullable: true })
   lastName: string | null;
 
+  // Mismo patrón que `User.password`: quien tenga este token puede completar
+  // el registro en nombre del invitado, con el rol que se le haya asignado
+  // (potencialmente ADMIN) -- es una credencial de un solo uso, no un dato
+  // de exhibición. `GET /users/admin/invitations` (listado paginado, para el
+  // panel) devolvía las entidades crudas y lo exponía a cualquiera con acceso
+  // a esa vista sin necesidad de haber recibido el email de invitación.
+  @Exclude()
   @Column({ unique: true, length: 128 })
   token: string;
 

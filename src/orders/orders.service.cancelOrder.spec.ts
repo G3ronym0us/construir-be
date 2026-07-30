@@ -14,6 +14,7 @@ import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { BanksService } from '../banks/banks.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
+import { OrderPricingService } from './order-pricing.service';
 
 const mockService = () => ({});
 
@@ -49,6 +50,7 @@ describe('OrdersService.cancelOrder', () => {
         { provide: BanksService, useFactory: mockService },
         { provide: GuestCustomersService, useFactory: mockService },
         { provide: ExchangeRatesService, useFactory: mockService },
+        { provide: OrderPricingService, useFactory: mockService },
       ],
     }).compile();
 

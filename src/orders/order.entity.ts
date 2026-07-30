@@ -76,7 +76,11 @@ export class Order {
   @Column({ name: 'shipping_address_id', nullable: true })
   shippingAddressId: number | null;
 
-  @OneToOne(() => PaymentInfo, { cascade: true, eager: true, onDelete: 'CASCADE' })
+  @OneToOne(() => PaymentInfo, {
+    cascade: true,
+    eager: true,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'payment_info_id' })
   paymentInfo: PaymentInfo;
 
@@ -155,6 +159,24 @@ export class Order {
     nullable: true,
   })
   totalVes: number | null;
+
+  @Column({
+    name: 'tax_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  taxVes: number | null;
+
+  @Column({
+    name: 'discount_amount_ves',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  discountAmountVes: number | null;
 
   @Column({ name: 'order_key', type: 'varchar', nullable: true })
   orderKey: string | null;

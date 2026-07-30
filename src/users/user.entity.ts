@@ -36,6 +36,14 @@ export class User {
   @Column({ unique: true })
   email: string;
 
+  // `@Exclude()` sólo afecta la SERIALIZACIÓN (lo que arma
+  // `ClassTransformer`/`ClassSerializerInterceptor` para la respuesta HTTP),
+  // nunca la carga de la entidad: `AuthService` sigue pudiendo leer
+  // `user.password` para compararla con bcrypt sin ningún cambio. Antes de
+  // este fix, el hash bcrypt salía crudo en cualquier respuesta que
+  // serializara un `User` completo -- por ejemplo `GET /cart`, que carga el
+  // usuario dueño del carrito vía relación `eager`.
+  @Exclude()
   @Column()
   password: string;
 
@@ -71,6 +79,9 @@ export class User {
   @Column({ name: 'email_verified', type: 'boolean', default: false })
   emailVerified: boolean;
 
+  // Token de un solo uso: quien lo tenga puede verificar el correo de la
+  // cuenta en su nombre. Es una credencial igual que `password`.
+  @Exclude()
   @Column({
     name: 'email_verification_token',
     type: 'varchar',
@@ -87,6 +98,9 @@ export class User {
   })
   emailVerificationExpiresAt: Date | null;
 
+  // Token de un solo uso: quien lo tenga puede tomar la cuenta reseteando la
+  // contraseña sin conocer la actual. Es una credencial igual que `password`.
+  @Exclude()
   @Column({
     name: 'password_reset_token',
     type: 'varchar',
@@ -96,6 +110,9 @@ export class User {
   })
   passwordResetToken: string | null;
 
+  // A diferencia del token, la fecha de expiración no habilita nada por sí
+  // sola -- sin el token no sirve para tomar la cuenta -- así que no se
+  // excluye de la serialización.
   @Column({
     name: 'password_reset_expires_at',
     type: 'timestamptz',

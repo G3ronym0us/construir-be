@@ -17,6 +17,7 @@ import { BanksModule } from '../banks/banks.module';
 import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
 import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomersController } from './guest-customers.controller';
+import { OrderPricingService } from './order-pricing.service';
 
 @Module({
   imports: [
@@ -35,7 +36,13 @@ import { GuestCustomersController } from './guest-customers.controller';
     ExchangeRatesModule,
   ],
   controllers: [OrdersController, GuestCustomersController],
-  providers: [OrdersService, GuestCustomersService, S3Service, EmailService],
-  exports: [OrdersService, GuestCustomersService],
+  providers: [
+    OrdersService,
+    OrderPricingService,
+    GuestCustomersService,
+    S3Service,
+    EmailService,
+  ],
+  exports: [OrdersService, OrderPricingService, GuestCustomersService],
 })
 export class OrdersModule {}
