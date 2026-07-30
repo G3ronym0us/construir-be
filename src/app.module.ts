@@ -3,6 +3,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
@@ -46,6 +47,11 @@ import {
       ],
     }),
     ScheduleModule.forRoot(),
+    // Configura el límite de tasa pero NO registra un guard global: se aplica
+    // sólo en las rutas que declaran `@UseGuards(ThrottlerGuard)`. Un límite
+    // global rompería la integración con el ERP, que hace ráfagas legítimas de
+    // llamadas al sincronizar el catálogo.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
