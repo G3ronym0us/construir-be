@@ -55,6 +55,7 @@ lerna-debug.log*
 .claude/
 .agents/
 skills-lock.json
+memory/
 
 # Runtime data
 pids
