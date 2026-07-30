@@ -203,9 +203,16 @@ export class OrderPricingService {
    * Reparte el descuento del pedido entre las líneas, proporcional al monto de
    * cada una.
    *
-   * El residuo de redondeo se asigna a la línea de mayor monto para que la
-   * suma de las partes sea exactamente el descuento otorgado. Sin eso el
-   * desglose puede quedar descuadrado por un céntimo.
+   * El residuo de redondeo (la diferencia entre el descuento otorgado y la
+   * suma de los shares proporcionales, que puede ser positiva o negativa) se
+   * reparte por monto descendente en vez de volcarse entero en una sola
+   * línea: si esa línea no tiene espacio para absorberlo sin superar su
+   * propio monto (o, para un residuo negativo, sin bajar de cero), el
+   * sobrante se corre a la siguiente. Sin esto, un residuo de más de un
+   * céntimo — o unas cuantas líneas de monto parecido con un cupón que cubre
+   * casi todo el pedido — puede dejar una porción por encima del monto de su
+   * línea, y por lo tanto un renglón con neto e IVA negativos aunque los
+   * agregados del pedido sigan cuadrando.
    */
   private prorate(
     discount: number,
@@ -219,15 +226,32 @@ export class OrderPricingService {
     const shares = lineTotals.map((lineTotal) =>
       round2((discount * lineTotal) / itemsTotal),
     );
-    const assigned = round2(shares.reduce((sum, v) => sum + v, 0));
-    const residual = round2(discount - assigned);
 
-    if (residual !== 0) {
-      let largest = 0;
-      for (let i = 1; i < lineTotals.length; i++) {
-        if (lineTotals[i] > lineTotals[largest]) largest = i;
+    // Línea de mayor monto primero: ahí es donde se prefiere que caiga el
+    // ajuste, y donde primero se intenta si no cabe entero.
+    const order = lineTotals
+      .map((_, index) => index)
+      .sort((a, b) => lineTotals[b] - lineTotals[a]);
+
+    let residual = round2(
+      discount - round2(shares.reduce((sum, v) => sum + v, 0)),
+    );
+
+    for (const index of order) {
+      if (residual === 0) break;
+
+      if (residual > 0) {
+        // No se le puede dar a una línea más de lo que ella misma vale.
+        const room = round2(lineTotals[index] - shares[index]);
+        const delta = Math.min(residual, room);
+        shares[index] = round2(shares[index] + delta);
+        residual = round2(residual - delta);
+      } else {
+        // Tampoco se le puede quitar más de lo que ya tiene asignado.
+        const delta = Math.max(residual, -shares[index]);
+        shares[index] = round2(shares[index] + delta);
+        residual = round2(residual - delta);
       }
-      shares[largest] = round2(shares[largest] + residual);
     }
 
     return shares;

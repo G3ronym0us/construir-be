@@ -10,6 +10,24 @@ describe('iva.util', () => {
       expect(round2(0)).toBe(0);
       expect(round2(10)).toBe(10);
     });
+
+    it('no devuelve NaN para magnitudes menores a 1e-6', () => {
+      // JS imprime los números con magnitud < 1e-6 en notación exponencial
+      // ("9e-7"), lo que rompe el desplazamiento de punto decimal por texto:
+      // el template arma "9e-7e2", que Number() no puede parsear y da NaN.
+      // Cualquier valor tan chico redondea a 0 en 2 decimales de todos modos.
+      expect(round2(9e-7)).toBe(0);
+      expect(round2(-9e-7)).toBe(0);
+      expect(round2(1e-10)).toBe(0);
+      // Justo en el umbral (1e-6 = 0.000001) todavía imprime en notación
+      // decimal, así que ya funcionaba; se deja como referencia del límite.
+      expect(round2(1e-6)).toBe(0);
+    });
+
+    it('sigue desempatando hacia arriba para valores normales', () => {
+      // El guard de magnitudes chicas no debe interferir con el caso general.
+      expect(round2(0.005)).toBe(0.01);
+    });
   });
 
   describe('fromBase', () => {

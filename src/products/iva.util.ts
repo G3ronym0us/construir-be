@@ -19,6 +19,15 @@ export interface IvaBreakdown {
  * el residuo binario de la multiplicación.
  */
 export function round2(value: number): number {
+  // JS imprime los números con magnitud menor a 1e-6 en notación exponencial
+  // (`${9e-7}` da "9e-7"), lo que rompe el desplazamiento de punto decimal
+  // por texto de más abajo: el template armaría "9e-7e2", que Number() no
+  // puede parsear y devolvería NaN. Cualquier valor tan chico redondea a 0 en
+  // 2 decimales de todos modos, así que se corta antes de llegar ahí.
+  if (value !== 0 && Math.abs(value) < 1e-6) {
+    return 0;
+  }
+
   return Number(`${Math.round(Number(`${value}e2`))}e-2`);
 }
 
