@@ -1,36 +1,47 @@
 import {
   IsArray,
+  IsInt,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
   Min,
   ValidateNested,
-  ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class QuoteOrderItemDto {
-  @ApiProperty({ description: 'UUID del producto' })
+  @ApiPropertyOptional({ description: 'UUID del producto' })
   @IsNotEmpty()
   @IsString()
   productUuid: string;
 
-  @ApiProperty({ description: 'Cantidad', minimum: 1, example: 2 })
+  // Alineado con `GuestCartItemDto` (create-order.dto.ts): antes era
+  // `@IsNumber()`, así que `quantity: 1.5` pasaba el quote con 201 y
+  // `canCheckout: true`, pero el mismo body a POST /orders devolvía 400 —
+  // el cliente veía un desglose válido y un fallo inexplicable al confirmar.
+  @ApiPropertyOptional({ description: 'Cantidad', minimum: 1, example: 2 })
   @IsNotEmpty()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   quantity: number;
 }
 
 export class QuoteOrderDto {
-  @ApiProperty({ type: [QuoteOrderItemDto] })
+  // Opcional, igual que en `CreateOrderDto`: para un usuario autenticado se
+  // ignora (se cotiza su carrito del servidor, ver `OrdersService.quoteOrder`)
+  // y sólo es obligatorio en la práctica para invitados, donde el servicio
+  // rechaza explícitamente si viene vacío o ausente.
+  @ApiPropertyOptional({
+    type: [QuoteOrderItemDto],
+    description:
+      'Ítems a cotizar. Sólo se usa para invitados: un usuario autenticado cotiza su carrito del servidor.',
+  })
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => QuoteOrderItemDto)
-  items: QuoteOrderItemDto[];
+  items?: QuoteOrderItemDto[];
 
   @ApiPropertyOptional({ description: 'Código de descuento a aplicar' })
   @IsOptional()

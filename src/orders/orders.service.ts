@@ -23,7 +23,7 @@ import { BanksService } from '../banks/banks.service';
 import { GuestCustomersService } from './guest-customers.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { OrderPricingService } from './order-pricing.service';
-import { QuoteOrderDto, QuoteOrderItemDto } from './dto/quote-order.dto';
+import { QuoteOrderDto } from './dto/quote-order.dto';
 import { round2 } from '../products/iva.util';
 import * as bcrypt from 'bcrypt';
 
@@ -104,6 +104,56 @@ export class OrdersService {
   }
 
   /**
+   * Resuelve de dónde salen los ítems de un pedido — la MISMA regla para
+   * `quoteOrder` y `createOrder`.
+   *
+   * Un usuario autenticado siempre se cotiza y se factura con el contenido
+   * de su carrito en el servidor; cualquier `items` que venga en el body se
+   * ignora. Un invitado no tiene carrito en el servidor, así que usa los
+   * `items` del body.
+   *
+   * Antes de este arreglo cada método aplicaba esta regla por su cuenta:
+   * `createOrder` la tenía, `quoteOrder` no (leía sólo `dto.items`, incluso
+   * para un usuario logueado). Un cliente autenticado podía cotizar con un
+   * `items` armado a mano y recibir un total; al confirmar, `createOrder`
+   * facturaba el contenido real de su carrito — un número distinto, con
+   * 201 y sin ningún guard que lo detectara.
+   */
+  private async resolveOrderItems(
+    userId: number | null,
+    items?: Array<{ productUuid: string; quantity: number }>,
+  ): Promise<Array<{ productUuid: string; quantity: number }>> {
+    if (userId) {
+      const cart = await this.cartRepository.findOne({
+        where: { userId },
+        relations: {
+          items: {
+            product: true,
+          },
+        },
+      });
+
+      if (!cart || !cart.items || cart.items.length === 0) {
+        throw new BadRequestException('Cart is empty');
+      }
+
+      return cart.items.map((item) => ({
+        productUuid: item.product.uuid,
+        quantity: item.quantity,
+      }));
+    }
+
+    if (!items || items.length === 0) {
+      throw new BadRequestException('Cart items are required for guest orders');
+    }
+
+    return items.map((item) => ({
+      productUuid: item.productUuid,
+      quantity: item.quantity,
+    }));
+  }
+
+  /**
    * Previsualiza el desglose de un pedido sin persistir nada.
    *
    * Existe porque el checkout no tenía forma de pedirle el desglose al
@@ -116,17 +166,34 @@ export class OrdersService {
    * `canCheckout`. Un 400 dejaría la página de checkout en blanco sin decirle
    * al cliente cuál de sus productos falló.
    */
-  async quoteOrder(quoteOrderDto: QuoteOrderDto): Promise<OrderQuote> {
+  async quoteOrder(
+    quoteOrderDto: QuoteOrderDto,
+    userId?: number | null,
+  ): Promise<OrderQuote> {
+    // Misma regla de resolución que `createOrder`: un usuario autenticado se
+    // cotiza (y se factura) con SU carrito del servidor, ignorando cualquier
+    // `items` que venga en el body; un invitado usa los `items` del body. Dos
+    // reglas distintas para la misma decisión era exactamente el bug que esta
+    // rama vino a arreglar: el cliente veía un total en el quote y otro,
+    // mayor, al confirmar. Un carrito vacío se rechaza con la MISMA
+    // excepción que `createOrder` (no un quote vacío con `canCheckout:
+    // false`): el frontend no tiene nada que previsualizar, así que dejar
+    // pasar la request sólo pospone el mismo rechazo al POST /orders.
+    const orderItems = await this.resolveOrderItems(
+      userId ?? null,
+      quoteOrderDto.items,
+    );
+
     // Anotamos el tipo de retorno explícitamente: sin esto, TypeScript infiere
     // una unión discriminada por rama (product: null sólo en NOT_FOUND) y
     // termina angostando `issue` en el filtro de abajo al punto de marcar la
     // comparación con 'NOT_FOUND' como imposible, aunque la lógica es correcta.
     const resolved = await Promise.all(
-      quoteOrderDto.items.map(
+      orderItems.map(
         async (
           item,
         ): Promise<{
-          item: QuoteOrderItemDto;
+          item: { productUuid: string; quantity: number };
           product: Product | null;
           issue: QuoteIssue | null;
         }> => {
@@ -250,41 +317,12 @@ export class OrdersService {
     createOrderDto: CreateOrderDto,
     userId?: number | null,
   ): Promise<Order> {
-    // 1. Determinar el origen de los items
-    let orderItems: Array<{ productUuid: string; quantity: number }> = [];
-
-    if (userId) {
-      // Usuario autenticado: obtener items del carrito backend
-      const cart = await this.cartRepository.findOne({
-        where: { userId },
-        relations: {
-          items: {
-            product: true,
-          },
-        },
-      });
-
-      if (!cart || !cart.items || cart.items.length === 0) {
-        throw new BadRequestException('Cart is empty');
-      }
-
-      orderItems = cart.items.map((item) => ({
-        productUuid: item.product.uuid,
-        quantity: item.quantity,
-      }));
-    } else {
-      // Usuario guest: obtener items del DTO
-      if (!createOrderDto.items || createOrderDto.items.length === 0) {
-        throw new BadRequestException(
-          'Cart items are required for guest orders',
-        );
-      }
-
-      orderItems = createOrderDto.items.map((item) => ({
-        productUuid: item.productUuid,
-        quantity: item.quantity,
-      }));
-    }
+    // 1. Determinar el origen de los items (compartido con quoteOrder: ver
+    //    `resolveOrderItems`).
+    const orderItems = await this.resolveOrderItems(
+      userId ?? null,
+      createOrderDto.items,
+    );
 
     // 2. Validar inventario y disponibilidad
     const validatedItems: Array<{ product: Product; quantity: number }> = [];
@@ -338,26 +376,52 @@ export class OrdersService {
     // Se factura con la tasa publicada. Si cambió entre que el cliente vio el
     // desglose y confirmó, el total ya no es el que aceptó: se rechaza para
     // que la UI le pida reconfirmación en vez de cobrarle otro monto.
-    if (
-      createOrderDto.expectedExchangeRate !== undefined &&
-      pricing.exchangeRate !== null &&
-      Number(createOrderDto.expectedExchangeRate) !== pricing.exchangeRate
-    ) {
-      throw new ConflictException({
-        message:
-          'La tasa de cambio cambió desde que se calculó el pedido. Confirmá el nuevo total.',
-        code: 'EXCHANGE_RATE_CHANGED',
-        exchangeRate: pricing.exchangeRate,
-        rateDate: pricing.rateDate,
-        totals: {
-          subtotal: pricing.subtotal,
-          tax: pricing.tax,
-          total: pricing.total,
-          subtotalVes: pricing.subtotalVes,
-          taxVes: pricing.taxVes,
-          totalVes: pricing.totalVes,
-        },
-      });
+    //
+    // Si el cliente mandó `expectedExchangeRate` y hoy no hay NINGUNA tasa
+    // disponible (`resolveRate()` traga el error y devuelve null), antes se
+    // seguía de largo: la orden quedaba en 201 con los campos VES en NULL,
+    // pero el cliente esperaba pagar en bolívares un monto que el backend
+    // nunca llegó a registrar. Se rechaza explícitamente con el mismo código
+    // que el caso de tasa rotada, en vez de facturar silenciosamente sólo en
+    // USD.
+    if (createOrderDto.expectedExchangeRate !== undefined) {
+      if (pricing.exchangeRate === null) {
+        throw new ConflictException({
+          message:
+            'La tasa de cambio no está disponible en este momento. Intentá de nuevo en unos minutos.',
+          code: 'EXCHANGE_RATE_CHANGED',
+          exchangeRate: null,
+          rateDate: null,
+          totals: {
+            subtotal: pricing.subtotal,
+            tax: pricing.tax,
+            total: pricing.total,
+            subtotalVes: null,
+            taxVes: null,
+            totalVes: null,
+          },
+        });
+      }
+
+      if (
+        Number(createOrderDto.expectedExchangeRate) !== pricing.exchangeRate
+      ) {
+        throw new ConflictException({
+          message:
+            'La tasa de cambio cambió desde que se calculó el pedido. Confirmá el nuevo total.',
+          code: 'EXCHANGE_RATE_CHANGED',
+          exchangeRate: pricing.exchangeRate,
+          rateDate: pricing.rateDate,
+          totals: {
+            subtotal: pricing.subtotal,
+            tax: pricing.tax,
+            total: pricing.total,
+            subtotalVes: pricing.subtotalVes,
+            taxVes: pricing.taxVes,
+            totalVes: pricing.totalVes,
+          },
+        });
+      }
     }
 
     // 4. Validar y crear la dirección de envío (solo para delivery)

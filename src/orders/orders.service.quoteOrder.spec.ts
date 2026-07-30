@@ -20,6 +20,7 @@ describe('OrdersService.quoteOrder', () => {
   let service: OrdersService;
   let productRepository: { findOne: jest.Mock };
   let pricingService: { price: jest.Mock };
+  let cartRepository: { findOne: jest.Mock };
 
   const producto = (over: Partial<Product> = {}): Product =>
     ({
@@ -38,6 +39,7 @@ describe('OrdersService.quoteOrder', () => {
   beforeEach(async () => {
     productRepository = { findOne: jest.fn() };
     pricingService = { price: jest.fn() };
+    cartRepository = { findOne: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -47,7 +49,7 @@ describe('OrdersService.quoteOrder', () => {
         { provide: getRepositoryToken(OrderItem), useValue: {} },
         { provide: getRepositoryToken(ShippingAddress), useValue: {} },
         { provide: getRepositoryToken(PaymentInfo), useValue: {} },
-        { provide: getRepositoryToken(Cart), useValue: {} },
+        { provide: getRepositoryToken(Cart), useValue: cartRepository },
         { provide: getRepositoryToken(Product), useValue: productRepository },
         { provide: getRepositoryToken(User), useValue: {} },
         { provide: GuestCustomersService, useValue: {} },
@@ -257,5 +259,57 @@ describe('OrdersService.quoteOrder', () => {
       0,
     );
     expect(itemsTotalVesSum).toBeCloseTo(quote.totals.totalVes ?? 0, 2);
+  });
+
+  // Regresión del review final de rama (I-1): `quoteOrder` leía SÓLO
+  // `dto.items`, incluso para un usuario autenticado. `createOrder`, para el
+  // mismo usuario, ignora `dto.items` y factura el carrito del servidor. Un
+  // cliente logueado podía cotizar 11.60 con un `items[]` armado a mano y
+  // que se le facturara el contenido real de su carrito — un número distinto,
+  // sin ningún guard que lo detectara.
+  it('para un usuario autenticado, cotiza el carrito del servidor e ignora dto.items', async () => {
+    const cartProduct = producto({
+      uuid: 'uuid-carrito',
+      name: 'Cabilla 3/8',
+      sku: 'CAB-001',
+    });
+    cartRepository.findOne.mockResolvedValue({
+      items: [{ product: cartProduct, quantity: 3 }],
+    });
+    productRepository.findOne.mockResolvedValue(cartProduct);
+    pricingService.price.mockResolvedValue(pricingDe(cartProduct));
+
+    await service.quoteOrder(
+      {
+        // Un `items[]` distinto al carrito: si el fix no está, esto es lo
+        // que se cotiza.
+        items: [{ productUuid: 'uuid-no-es-del-carrito', quantity: 99 }],
+      },
+      42,
+    );
+
+    expect(cartRepository.findOne).toHaveBeenCalledWith({
+      where: { userId: 42 },
+      relations: { items: { product: true } },
+    });
+    // Se buscó el producto del carrito (cantidad 3), no el del body.
+    expect(productRepository.findOne).toHaveBeenCalledWith({
+      where: { uuid: 'uuid-carrito' },
+    });
+    expect(productRepository.findOne).not.toHaveBeenCalledWith({
+      where: { uuid: 'uuid-no-es-del-carrito' },
+    });
+    expect(pricingService.price).toHaveBeenCalledWith({
+      items: [{ product: cartProduct, quantity: 3 }],
+      discountCode: undefined,
+    });
+  });
+
+  it('rechaza con el mismo mensaje que createOrder cuando el carrito del usuario autenticado está vacío', async () => {
+    cartRepository.findOne.mockResolvedValue({ items: [] });
+
+    await expect(
+      service.quoteOrder({ items: [{ productUuid: 'x', quantity: 1 }] }, 42),
+    ).rejects.toThrow('Cart is empty');
   });
 });

@@ -254,6 +254,23 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
     ).rejects.toThrow(ConflictException);
   });
 
+  // Regresión del review final de rama (M-7): `resolveRate()` traga
+  // cualquier error y devuelve `exchangeRate: null` en vez de propagarlo. El
+  // guard de acá abajo sólo actuaba si `pricing.exchangeRate !== null`, así
+  // que un cliente que declaró esperar una tasa (`expectedExchangeRate`)
+  // recibía 201 con los campos VES en NULL, pagando en bolívares un monto
+  // que el backend nunca registró.
+  it('rechaza con 409 si el cliente espera una tasa y hoy no hay ninguna disponible', async () => {
+    await build([]); // sin ninguna fila de tasa: findCurrent() lanza NotFoundException
+
+    await expect(
+      service.createOrder(
+        { ...dto, expectedExchangeRate: 700 } as CreateOrderDto,
+        null,
+      ),
+    ).rejects.toThrow(ConflictException);
+  });
+
   it('acepta la orden si expectedExchangeRate coincide con la tasa de facturación', async () => {
     await build([rateRow(TODAY, TASA_VIGENTE)]);
 

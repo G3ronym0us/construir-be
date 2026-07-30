@@ -13,6 +13,8 @@ import {
   BadRequestException,
   Query,
   Res,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -54,12 +56,19 @@ export class OrdersController {
    *
    * El checkout lo usa para mostrar base + IVA = total. No requiere
    * autenticación, igual que la creación de órdenes, porque el checkout
-   * funciona para invitados.
+   * funciona para invitados. Cuando SÍ hay usuario autenticado, se pasa su
+   * `userId` para que el servicio cotice el mismo carrito que `createOrder`
+   * va a facturar — antes se descartaba y el quote sólo miraba el body.
+   *
+   * `@HttpCode(OK)`: es una previsualización sin efectos secundarios, no una
+   * creación; el 201 por defecto de `@Post` no correspondía.
    */
   @Post('quote')
   @UseGuards(OptionalJwtAuthGuard)
-  async quoteOrder(@Body() quoteOrderDto: QuoteOrderDto) {
-    return this.ordersService.quoteOrder(quoteOrderDto);
+  @HttpCode(HttpStatus.OK)
+  async quoteOrder(@Request() req, @Body() quoteOrderDto: QuoteOrderDto) {
+    const userId = req.user?.userId || null;
+    return this.ordersService.quoteOrder(quoteOrderDto, userId);
   }
 
   /**
