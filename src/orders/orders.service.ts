@@ -178,13 +178,22 @@ export class OrdersService {
       discountCode: quoteOrderDto.discountCode,
     });
 
-    const lineByUuid = new Map(
-      pricing.lines.map((line) => [line.product.uuid, line]),
+    // Asociamos por posición, no por UUID: `price()` arma `pricing.lines` con
+    // `items.map((item, index) => ...)`, así que `pricing.lines[i]`
+    // corresponde exactamente a `priceable[i]`, en el mismo orden. Un `Map`
+    // por UUID de producto colapsa cuando el mismo producto aparece dos veces
+    // en el pedido (carrito con el mismo ítem agregado en momentos distintos
+    // sin fusionar cantidades): sólo sobrevive la última línea, y todas las
+    // entradas repetidas terminan mostrando su monto. Usamos la identidad de
+    // cada `entry` de `priceable` como clave para no tener que llevar el
+    // índice a mano.
+    const lineByEntry = new Map(
+      priceable.map((entry, index) => [entry, pricing.lines[index]]),
     );
 
     const items: QuoteItem[] = resolved.map((entry) => {
       const { item, product, issue } = entry;
-      const line = product ? lineByUuid.get(product.uuid) : undefined;
+      const line = lineByEntry.get(entry);
       const ivaRate = product
         ? IVA_RATES[product.ivaType ?? IvaType.NORMAL] * 100
         : null;
