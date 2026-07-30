@@ -14,6 +14,7 @@ import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { BanksService } from '../banks/banks.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
+import { OrderPricingService } from './order-pricing.service';
 import { ExchangeRate } from '../exchange-rates/exchange-rate.entity';
 import { BCVService } from '../exchange-rates/bcv.service';
 import { IvaType } from '../products/enums/iva-type.enum';
@@ -146,6 +147,7 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
             createOrUpdate: jest.fn(() => Promise.resolve({ id: 7 })),
           },
         },
+        { provide: OrderPricingService, useValue: {} },
       ],
     }).compile();
 

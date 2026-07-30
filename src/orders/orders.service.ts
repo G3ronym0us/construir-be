@@ -18,11 +18,55 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { Discount } from '../discounts/discount.entity';
-import { IVA_RATES } from '../products/enums/iva-type.enum';
+import { IVA_RATES, IvaType } from '../products/enums/iva-type.enum';
 import { BanksService } from '../banks/banks.service';
 import { GuestCustomersService } from './guest-customers.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
+import { OrderPricingService } from './order-pricing.service';
+import { QuoteOrderDto, QuoteOrderItemDto } from './dto/quote-order.dto';
 import * as bcrypt from 'bcrypt';
+
+export type QuoteIssue =
+  | { code: 'NOT_FOUND' }
+  | { code: 'NOT_PUBLISHED' }
+  | { code: 'INSUFFICIENT_INVENTORY'; available: number };
+
+export interface QuoteItem {
+  productUuid: string;
+  name: string | null;
+  sku: string | null;
+  quantity: number;
+  ivaType: number | null;
+  ivaRate: number | null;
+  unitPrice: number | null;
+  lineTotal: number | null;
+  discount: number | null;
+  base: number | null;
+  iva: number | null;
+  total: number | null;
+  unitPriceVes: number | null;
+  totalVes: number | null;
+  issue: QuoteIssue | null;
+}
+
+export interface OrderQuote {
+  exchangeRate: number | null;
+  rateDate: string | null;
+  items: QuoteItem[];
+  totals: {
+    itemsTotal: number;
+    discount: number;
+    subtotal: number;
+    tax: number;
+    shipping: number;
+    total: number;
+    subtotalVes: number | null;
+    taxVes: number | null;
+    discountVes: number | null;
+    totalVes: number | null;
+  };
+  canCheckout: boolean;
+}
 
 @Injectable()
 export class OrdersService {
@@ -46,6 +90,7 @@ export class OrdersService {
     private readonly banksService: BanksService,
     private readonly guestCustomersService: GuestCustomersService,
     private readonly exchangeRatesService: ExchangeRatesService,
+    private readonly orderPricingService: OrderPricingService,
   ) {}
 
   /**
@@ -55,6 +100,137 @@ export class OrdersService {
     const timestamp = Date.now().toString(36).toUpperCase();
     const random = Math.random().toString(36).substring(2, 6).toUpperCase();
     return `ORD-${timestamp}-${random}`;
+  }
+
+  /**
+   * Previsualiza el desglose de un pedido sin persistir nada.
+   *
+   * Existe porque el checkout no tenía forma de pedirle el desglose al
+   * backend: los totales sólo existían después del POST /orders, así que el
+   * frontend calculaba su propio IVA y mostraba un número que el backend
+   * nunca validó.
+   *
+   * A diferencia de `createOrder`, no lanza excepción por stock insuficiente
+   * ni por producto despublicado: los reporta como `issue` por ítem y baja
+   * `canCheckout`. Un 400 dejaría la página de checkout en blanco sin decirle
+   * al cliente cuál de sus productos falló.
+   */
+  async quoteOrder(quoteOrderDto: QuoteOrderDto): Promise<OrderQuote> {
+    // Anotamos el tipo de retorno explícitamente: sin esto, TypeScript infiere
+    // una unión discriminada por rama (product: null sólo en NOT_FOUND) y
+    // termina angostando `issue` en el filtro de abajo al punto de marcar la
+    // comparación con 'NOT_FOUND' como imposible, aunque la lógica es correcta.
+    const resolved = await Promise.all(
+      quoteOrderDto.items.map(
+        async (
+          item,
+        ): Promise<{
+          item: QuoteOrderItemDto;
+          product: Product | null;
+          issue: QuoteIssue | null;
+        }> => {
+          const product = await this.productRepository.findOne({
+            where: { uuid: item.productUuid },
+          });
+
+          if (!product) {
+            return { item, product: null, issue: { code: 'NOT_FOUND' } };
+          }
+
+          if (!product.published) {
+            return {
+              item,
+              product,
+              issue: { code: 'NOT_PUBLISHED' },
+            };
+          }
+
+          if (product.inventory < item.quantity) {
+            return {
+              item,
+              product,
+              issue: {
+                code: 'INSUFFICIENT_INVENTORY' as const,
+                available: product.inventory,
+              },
+            };
+          }
+
+          return { item, product, issue: null };
+        },
+      ),
+    );
+
+    // Sólo se cotiza lo que está a la venta. El stock insuficiente sí se
+    // cotiza: el cliente necesita ver el monto para poder ajustar la cantidad.
+    const priceable = resolved.filter(
+      (entry) =>
+        entry.product !== null &&
+        entry.issue?.code !== 'NOT_FOUND' &&
+        entry.issue?.code !== 'NOT_PUBLISHED',
+    );
+
+    const pricing = await this.orderPricingService.price({
+      items: priceable.map((entry) => ({
+        product: entry.product as Product,
+        quantity: entry.item.quantity,
+      })),
+      discountCode: quoteOrderDto.discountCode,
+    });
+
+    const lineByUuid = new Map(
+      pricing.lines.map((line) => [line.product.uuid, line]),
+    );
+
+    const items: QuoteItem[] = resolved.map((entry) => {
+      const { item, product, issue } = entry;
+      const line = product ? lineByUuid.get(product.uuid) : undefined;
+      const ivaRate = product
+        ? IVA_RATES[product.ivaType ?? IvaType.NORMAL] * 100
+        : null;
+
+      return {
+        productUuid: item.productUuid,
+        name: product?.name ?? null,
+        sku: product?.sku ?? null,
+        quantity: item.quantity,
+        ivaType: product?.ivaType ?? null,
+        ivaRate,
+        unitPrice: line?.unitPrice ?? null,
+        lineTotal: line?.lineTotal ?? null,
+        discount: line?.discount ?? null,
+        base: line?.base ?? null,
+        iva: line?.iva ?? null,
+        total: line?.total ?? null,
+        unitPriceVes:
+          product?.priceWithIvaVes != null
+            ? Number(product.priceWithIvaVes)
+            : null,
+        // Se toma de la línea, ya convertida por OrderPricingService, para que
+        // la suma de los renglones dé exactamente el total del bloque totals.
+        totalVes: line?.totalVes ?? null,
+        issue,
+      };
+    });
+
+    return {
+      exchangeRate: pricing.exchangeRate,
+      rateDate: pricing.rateDate,
+      items,
+      totals: {
+        itemsTotal: pricing.itemsTotal,
+        discount: pricing.discount,
+        subtotal: pricing.subtotal,
+        tax: pricing.tax,
+        shipping: pricing.shipping,
+        total: pricing.total,
+        subtotalVes: pricing.subtotalVes,
+        taxVes: pricing.taxVes,
+        discountVes: pricing.discountVes,
+        totalVes: pricing.totalVes,
+      },
+      canCheckout: items.every((item) => item.issue === null),
+    };
   }
 
   /**

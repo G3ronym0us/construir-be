@@ -23,6 +23,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { QuoteOrderDto } from './dto/quote-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderStatus } from './order.entity';
 import { PaymentStatus } from './payment-info.entity';
@@ -46,6 +47,19 @@ export class OrdersController {
   async createOrder(@Request() req, @Body() createOrderDto: CreateOrderDto) {
     const userId = req.user?.userId || null;
     return this.ordersService.createOrder(createOrderDto, userId);
+  }
+
+  /**
+   * Previsualizar el desglose de un pedido sin crearlo.
+   *
+   * El checkout lo usa para mostrar base + IVA = total. No requiere
+   * autenticación, igual que la creación de órdenes, porque el checkout
+   * funciona para invitados.
+   */
+  @Post('quote')
+  @UseGuards(OptionalJwtAuthGuard)
+  async quoteOrder(@Body() quoteOrderDto: QuoteOrderDto) {
+    return this.ordersService.quoteOrder(quoteOrderDto);
   }
 
   /**
