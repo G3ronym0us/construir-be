@@ -11,9 +11,14 @@ Todo lo demás se deriva:
 | Campo | Derivado de | Dónde |
 |---|---|---|
 | `iva`, `price_with_iva` | `price` + `iva_type` | `Product.syncUsdIvaFields()` (hook de entidad) |
-| `price_ves`, `iva_ves`, `price_with_iva_ves` | `price` + `iva_type` + tasa | `applyVesPrices()` (servicio) |
+| `price_ves`, `iva_ves`, `price_with_iva_ves` | `price` + `iva_type` + tasa | `applyVesPrices()` en `src/products/pricing.util.ts` |
 
-La matemática vive en `src/products/iva.util.ts` y en ningún otro lugar.
+La matemática está centralizada en `src/products/iva.util.ts`, con una excepción conocida:
+`getPendingOrders` en `src/orders/orders.service.ts` reimplementa la extracción de
+`total_tax` por línea a mano, usando `.toFixed(2)` en lugar de `round2()`. Hoy ambas
+producen el mismo resultado (verificado sobre 800.000 montos en las cuatro alícuotas),
+pero el riesgo es de desincronización futura si se toca la regla de redondeo o de
+extracción en una sola de las dos versiones.
 
 **El catálogo muestra `price_with_iva` / `price_with_iva_ves`** — el precio
 completo que paga el cliente. El checkout desglosa ese mismo número hacia
@@ -23,8 +28,9 @@ entre catálogo y checkout; sólo se explica.
 ## Reglas
 
 - **Redondeo:** nunca se redondean los tres miembros de un desglose por
-  separado. Se redondean dos y el tercero sale por resta, para que
-  `base + iva === total` sea exacto. La función `round2()` implementa el
+  separado. Se redondean dos y el tercero se **deriva** de ellos, para que
+  `base + iva === total` sea exacto. En `fromBase()` el total se suma de base e IVA;
+  en `fromTotal()` el IVA se resta del total. La función `round2()` implementa el
   redondeo a 2 decimales usando desplazamiento de punto decimal por texto, lo
   que evita los errores de representación binaria que sufre `Math.round()`.
   Además, `round2()` redondea a cero cualquier magnitud menor a `1e-6`: JavaScript
@@ -85,11 +91,14 @@ dejaría una fila huérfana sin orden que la referencie.
   `OrdersService.createOrder`). Cuando se implemente hay que decidir si el
   envío entra a la base gravable.
 
-- **Contrato v1 del ERP:** `GET /api/v1/orders` emite `line_items[].total` con
+- **Contrato v1 del ERP:** `GET /api/v1/orders/on-hold` emite `line_items[].total` con
   IVA incluido. La convención WooCommerce, sobre la que está modelada esa
   respuesta, define ese campo **sin** impuesto y `total_tax` aparte. Está
   pendiente de confirmar con el equipo del ERP cuál interpretan; si esperan la
-  convención WooCommerce, hoy les llega inflado y hay que corregirlo.
+  convención WooCommerce, hoy les llega inflado y hay que corregirlo. **Además:**
+  `getPendingOrders` reimplementa la extracción de IVA a mano usando `.toFixed(2)`
+  en lugar de `round2()`, lo que funciona hoy pero crea riesgo de desincronización
+  si la lógica de redondeo cambia. Se arreglarán juntas cuando se confirme con ERP.
 
 - **Carrito y precios antiguos:** las filas de `cart_items` guardadas antes de
   este cambio tienen `price` con la base sin IVA. **No se corrigen al leer el
@@ -120,4 +129,4 @@ facturaba 26.40 pasa a facturar 23.20. El total se corrige y **baja ~12%** en
 órdenes con productos gravados, porque el IVA se estaba contando dos veces. Los
 dos porcentajes que circulan miden cosas distintas: el total estaba **inflado un
 13.8%** respecto del correcto, y **baja un 12.1%** respecto del inflado. El
-contrato de `GET /api/v1/orders` no cambia de forma, pero los montos sí.
+contrato de `GET /api/v1/orders/on-hold` no cambia de forma, pero los montos sí.
