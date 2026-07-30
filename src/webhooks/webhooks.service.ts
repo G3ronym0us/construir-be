@@ -21,16 +21,23 @@ export class WebhooksService {
     events: string[],
     secret?: string,
     description?: string,
-  ): Promise<Webhook> {
+  ): Promise<{ webhook: Webhook; secret: string }> {
+    const resolvedSecret = secret || this.generateSecret();
     const webhook = this.webhookRepository.create({
       url,
       events,
-      secret: secret || this.generateSecret(),
+      secret: resolvedSecret,
       description,
       active: true,
     });
 
-    return await this.webhookRepository.save(webhook);
+    const saved = await this.webhookRepository.save(webhook);
+
+    // El secreto real se devuelve una sola vez, aparte de la entidad
+    // serializada: `webhook.secret` ahora lleva `@Exclude()`, así que
+    // devolverlo embebido en `saved` lo escondería incluso acá, la única vez
+    // que el admin puede copiarlo. Mismo patrón que `ApiKeysService.create()`.
+    return { webhook: saved, secret: resolvedSecret };
   }
 
   async findAll(): Promise<Webhook[]> {

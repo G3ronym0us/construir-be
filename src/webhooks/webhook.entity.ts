@@ -33,6 +33,16 @@ export class Webhook {
   @Column({ type: 'simple-array' })
   events: string[];
 
+  // El HMAC de cada entrega (`WebhooksService.generateSignature`) se firma
+  // con este secreto, así que tiene que sobrevivir en texto plano en la
+  // base (a diferencia de `ApiKey.consumerSecret`, que se guarda ya
+  // hasheado). Sin `@Exclude()`, `GET /admin/webhooks` y `GET
+  // /admin/webhooks/:id` lo devolvían crudo en cada lectura -- no sólo en la
+  // creación -- dejando a cualquiera con acceso al panel falsificar la firma
+  // de webhooks entrantes hacia el consumidor. `WebhooksService.create()`
+  // sigue exponiendo el valor real una sola vez, fuera de la entidad
+  // serializada, igual que `ApiKeysService.create()`.
+  @Exclude()
   @Column({ type: 'varchar', length: 255, nullable: true })
   secret: string | null;
 

@@ -26,7 +26,15 @@ export class Cart {
   @Column({ name: 'user_id' })
   userId: number;
 
-  @OneToOne(() => User, { eager: true })
+  // Sin `eager`: nada en el código consume `cart.user` (los controladores
+  // usan `req.user` del JWT, no esta relación) y cargarlo entero en cada
+  // lectura del carrito lo exponía completo -- hash de contraseña incluido
+  // -- en la respuesta de `GET /cart`, que serializa la entidad `Cart` cruda.
+  // Es defensa en profundidad además del `@Exclude()` en `User.password`:
+  // si algún día alguien SÍ necesita `cart.user`, tiene que pedirlo
+  // explícitamente con `relations`, y ahí lo vuelve a filtrar el
+  // `ClassSerializerInterceptor`.
+  @OneToOne(() => User)
   @JoinColumn({ name: 'user_id' })
   user: User;
 
