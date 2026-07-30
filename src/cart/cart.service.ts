@@ -22,17 +22,47 @@ export class CartService {
     private readonly productRepository: Repository<Product>,
   ) {}
 
-  async getCart(userId: number): Promise<Cart> {
-    let cart = await this.cartRepository.findOne({
-      where: { userId },
-      relations: ['items', 'items.product', 'items.product.images'],
-    });
+  // `user` se pide explícitamente (la relación dejó de ser `eager` al cerrar
+  // la filtración del hash de contraseña). El checkout lo usa para mostrar y
+  // precargar los datos del comprador logueado; sin la relación, `GET /cart`
+  // devolvía el carrito sin `user` y el frontend no tenía de dónde sacarlos.
+  // Los secretos siguen sin salir: `@Exclude()` en `User.password` y en los
+  // tokens de un solo uso los filtra en la serialización (ver
+  // `cart.serialization.spec.ts`).
+  private static readonly CART_RELATIONS = [
+    'items',
+    'items.product',
+    'items.product.images',
+    'user',
+  ];
 
-    if (!cart) {
-      cart = await this.createCart(userId);
+  async getCart(userId: number): Promise<Cart> {
+    const cart = await this.findCart(userId);
+
+    if (cart) {
+      return cart;
     }
 
-    return cart;
+    const created = await this.createCart(userId);
+
+    // Se relee en vez de devolver lo que retorna `save()`: esa instancia es la
+    // que se le pasó al repositorio, sin `user` ni `items` cargados, así que
+    // la primera lectura del carrito de un usuario nuevo salía sin sus datos.
+    const reloaded = await this.findCart(userId);
+
+    if (!reloaded) {
+      created.items = [];
+      return created;
+    }
+
+    return reloaded;
+  }
+
+  private async findCart(userId: number): Promise<Cart | null> {
+    return this.cartRepository.findOne({
+      where: { userId },
+      relations: CartService.CART_RELATIONS,
+    });
   }
 
   async addItem(userId: number, addToCartDto: AddToCartDto): Promise<Cart> {
