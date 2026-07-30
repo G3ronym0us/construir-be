@@ -19,6 +19,7 @@ import { OrderPricingService } from './order-pricing.service';
 import { ExchangeRate } from '../exchange-rates/exchange-rate.entity';
 import { BCVService } from '../exchange-rates/bcv.service';
 import { IvaType } from '../products/enums/iva-type.enum';
+import { round2 } from '../products/iva.util';
 import { CreateOrderDto } from './dto/create-order.dto';
 
 const localIso = (d: Date): string =>
@@ -63,6 +64,8 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
   let service: OrdersService;
   let orderRepo: { save: jest.Mock; findOne: jest.Mock };
   let orderItemRepo: { create: jest.Mock; save: jest.Mock };
+  let shippingAddressRepo: { create: jest.Mock; save: jest.Mock };
+  let guestCustomersServiceMock: { createOrUpdate: jest.Mock };
 
   const product = {
     id: 1,
@@ -104,6 +107,13 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
       create: jest.fn((item: OrderItem) => item),
       save: jest.fn((items: OrderItem[]) => Promise.resolve(items)),
     };
+    shippingAddressRepo = {
+      create: jest.fn((addr: Partial<ShippingAddress>) => addr),
+      save: jest.fn((addr: ShippingAddress) => Promise.resolve(addr)),
+    };
+    guestCustomersServiceMock = {
+      createOrUpdate: jest.fn(() => Promise.resolve({ id: 7 })),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -111,7 +121,10 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
         ExchangeRatesService, // servicio real: el test recorre findCurrent()
         { provide: getRepositoryToken(Order), useValue: orderRepo },
         { provide: getRepositoryToken(OrderItem), useValue: orderItemRepo },
-        { provide: getRepositoryToken(ShippingAddress), useValue: {} },
+        {
+          provide: getRepositoryToken(ShippingAddress),
+          useValue: shippingAddressRepo,
+        },
         {
           provide: getRepositoryToken(PaymentInfo),
           useValue: {
@@ -142,12 +155,7 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
         },
         { provide: DiscountsService, useValue: {} },
         { provide: BanksService, useValue: {} },
-        {
-          provide: GuestCustomersService,
-          useValue: {
-            createOrUpdate: jest.fn(() => Promise.resolve({ id: 7 })),
-          },
-        },
+        { provide: GuestCustomersService, useValue: guestCustomersServiceMock },
         OrderPricingService, // servicio real: el test recorre el cálculo entero
       ],
     }).compile();
@@ -256,5 +264,189 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
 
     const savedOrder = (orderRepo.save.mock.calls as Array<[Order]>)[0][0];
     expect(Number(savedOrder.total)).toBe(23.2);
+  });
+
+  it('rechaza con 409 sin dejar basura: no guarda la dirección de envío ni toca el guest customer', async () => {
+    await build([rateRow(TODAY, TASA_VIGENTE)]);
+
+    // deliveryMethod DELIVERY para que, si el guard de tasa corriera después
+    // de las escrituras persistentes (el bug real reportado en la revisión),
+    // el test lo detecte: shippingAddressRepo.save y createOrUpdate se
+    // habrían llamado antes del 409.
+    const deliveryDto = {
+      ...dto,
+      deliveryMethod: DeliveryMethod.DELIVERY,
+      shippingAddress: {
+        address: 'Av. Principal',
+        city: 'Caracas',
+        state: 'Distrito Capital',
+        zipCode: '1010',
+      },
+      expectedExchangeRate: 1, // deliberadamente distinta a TASA_VIGENTE
+    } as unknown as CreateOrderDto;
+
+    await expect(service.createOrder(deliveryDto, null)).rejects.toThrow(
+      ConflictException,
+    );
+
+    // El cálculo de precio y el guard de deriva de tasa corren antes de
+    // cualquier escritura persistente: ni la dirección de envío ni el guest
+    // customer ni la orden misma deben haberse tocado.
+    expect(shippingAddressRepo.save).not.toHaveBeenCalled();
+    expect(guestCustomersServiceMock.createOrUpdate).not.toHaveBeenCalled();
+    expect(orderRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('persiste un pedido de varias líneas con cupón: los items suman el total y el precio de catálogo queda intacto', async () => {
+    const productA = {
+      id: 1,
+      uuid: 'prod-uuid-a',
+      name: 'Cemento',
+      sku: 'CEM-001',
+      published: true,
+      inventory: 100,
+      price: 10,
+      priceWithIva: 11.6,
+      ivaType: IvaType.NORMAL,
+    } as unknown as Product;
+
+    const productB = {
+      id: 2,
+      uuid: 'prod-uuid-b',
+      name: 'Cal',
+      sku: 'CAL-001',
+      published: true,
+      inventory: 100,
+      price: 5,
+      priceWithIva: 5.8,
+      ivaType: IvaType.NORMAL,
+    } as unknown as Product;
+
+    const productsByUuid = new Map<string, Product>([
+      [productA.uuid, productA],
+      [productB.uuid, productB],
+    ]);
+
+    const multiOrderRepo = {
+      save: jest.fn((o: Order) => {
+        o.uuid = o.uuid ?? 'order-uuid-multi';
+        o.id = o.id ?? 2;
+        return Promise.resolve(o);
+      }),
+      findOne: jest.fn(() =>
+        Promise.resolve({ uuid: 'order-uuid-multi' } as Order),
+      ),
+    };
+    const multiOrderItemRepo = {
+      create: jest.fn((item: OrderItem) => item),
+      save: jest.fn((items: OrderItem[]) => Promise.resolve(items)),
+    };
+    const discountsServiceMock = {
+      validateDiscount: jest
+        .fn()
+        .mockResolvedValue({ valid: true, discount: { discountAmount: 3 } }),
+      findByCode: jest.fn().mockResolvedValue({
+        id: 9,
+        uuid: 'discount-uuid-promo5',
+        code: 'PROMO5',
+      }),
+      incrementUsage: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        OrdersService,
+        ExchangeRatesService,
+        { provide: getRepositoryToken(Order), useValue: multiOrderRepo },
+        {
+          provide: getRepositoryToken(OrderItem),
+          useValue: multiOrderItemRepo,
+        },
+        { provide: getRepositoryToken(ShippingAddress), useValue: {} },
+        {
+          provide: getRepositoryToken(PaymentInfo),
+          useValue: {
+            create: jest.fn((p: PaymentInfo) => p),
+            save: jest.fn((p: PaymentInfo) => Promise.resolve(p)),
+          },
+        },
+        { provide: getRepositoryToken(Cart), useValue: {} },
+        {
+          provide: getRepositoryToken(Product),
+          useValue: {
+            findOne: jest.fn(({ where }: { where: { uuid: string } }) =>
+              Promise.resolve(productsByUuid.get(where.uuid) ?? null),
+            ),
+            decrement: jest.fn(),
+          },
+        },
+        { provide: getRepositoryToken(User), useValue: {} },
+        {
+          provide: getRepositoryToken(ExchangeRate),
+          useValue: makeRatesRepo([rateRow(TODAY, TASA_VIGENTE)]),
+        },
+        { provide: BCVService, useValue: { getBCVRate: jest.fn() } },
+        {
+          provide: EmailService,
+          useValue: {
+            sendOrderConfirmation: jest.fn(),
+            sendAdminNewOrder: jest.fn(),
+          },
+        },
+        { provide: DiscountsService, useValue: discountsServiceMock },
+        { provide: BanksService, useValue: {} },
+        {
+          provide: GuestCustomersService,
+          useValue: {
+            createOrUpdate: jest.fn(() => Promise.resolve({ id: 7 })),
+          },
+        },
+        OrderPricingService, // servicio real: el test recorre el cálculo entero
+      ],
+    }).compile();
+
+    const multiService = module.get<OrdersService>(OrdersService);
+
+    const multiLineDto = {
+      ...dto,
+      discountCode: 'PROMO5',
+      items: [
+        { productUuid: productA.uuid, quantity: 2 },
+        { productUuid: productB.uuid, quantity: 1 },
+      ],
+    } as unknown as CreateOrderDto;
+
+    await multiService.createOrder(multiLineDto, null);
+
+    const savedOrder = (multiOrderRepo.save.mock.calls as Array<[Order]>)[0][0];
+    const savedItems = (
+      multiOrderItemRepo.save.mock.calls as Array<[OrderItem[]]>
+    )[0][0];
+
+    // La suma de las líneas persistidas tiene que dar exactamente el total
+    // de la orden, en USD y en VES: es lo que el cliente ve como comprobante.
+    const itemsSubtotalSum = round2(
+      savedItems.reduce((sum, item) => sum + Number(item.subtotal), 0),
+    );
+    const itemsSubtotalVesSum = round2(
+      savedItems.reduce((sum, item) => sum + Number(item.subtotalVes ?? 0), 0),
+    );
+    expect(itemsSubtotalSum).toBe(Number(savedOrder.total));
+    expect(itemsSubtotalVesSum).toBe(Number(savedOrder.totalVes));
+
+    // item.price es el precio de catálogo, bruto, sin el descuento; item.subtotal
+    // ya viene neto de la porción del descuento que le tocó a esa línea.
+    const lineA = savedItems.find((item) => item.productId === productA.id)!;
+    expect(Number(lineA.price)).toBe(11.6);
+    expect(Number(lineA.subtotal)).toBeLessThan(
+      Number(lineA.price) * lineA.quantity,
+    );
+
+    // El cupón se usa una sola vez, con el uuid que ya resolvió el
+    // calculador — sin volver a buscarlo por código después de persistir.
+    expect(discountsServiceMock.incrementUsage).toHaveBeenCalledTimes(1);
+    expect(discountsServiceMock.incrementUsage).toHaveBeenCalledWith(
+      'discount-uuid-promo5',
+    );
   });
 });

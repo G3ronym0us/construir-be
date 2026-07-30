@@ -39,6 +39,9 @@ export interface OrderPricing {
   discount: number;
   discountCode: string | null;
   discountId: number | null;
+  /** El uuid del cupón resuelto, para `DiscountsService.incrementUsage(uuid)`
+   *  sin tener que volver a buscarlo por código después de persistir. */
+  discountUuid: string | null;
   subtotal: number;
   tax: number;
   shipping: number;
@@ -66,9 +69,10 @@ export interface OrderPricing {
  */
 @Injectable()
 export class OrderPricingService {
-  // El envío todavía no se calcula (ver TODO en OrdersService.createOrder).
-  // Queda expuesto en el desglose para que agregarlo después no cambie la
-  // forma de la respuesta.
+  // TODO: Implementar cálculo de envío basado en ubicación. Hasta entonces
+  // queda en 0; se expone en el desglose para que agregarlo después no
+  // cambie la forma de la respuesta. Referenciado desde el comentario en
+  // OrdersService.createOrder — mantener este TODO acá, es el único real.
   private static readonly SHIPPING = 0;
 
   constructor(
@@ -82,10 +86,8 @@ export class OrderPricingService {
     );
     const itemsTotal = round2(lineTotals.reduce((sum, v) => sum + v, 0));
 
-    const { discount, discountId, resolvedCode } = await this.resolveDiscount(
-      discountCode,
-      itemsTotal,
-    );
+    const { discount, discountId, discountUuid, resolvedCode } =
+      await this.resolveDiscount(discountCode, itemsTotal);
 
     const perLine = this.prorate(discount, lineTotals, itemsTotal);
 
@@ -145,6 +147,7 @@ export class OrderPricingService {
       discount,
       discountCode: resolvedCode,
       discountId,
+      discountUuid,
       subtotal,
       tax,
       shipping,
@@ -168,10 +171,16 @@ export class OrderPricingService {
   ): Promise<{
     discount: number;
     discountId: number | null;
+    discountUuid: string | null;
     resolvedCode: string | null;
   }> {
     if (!discountCode) {
-      return { discount: 0, discountId: null, resolvedCode: null };
+      return {
+        discount: 0,
+        discountId: null,
+        discountUuid: null,
+        resolvedCode: null,
+      };
     }
 
     const validation = await this.discountsService.validateDiscount(
@@ -195,6 +204,12 @@ export class OrderPricingService {
     return {
       discount,
       discountId: found?.id ?? null,
+      // Se devuelve acá, con la entidad ya en mano, para que quien persista
+      // la orden pueda incrementar el uso del cupón sin volver a buscarlo
+      // por código después de guardar (esa segunda consulta podía fallar con
+      // 404 si el cupón se borraba en la ventana entre persistir y
+      // incrementar, dejando la orden creada pero sin confirmar al cliente).
+      discountUuid: found?.uuid ?? null,
       resolvedCode: found?.code ?? null,
     };
   }

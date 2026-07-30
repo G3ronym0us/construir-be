@@ -72,7 +72,11 @@ describe('OrderPricingService', () => {
       valid: true,
       discount: { discountAmount: 2.32 },
     });
-    discountsService.findByCode.mockResolvedValue({ id: 7, code: 'PROMO10' });
+    discountsService.findByCode.mockResolvedValue({
+      id: 7,
+      uuid: 'discount-uuid-7',
+      code: 'PROMO10',
+    });
 
     const result = await service.price({
       items: [{ product: producto('11.60', IvaType.NORMAL), quantity: 2 }],
@@ -81,6 +85,7 @@ describe('OrderPricingService', () => {
 
     expect(result.discount).toBe(2.32);
     expect(result.discountId).toBe(7);
+    expect(result.discountUuid).toBe('discount-uuid-7');
     expect(result.discountCode).toBe('PROMO10');
     expect(result.subtotal).toBe(18);
     expect(result.tax).toBe(2.88);

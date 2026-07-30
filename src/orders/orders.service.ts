@@ -320,50 +320,16 @@ export class OrdersService {
       );
     }
 
-    // 4. Validar y crear la dirección de envío (solo para delivery)
-    let shippingAddress: ShippingAddress | null = null;
-
-    if (createOrderDto.deliveryMethod === DeliveryMethod.DELIVERY) {
-      if (!createOrderDto.shippingAddress) {
-        throw new BadRequestException(
-          'Shipping address is required for delivery orders',
-        );
-      }
-
-      // Combinar customerInfo con shippingAddress
-      shippingAddress = this.shippingAddressRepository.create({
-        // Datos del cliente (desde customerInfo si es guest, sino desde shippingAddress)
-        identificationType: createOrderDto.customerInfo?.identificationType,
-        identificationNumber: createOrderDto.customerInfo?.identificationNumber,
-        firstName: createOrderDto.customerInfo?.firstName,
-        lastName: createOrderDto.customerInfo?.lastName,
-        email: createOrderDto.customerInfo?.email,
-        phone: createOrderDto.customerInfo?.phone,
-        // Datos de dirección
-        ...createOrderDto.shippingAddress,
-        country: createOrderDto.shippingAddress.country || 'Venezuela',
-        latitude: createOrderDto.shippingAddress.latitude || null,
-        longitude: createOrderDto.shippingAddress.longitude || null,
-      });
-      await this.shippingAddressRepository.save(shippingAddress);
-
-      // El costo de envío queda en 0: `pricing.shipping` lo trae del
-      // calculador (ver TODO en OrderPricingService.SHIPPING) hasta que se
-      // implemente el cálculo basado en ubicación.
-    }
-
-    // 5. Guardar/actualizar datos de guest customer para futuras compras
-    let guestCustomerId: number | null = null;
-    if (!userId && createOrderDto.customerInfo) {
-      const guestCustomer = await this.guestCustomersService.createOrUpdate(
-        createOrderDto.customerInfo,
-        createOrderDto.shippingAddress,
-      );
-      guestCustomerId = guestCustomer.id;
-    }
-
     // 3.5 Calcular el desglose con el calculador único, el mismo que usa
     //     POST /orders/quote. Nunca se aceptan montos del cliente.
+    //
+    // Va acá, antes de cualquier escritura persistente (dirección de envío,
+    // guest customer), a propósito: un cupón inválido (400, desde `price()`)
+    // o una tasa que rotó desde el quote (409, más abajo) no son casos raros
+    // — son el camino esperado cuando el cliente tarda en completar el
+    // checkout. Si el cálculo corriera después de guardar la dirección o el
+    // guest customer, cada uno de esos rechazos dejaría una fila huérfana sin
+    // orden que la referencie.
     const pricing = await this.orderPricingService.price({
       items: validatedItems,
       discountCode: createOrderDto.discountCode,
@@ -392,6 +358,48 @@ export class OrdersService {
           totalVes: pricing.totalVes,
         },
       });
+    }
+
+    // 4. Validar y crear la dirección de envío (solo para delivery)
+    let shippingAddress: ShippingAddress | null = null;
+
+    if (createOrderDto.deliveryMethod === DeliveryMethod.DELIVERY) {
+      if (!createOrderDto.shippingAddress) {
+        throw new BadRequestException(
+          'Shipping address is required for delivery orders',
+        );
+      }
+
+      // Combinar customerInfo con shippingAddress
+      shippingAddress = this.shippingAddressRepository.create({
+        // Datos del cliente (desde customerInfo si es guest, sino desde shippingAddress)
+        identificationType: createOrderDto.customerInfo?.identificationType,
+        identificationNumber: createOrderDto.customerInfo?.identificationNumber,
+        firstName: createOrderDto.customerInfo?.firstName,
+        lastName: createOrderDto.customerInfo?.lastName,
+        email: createOrderDto.customerInfo?.email,
+        phone: createOrderDto.customerInfo?.phone,
+        // Datos de dirección
+        ...createOrderDto.shippingAddress,
+        country: createOrderDto.shippingAddress.country || 'Venezuela',
+        latitude: createOrderDto.shippingAddress.latitude || null,
+        longitude: createOrderDto.shippingAddress.longitude || null,
+      });
+      await this.shippingAddressRepository.save(shippingAddress);
+
+      // El costo de envío queda en 0: `pricing.shipping` lo trae del
+      // calculador (ver el TODO real en OrderPricingService.SHIPPING) hasta
+      // que se implemente el cálculo basado en ubicación.
+    }
+
+    // 5. Guardar/actualizar datos de guest customer para futuras compras
+    let guestCustomerId: number | null = null;
+    if (!userId && createOrderDto.customerInfo) {
+      const guestCustomer = await this.guestCustomersService.createOrUpdate(
+        createOrderDto.customerInfo,
+        createOrderDto.shippingAddress,
+      );
+      guestCustomerId = guestCustomer.id;
     }
 
     // 4. Crear la información de pago
@@ -538,13 +546,12 @@ export class OrdersService {
     }
 
     // 10. Incrementar uso del cupón si se aplicó uno
-    // `pricing` ya resolvió y validó el código; se vuelve a buscar acá sólo
-    // para obtener el uuid que pide `incrementUsage`.
-    if (pricing.discountCode) {
-      const discount = await this.discountsService.findByCode(
-        pricing.discountCode,
-      );
-      await this.discountsService.incrementUsage(discount.uuid);
+    // `pricing.discountUuid` ya viene resuelto de `price()`: no hace falta
+    // volver a buscar el cupón por código acá. Buscarlo de nuevo después de
+    // persistir la orden podía devolver 404 si alguien lo borraba en esa
+    // ventana, dejando la orden creada pero la respuesta al cliente rota.
+    if (pricing.discountUuid) {
+      await this.discountsService.incrementUsage(pricing.discountUuid);
     }
 
     // 11. Enviar email de confirmación
