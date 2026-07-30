@@ -33,7 +33,15 @@ export type QuoteIssue =
   | { code: 'INSUFFICIENT_INVENTORY'; available: number };
 
 export interface QuoteItem {
-  productUuid: string;
+  productUuid: string | null;
+  /**
+   * UUID del renglón de carrito cuando el producto ya no puede resolverse
+   * (borrado con soft-delete después de agregarse al carrito): sin él no
+   * hay `productUuid` que devolver, pero el frontend igual necesita algo
+   * para identificar qué línea de SU carrito está fallando y ofrecer
+   * quitarla. `null` para ítems resueltos normalmente.
+   */
+  cartItemUuid: string | null;
   name: string | null;
   sku: string | null;
   quantity: number;
@@ -118,11 +126,21 @@ export class OrdersService {
    * `items` armado a mano y recibir un total; al confirmar, `createOrder`
    * facturaba el contenido real de su carrito — un número distinto, con
    * 201 y sin ningún guard que lo detectara.
+   *
+   * Separa los ítems del carrito en resolubles y "missing": `Product` tiene
+   * `@DeleteDateColumn`, así que si un admin borra (soft-delete) un producto
+   * que está en el carrito de un cliente, TypeORM excluye esa fila del join
+   * y `item.product` llega en `null`. Devolver esos renglones aparte, en vez
+   * de leer `item.product.uuid` sin guarda, es lo que evita el 500: cada
+   * llamador decide qué hacer con ellos (ver `quoteOrder` y `createOrder`).
    */
   private async resolveOrderItems(
     userId: number | null,
     items?: Array<{ productUuid: string; quantity: number }>,
-  ): Promise<Array<{ productUuid: string; quantity: number }>> {
+  ): Promise<{
+    items: Array<{ productUuid: string; quantity: number }>;
+    missingItems: Array<{ cartItemUuid: string; quantity: number }>;
+  }> {
     if (userId) {
       const cart = await this.cartRepository.findOne({
         where: { userId },
@@ -137,20 +155,38 @@ export class OrdersService {
         throw new BadRequestException('Cart is empty');
       }
 
-      return cart.items.map((item) => ({
-        productUuid: item.product.uuid,
-        quantity: item.quantity,
-      }));
+      const resolved: Array<{ productUuid: string; quantity: number }> = [];
+      const missingItems: Array<{ cartItemUuid: string; quantity: number }> =
+        [];
+
+      for (const item of cart.items) {
+        if (!item.product) {
+          missingItems.push({
+            cartItemUuid: item.uuid,
+            quantity: item.quantity,
+          });
+          continue;
+        }
+        resolved.push({
+          productUuid: item.product.uuid,
+          quantity: item.quantity,
+        });
+      }
+
+      return { items: resolved, missingItems };
     }
 
     if (!items || items.length === 0) {
       throw new BadRequestException('Cart items are required for guest orders');
     }
 
-    return items.map((item) => ({
-      productUuid: item.productUuid,
-      quantity: item.quantity,
-    }));
+    return {
+      items: items.map((item) => ({
+        productUuid: item.productUuid,
+        quantity: item.quantity,
+      })),
+      missingItems: [],
+    };
   }
 
   /**
@@ -179,7 +215,7 @@ export class OrdersService {
     // excepción que `createOrder` (no un quote vacío con `canCheckout:
     // false`): el frontend no tiene nada que previsualizar, así que dejar
     // pasar la request sólo pospone el mismo rechazo al POST /orders.
-    const orderItems = await this.resolveOrderItems(
+    const { items: orderItems, missingItems } = await this.resolveOrderItems(
       userId ?? null,
       quoteOrderDto.items,
     );
@@ -268,6 +304,7 @@ export class OrdersService {
 
       return {
         productUuid: item.productUuid,
+        cartItemUuid: null,
         name: product?.name ?? null,
         sku: product?.sku ?? null,
         quantity: item.quantity,
@@ -290,10 +327,37 @@ export class OrdersService {
       };
     });
 
+    // Renglones de carrito cuyo producto ya no existe (soft-delete): no hay
+    // `productUuid` que resolver, así que se agregan aparte, con
+    // `issue: NOT_FOUND` como cualquier otro producto no encontrado. El
+    // resto del pedido se sigue cotizando con normalidad — es exactamente el
+    // "nunca fallar duro" que este endpoint promete: un carrito con un ítem
+    // borrado no tumba el checkout entero.
+    const missingQuoteItems: QuoteItem[] = missingItems.map((missing) => ({
+      productUuid: null,
+      cartItemUuid: missing.cartItemUuid,
+      name: null,
+      sku: null,
+      quantity: missing.quantity,
+      ivaType: null,
+      ivaRate: null,
+      unitPrice: null,
+      lineTotal: null,
+      discount: null,
+      base: null,
+      iva: null,
+      total: null,
+      unitPriceVes: null,
+      totalVes: null,
+      issue: { code: 'NOT_FOUND' },
+    }));
+
+    const allItems = [...items, ...missingQuoteItems];
+
     return {
       exchangeRate: pricing.exchangeRate,
       rateDate: pricing.rateDate,
-      items,
+      items: allItems,
       totals: {
         itemsTotal: pricing.itemsTotal,
         discount: pricing.discount,
@@ -306,7 +370,7 @@ export class OrdersService {
         discountVes: pricing.discountVes,
         totalVes: pricing.totalVes,
       },
-      canCheckout: items.every((item) => item.issue === null),
+      canCheckout: allItems.every((item) => item.issue === null),
     };
   }
 
@@ -319,10 +383,21 @@ export class OrdersService {
   ): Promise<Order> {
     // 1. Determinar el origen de los items (compartido con quoteOrder: ver
     //    `resolveOrderItems`).
-    const orderItems = await this.resolveOrderItems(
+    const { items: orderItems, missingItems } = await this.resolveOrderItems(
       userId ?? null,
       createOrderDto.items,
     );
+
+    // A diferencia de `quoteOrder`, acá no corresponde "seguir de largo":
+    // facturar una orden que omite en silencio un producto borrado del
+    // carrito del cliente cobraría menos de lo que él espera pagar, sin
+    // avisarle por qué. Se rechaza con 400 (antes: 500, por el mismo
+    // `item.product.uuid` sin guarda que se arregló en `resolveOrderItems`).
+    if (missingItems.length > 0) {
+      throw new BadRequestException(
+        'Uno o más productos de tu carrito ya no están disponibles. Actualizá tu carrito e intentá de nuevo.',
+      );
+    }
 
     // 2. Validar inventario y disponibilidad
     const validatedItems: Array<{ product: Product; quantity: number }> = [];
