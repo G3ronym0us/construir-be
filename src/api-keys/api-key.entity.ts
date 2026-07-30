@@ -29,6 +29,17 @@ export class ApiKey {
   @Index()
   consumerKey: string;
 
+  // El hash del secreto nunca debe salir serializado. `ApiKeysService` ya lo
+  // enmascara a mano en los tres métodos que devuelven la entidad, pero ese
+  // enmascarado no cubre las rutas que la exponen por relación: hasta acá,
+  // `GET /admin/api-logs/:uuid` cargaba `relations: ['apiKey']` y devolvía el
+  // hash en claro. `@Exclude()` lo cierra en todas las rutas de una vez.
+  //
+  // No afecta la creación: el secreto en texto plano viaja como campo aparte
+  // en la raíz de la respuesta, no dentro de la entidad. Ni la validación:
+  // `validateCredentials()` lee la propiedad, y `@Exclude()` sólo actúa sobre
+  // la serialización.
+  @Exclude()
   @Column({ type: 'varchar', length: 100, name: 'consumer_secret' })
   consumerSecret: string;
 
