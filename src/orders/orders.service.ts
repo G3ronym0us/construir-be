@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -17,13 +18,13 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
-import { Discount } from '../discounts/discount.entity';
 import { IVA_RATES, IvaType } from '../products/enums/iva-type.enum';
 import { BanksService } from '../banks/banks.service';
 import { GuestCustomersService } from './guest-customers.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { OrderPricingService } from './order-pricing.service';
 import { QuoteOrderDto, QuoteOrderItemDto } from './dto/quote-order.dto';
+import { round2 } from '../products/iva.util';
 import * as bcrypt from 'bcrypt';
 
 export type QuoteIssue =
@@ -285,13 +286,8 @@ export class OrdersService {
       }));
     }
 
-    // 2. Validar inventario y calcular totales
-    let subtotal = 0;
-    const validatedItems: Array<{
-      productUuid: string;
-      quantity: number;
-      product: Product;
-    }> = [];
+    // 2. Validar inventario y disponibilidad
+    const validatedItems: Array<{ product: Product; quantity: number }> = [];
 
     for (const item of orderItems) {
       const product = await this.productRepository.findOne({
@@ -314,12 +310,7 @@ export class OrdersService {
         );
       }
 
-      subtotal += Number(product.priceWithIva) * item.quantity;
-      validatedItems.push({
-        productUuid: item.productUuid,
-        quantity: item.quantity,
-        product,
-      });
+      validatedItems.push({ product, quantity: item.quantity });
     }
 
     // 3. Validar customerInfo para usuarios guest
@@ -331,7 +322,6 @@ export class OrdersService {
 
     // 4. Validar y crear la dirección de envío (solo para delivery)
     let shippingAddress: ShippingAddress | null = null;
-    let shippingCost = 0;
 
     if (createOrderDto.deliveryMethod === DeliveryMethod.DELIVERY) {
       if (!createOrderDto.shippingAddress) {
@@ -357,8 +347,9 @@ export class OrdersService {
       });
       await this.shippingAddressRepository.save(shippingAddress);
 
-      // Calcular costo de envío si es necesario
-      shippingCost = 0; // TODO: Implementar cálculo de envío basado en ubicación
+      // El costo de envío queda en 0: `pricing.shipping` lo trae del
+      // calculador (ver TODO en OrderPricingService.SHIPPING) hasta que se
+      // implemente el cálculo basado en ubicación.
     }
 
     // 5. Guardar/actualizar datos de guest customer para futuras compras
@@ -371,51 +362,36 @@ export class OrdersService {
       guestCustomerId = guestCustomer.id;
     }
 
-    const tax = validatedItems.reduce((sum, item) => {
-      const ivaRate = IVA_RATES[item.product.ivaType ?? 0];
-      const itemSubtotal = Number(item.product.priceWithIva) * item.quantity;
-      return sum + (itemSubtotal * ivaRate) / (1 + ivaRate);
-    }, 0);
+    // 3.5 Calcular el desglose con el calculador único, el mismo que usa
+    //     POST /orders/quote. Nunca se aceptan montos del cliente.
+    const pricing = await this.orderPricingService.price({
+      items: validatedItems,
+      discountCode: createOrderDto.discountCode,
+    });
 
-    // 3.5 Validar y aplicar descuento si existe
-    let discountAmount = 0;
-    let discount: Discount | null = null;
-    const orderTotalBeforeDiscount = subtotal + tax + shippingCost;
-
-    if (createOrderDto.discountCode) {
-      const discountValidation = await this.discountsService.validateDiscount(
-        createOrderDto.discountCode,
-        orderTotalBeforeDiscount,
-      );
-
-      if (!discountValidation.valid) {
-        throw new BadRequestException(
-          discountValidation.error || 'Invalid discount code',
-        );
-      }
-
-      discountAmount = discountValidation.discount?.discountAmount || 0;
-      discount = await this.discountsService.findByCode(
-        createOrderDto.discountCode,
-      );
-    }
-
-    const total = Math.max(0, orderTotalBeforeDiscount - discountAmount);
-
-    // 3.6 Obtener tipo de cambio actual y calcular precios en VES
-    let exchangeRate: number | null = null;
-    let subtotalVes: number | null = null;
-    let totalVes: number | null = null;
-
-    try {
-      exchangeRate = await this.exchangeRatesService.getRate();
-      subtotalVes = Number((subtotal * exchangeRate).toFixed(2));
-      totalVes = Number((total * exchangeRate).toFixed(2));
-    } catch (error) {
-      // Si no hay tipo de cambio disponible, continuar sin precios VES
-      console.warn(
-        'Exchange rate not available, continuing without VES prices',
-      );
+    // Se factura con la tasa publicada. Si cambió entre que el cliente vio el
+    // desglose y confirmó, el total ya no es el que aceptó: se rechaza para
+    // que la UI le pida reconfirmación en vez de cobrarle otro monto.
+    if (
+      createOrderDto.expectedExchangeRate !== undefined &&
+      pricing.exchangeRate !== null &&
+      Number(createOrderDto.expectedExchangeRate) !== pricing.exchangeRate
+    ) {
+      throw new ConflictException({
+        message:
+          'La tasa de cambio cambió desde que se calculó el pedido. Confirmá el nuevo total.',
+        code: 'EXCHANGE_RATE_CHANGED',
+        exchangeRate: pricing.exchangeRate,
+        rateDate: pricing.rateDate,
+        totals: {
+          subtotal: pricing.subtotal,
+          tax: pricing.tax,
+          total: pricing.total,
+          subtotalVes: pricing.subtotalVes,
+          taxVes: pricing.taxVes,
+          totalVes: pricing.totalVes,
+        },
+      });
     }
 
     // 4. Crear la información de pago
@@ -474,16 +450,18 @@ export class OrdersService {
     order.shippingAddressId = shippingAddress?.id || null;
     order.paymentInfoId = paymentInfo.id;
     order.status = OrderStatus.ON_HOLD;
-    order.subtotal = subtotal;
-    order.tax = tax;
-    order.shipping = shippingCost;
-    order.discountId = discount?.id || null;
-    order.discountCode = discount?.code || null;
-    order.discountAmount = discountAmount;
-    order.total = total;
-    order.exchangeRate = exchangeRate;
-    order.subtotalVes = subtotalVes;
-    order.totalVes = totalVes;
+    order.subtotal = pricing.subtotal;
+    order.tax = pricing.tax;
+    order.shipping = pricing.shipping;
+    order.discountId = pricing.discountId;
+    order.discountCode = pricing.discountCode;
+    order.discountAmount = pricing.discount;
+    order.total = pricing.total;
+    order.exchangeRate = pricing.exchangeRate;
+    order.subtotalVes = pricing.subtotalVes;
+    order.taxVes = pricing.taxVes;
+    order.discountAmountVes = pricing.discountVes;
+    order.totalVes = pricing.totalVes;
     order.notes = createOrderDto.notes || null;
 
     await this.orderRepository.save(order);
@@ -491,25 +469,24 @@ export class OrdersService {
     // 6. Crear los items de la orden
     const createdOrderItems: OrderItem[] = [];
 
-    for (const item of validatedItems) {
-      const itemSubtotal = Number(item.product.priceWithIva) * item.quantity;
-      const itemPriceVes = exchangeRate
-        ? Number((Number(item.product.priceWithIva) * exchangeRate).toFixed(2))
-        : null;
-      const itemSubtotalVes = exchangeRate
-        ? Number((itemSubtotal * exchangeRate).toFixed(2))
-        : null;
-
+    for (const line of pricing.lines) {
       const orderItem = this.orderItemRepository.create({
         orderId: order.id,
-        productId: item.product.id,
-        productName: item.product.name,
-        productSku: item.product.sku,
-        quantity: item.quantity,
-        price: item.product.priceWithIva,
-        subtotal: itemSubtotal,
-        priceVes: itemPriceVes,
-        subtotalVes: itemSubtotalVes,
+        productId: line.product.id,
+        productName: line.product.name,
+        productSku: line.product.sku,
+        quantity: line.quantity,
+        // `price` y `subtotal` son inclusivos de IVA; `subtotal` ya viene neto
+        // de la porción de descuento que le tocó a la línea.
+        price: line.unitPrice,
+        subtotal: line.total,
+        priceVes:
+          pricing.exchangeRate !== null
+            ? round2(line.unitPrice * pricing.exchangeRate)
+            : null,
+        // Del desglose de la línea, no recalculado, para que los montos VES de
+        // los items sumen exactamente los de la orden.
+        subtotalVes: line.totalVes,
       });
 
       createdOrderItems.push(orderItem);
@@ -520,7 +497,7 @@ export class OrdersService {
     // 7. Reducir inventario
     for (const item of validatedItems) {
       await this.productRepository.decrement(
-        { uuid: item.productUuid },
+        { uuid: item.product.uuid },
         'inventory',
         item.quantity,
       );
@@ -561,7 +538,12 @@ export class OrdersService {
     }
 
     // 10. Incrementar uso del cupón si se aplicó uno
-    if (discount) {
+    // `pricing` ya resolvió y validó el código; se vuelve a buscar acá sólo
+    // para obtener el uuid que pide `incrementUsage`.
+    if (pricing.discountCode) {
+      const discount = await this.discountsService.findByCode(
+        pricing.discountCode,
+      );
       await this.discountsService.incrementUsage(discount.uuid);
     }
 

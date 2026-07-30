@@ -15,6 +15,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentMethod } from '../payment-info.entity';
 import { DeliveryMethod } from '../order.entity';
 import { IdentificationType } from '../guest-customer.entity';
@@ -162,6 +163,15 @@ export class CreateOrderDto {
   @IsString()
   @IsOptional()
   discountCode?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Tasa de cambio que el cliente vio en el quote. Si no coincide con la tasa de facturación, la orden se rechaza con 409 para que la UI pida reconfirmación.',
+    example: 245.5,
+  })
+  @IsOptional()
+  @IsNumber()
+  expectedExchangeRate?: number;
 
   // Items del carrito (solo para usuarios guest sin autenticación)
   @IsArray()

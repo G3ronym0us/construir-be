@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConflictException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { FindOperator, FindOneOptions } from 'typeorm';
 import { OrdersService } from './orders.service';
@@ -147,7 +148,7 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
             createOrUpdate: jest.fn(() => Promise.resolve({ id: 7 })),
           },
         },
-        { provide: OrderPricingService, useValue: {} },
+        OrderPricingService, // servicio real: el test recorre el cálculo entero
       ],
     }).compile();
 
@@ -169,8 +170,8 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
     const savedOrder = orderSaves[0][0];
     expect(Number(savedOrder.exchangeRate)).toBe(TASA_PUBLICADA);
 
-    // subtotal = 11.6 * 2 = 23.2 USD => 23.2 * 750 = 17400 Bs
-    expect(savedOrder.subtotalVes).toBe(17400);
+    // subtotal = base sin IVA = 20 USD => 20 * 750 = 15000 Bs
+    expect(savedOrder.subtotalVes).toBe(15000);
     // El total en USD lo arma createOrder (no es lo que se testea acá); lo que
     // importa es que se convierta con la tasa publicada.
     expect(savedOrder.totalVes).toBe(
@@ -198,5 +199,62 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
 
     const orderSaves = orderRepo.save.mock.calls as Array<[Order]>;
     expect(Number(orderSaves[0][0].exchangeRate)).toBe(TASA_VIGENTE);
+  });
+
+  it('no suma el IVA dos veces en el total', async () => {
+    await build([rateRow(TODAY, TASA_VIGENTE)]);
+
+    await service.createOrder(dto, null);
+
+    const savedOrder = (orderRepo.save.mock.calls as Array<[Order]>)[0][0];
+
+    // Producto de base 10.00 al 16% => priceWithIva 11.60, cantidad 2.
+    // El total debe ser 23.20; el doble conteo daba 26.40
+    // (subtotal inclusivo 23.20 + IVA extraído 3.20).
+    expect(Number(savedOrder.subtotal)).toBe(20);
+    expect(Number(savedOrder.tax)).toBe(3.2);
+    expect(Number(savedOrder.total)).toBe(23.2);
+    expect(Number(savedOrder.subtotal) + Number(savedOrder.tax)).toBe(
+      Number(savedOrder.total),
+    );
+  });
+
+  it('persiste el desglose en VES y hace que sus partes sumen', async () => {
+    await build([rateRow(TODAY, TASA_VIGENTE)]);
+
+    await service.createOrder(dto, null);
+
+    const savedOrder = (orderRepo.save.mock.calls as Array<[Order]>)[0][0];
+
+    // 20 × 744.22 = 14884.40 ; 3.2 × 744.22 = 2381.50 ; suma = 17265.90
+    expect(Number(savedOrder.subtotalVes)).toBe(14884.4);
+    expect(Number(savedOrder.taxVes)).toBe(2381.5);
+    expect(Number(savedOrder.totalVes)).toBe(17265.9);
+    expect(Number(savedOrder.totalVes)).toBe(
+      Number(savedOrder.subtotalVes) + Number(savedOrder.taxVes),
+    );
+  });
+
+  it('rechaza con 409 si la tasa cambió desde el quote', async () => {
+    await build([rateRow(TODAY, TASA_VIGENTE)]);
+
+    await expect(
+      service.createOrder(
+        { ...dto, expectedExchangeRate: 700 } as CreateOrderDto,
+        null,
+      ),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('acepta la orden si expectedExchangeRate coincide con la tasa de facturación', async () => {
+    await build([rateRow(TODAY, TASA_VIGENTE)]);
+
+    await service.createOrder(
+      { ...dto, expectedExchangeRate: TASA_VIGENTE } as CreateOrderDto,
+      null,
+    );
+
+    const savedOrder = (orderRepo.save.mock.calls as Array<[Order]>)[0][0];
+    expect(Number(savedOrder.total)).toBe(23.2);
   });
 });
