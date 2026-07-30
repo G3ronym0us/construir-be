@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Generated,
   Index,
 } from 'typeorm';
 
@@ -20,6 +21,14 @@ export enum IdentificationType {
 export class GuestCustomer {
   @PrimaryGeneratedColumn()
   id: number;
+
+  /**
+   * Identificador público del invitado. El `id` correlativo no sale del backend:
+   * el panel se mueve por uuid, igual que `users` y `orders`.
+   */
+  @Column({ type: 'uuid', unique: true })
+  @Generated('uuid')
+  uuid: string;
 
   @Column({
     type: 'enum',

@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Query, UseGuards, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  UseGuards,
+  Res,
+} from '@nestjs/common';
 import { Response } from 'express';
 import { CustomersService } from './customers.service';
 import { GetCustomersDto } from './dto/get-customers.dto';
@@ -29,8 +37,8 @@ export class CustomersController {
     res.send('\uFEFF' + csv); // BOM para UTF-8
   }
 
-  @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.customersService.findOne(id);
+  @Get(':uuid')
+  async findOne(@Param('uuid', ParseUUIDPipe) uuid: string) {
+    return this.customersService.findOne(uuid);
   }
 }

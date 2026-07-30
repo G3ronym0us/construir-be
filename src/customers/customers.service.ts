@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/user.entity';
@@ -90,16 +90,27 @@ export class CustomersService {
     };
   }
 
-  async findOne(id: string): Promise<CustomerDetailResponseDto> {
-    const [type, numericId] = id.split('-');
-
-    if (type === 'user') {
-      return await this.getRegisteredCustomerDetail(parseInt(numericId));
-    } else if (type === 'guest') {
-      return await this.getGuestCustomerDetail(parseInt(numericId));
+  /**
+   * Busca un cliente por su uuid.
+   *
+   * Un cliente puede ser un usuario registrado o un invitado, y el uuid no dice
+   * de cuál se trata, así que se prueban las dos tablas. Los uuid son únicos
+   * entre sí, de modo que a lo sumo una responde.
+   */
+  async findOne(uuid: string): Promise<CustomerDetailResponseDto> {
+    const user = await this.userRepository.findOne({ where: { uuid } });
+    if (user) {
+      return await this.getRegisteredCustomerDetail(user.id);
     }
 
-    throw new Error('Invalid customer ID format');
+    const guest = await this.guestCustomerRepository.findOne({
+      where: { uuid },
+    });
+    if (guest) {
+      return await this.getGuestCustomerDetail(guest.id);
+    }
+
+    throw new NotFoundException(`Cliente ${uuid} no encontrado`);
   }
 
   async exportToCSV(): Promise<string> {
@@ -169,7 +180,7 @@ export class CustomersService {
         const orderDates = confirmedOrders.map((o) => o.createdAt).sort();
 
         return {
-          id: `user-${user.id}`,
+          uuid: user.uuid,
           type: 'registered' as const,
           name:
             `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
@@ -215,7 +226,7 @@ export class CustomersService {
         const orderDates = confirmedOrders.map((o) => o.createdAt).sort();
 
         return {
-          id: `guest-${guest.id}`,
+          uuid: guest.uuid,
           type: 'guest' as const,
           name: `${guest.firstName} ${guest.lastName}`,
           email: guest.email,
@@ -263,7 +274,7 @@ export class CustomersService {
     const orderDates = confirmedOrders.map((o) => o.createdAt).sort();
 
     const recentOrders = confirmedOrders.slice(0, 10).map((o) => ({
-      id: o.id,
+      uuid: o.uuid,
       orderNumber: o.orderNumber,
       date: o.createdAt,
       total: Number(o.total),
@@ -272,7 +283,7 @@ export class CustomersService {
 
     return {
       customer: {
-        id: `user-${user.id}`,
+        uuid: user.uuid,
         type: 'registered',
         name:
           `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
@@ -325,7 +336,7 @@ export class CustomersService {
     const orderDates = confirmedOrders.map((o) => o.createdAt).sort();
 
     const recentOrders = confirmedOrders.slice(0, 10).map((o) => ({
-      id: o.id,
+      uuid: o.uuid,
       orderNumber: o.orderNumber,
       date: o.createdAt,
       total: Number(o.total),
@@ -334,7 +345,7 @@ export class CustomersService {
 
     return {
       customer: {
-        id: `guest-${guest.id}`,
+        uuid: guest.uuid,
         type: 'guest',
         name: `${guest.firstName} ${guest.lastName}`,
         email: guest.email,
