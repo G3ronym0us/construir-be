@@ -84,6 +84,7 @@
 
         .totals { margin: 8px 0 0; text-align: right; }
         .totals p { margin: 4px 0; font-size: 14px; color: #333333; }
+        .totals-divider { border-top: 1px solid #cccccc; margin: 8px 0; }
 
         .totals .total-final {
             font-size: 20px;
@@ -145,6 +146,7 @@
             .item-qty { color: #aaaaaa !important; }
             .item-price { color: #f0f0f0 !important; }
             .totals p { color: #cccccc !important; }
+            .totals-divider { border-color: #3a3a3a !important; }
             .totals .total-final { color: #93c5fd !important; border-color: #93c5fd !important; }
             .phone-highlight { color: #f0f0f0 !important; background-color: #333333 !important; }
             .hours { color: #aaaaaa !important; }
@@ -184,11 +186,13 @@
             {{/each}}
 
             <div class="totals">
-                <p>Subtotal: ${{subtotal}}</p>
                 {{#if discountAmount}}
+                <p>Subtotal (con IVA): ${{itemsGrossTotal}}</p>
                 <p>Descuento{{#if discountCode}} ({{discountCode}}){{/if}}: -${{discountAmount}}</p>
+                <div class="totals-divider"></div>
                 {{/if}}
-                {{#if tax}}<p>Impuestos: ${{tax}}</p>{{/if}}
+                <p>Base imponible: ${{subtotal}}</p>
+                {{#if tax}}<p>{{ivaLabel}}: ${{tax}}</p>{{/if}}
                 {{#if shipping}}<p>Envío: ${{shipping}}</p>{{/if}}
                 <p class="total-final">Total: ${{total}}</p>
             </div>
