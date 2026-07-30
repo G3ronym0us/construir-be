@@ -50,10 +50,12 @@ export class CartItem {
     return Number(this.price) * this.quantity;
   }
 
-  get subtotalVes(): number | null {
-    if (!this.product || !this.product.priceVes) {
-      return null;
+  get subtotalVes(): number {
+    // El precio inclusivo de IVA, para que el monto del carrito sea el mismo
+    // que el cliente vio en el catálogo y el que se le facturará.
+    if (!this.product || !this.product.priceWithIvaVes) {
+      return 0;
     }
-    return Number(this.product.priceVes) * this.quantity;
+    return Number(this.product.priceWithIvaVes) * this.quantity;
   }
 }
