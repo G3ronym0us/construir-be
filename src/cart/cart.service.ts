@@ -60,9 +60,19 @@ export class CartService {
     // Obtener o crear el carrito
     const cart = await this.getCart(userId);
 
-    // Verificar si el producto ya está en el carrito
+    // Verificar si el producto ya está en el carrito.
+    //
+    // `item.product?.uuid` y no `item.product.uuid`: `Product` tiene
+    // `@DeleteDateColumn`, así que si un admin borra (soft-delete) un producto
+    // que estaba en el carrito de un cliente, TypeORM excluye esa fila del
+    // join y `item.product` llega en `null`. Sin la guarda, ese renglón
+    // huérfano rompía con un TypeError el `find` de CUALQUIER alta posterior:
+    // el cliente quedaba sin poder agregar nada más a su carrito, con un 500
+    // genérico y sin pista de que el culpable era un ítem que ya tenía.
+    // Un renglón sin producto simplemente no puede ser el mismo producto que
+    // se está agregando, así que no coincide y se crea el ítem nuevo.
     const existingItem = cart.items?.find(
-      (item) => item.product.uuid === productUuid,
+      (item) => item.product?.uuid === productUuid,
     );
 
     if (existingItem) {
@@ -107,6 +117,18 @@ export class CartService {
 
     if (!cartItem) {
       throw new NotFoundException(`Cart item with ID ${itemId} not found`);
+    }
+
+    // Mismo caso que en `addItem`: el producto pudo borrarse después de
+    // agregarse al carrito y entonces `cartItem.product` llega en `null`.
+    // Se responde 404 identificando el renglón por su propio uuid — el del
+    // producto ya no existe — para que el frontend pueda ofrecer quitarlo
+    // (`DELETE /cart/items/:id` sigue funcionando: resuelve por el uuid del
+    // ítem, sin tocar el producto).
+    if (!cartItem.product) {
+      throw new NotFoundException(
+        `Cart item ${itemId} references a product that no longer exists. Remove it from the cart.`,
+      );
     }
 
     // Verificar inventario
@@ -167,6 +189,13 @@ export class CartService {
 
     if (cart.items?.length > 0) {
       for (const item of cart.items) {
+        // Un renglón cuyo producto fue borrado no tiene precio que
+        // sincronizar; se salta en vez de reventar la sincronización entera
+        // del carrito (ver la guarda equivalente en `addItem`).
+        if (!item.product) {
+          continue;
+        }
+
         const product = await this.productRepository.findOne({
           where: { uuid: item.product.uuid },
         });
