@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Order } from '../orders/order.entity';
 import { PaymentMethod } from '../orders/payment-info.entity';
+import { round2 } from '../products/iva.util';
 
 @Injectable()
 export class EmailService {
@@ -85,11 +86,27 @@ export class EmailService {
         productName: item.productName,
         quantity: item.quantity,
         price: Number(item.price).toFixed(2),
-        subtotal: Number(item.subtotal).toFixed(2),
+        // Monto BRUTO del renglón (cantidad × precio unitario), no
+        // `item.subtotal`: desde que el checkout desglosa el descuento por
+        // línea, `item.subtotal` viene NETO de la porción de descuento que
+        // le tocó a esa línea, así que `quantity × price` ya no es igual a
+        // `subtotal` (con cupón, el correo mostraba "3 × $3.00" al lado de
+        // "$8.37", una aritmética que no cierra a la vista). Mostrando el
+        // bruto acá, y el descuento una sola vez en el bloque de totales, el
+        // renglón vuelve a sumar a mano: "3 × $3.00 = $9.00", con los $4.27
+        // en su propia fila.
+        lineAmount: round2(item.quantity * Number(item.price)).toFixed(2),
       })),
       subtotal: Number(order.subtotal).toFixed(2),
       tax: order.tax > 0 ? Number(order.tax).toFixed(2) : null,
       shipping: order.shipping > 0 ? Number(order.shipping).toFixed(2) : null,
+      // El descuento no aparecía en ningún lado del comprobante: el cliente
+      // no tenía forma de reconciliar el total con lo que veía por renglón.
+      discountAmount:
+        Number(order.discountAmount) > 0
+          ? Number(order.discountAmount).toFixed(2)
+          : null,
+      discountCode: order.discountCode || null,
       total: Number(order.total).toFixed(2),
       isPickup,
       shippingAddress: isPickup ? null : order.shippingAddress,

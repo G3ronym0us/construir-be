@@ -179,12 +179,15 @@
                     <div class="item-name">{{this.productName}}</div>
                     <div class="item-qty">Cantidad: {{this.quantity}} × ${{this.price}}</div>
                 </div>
-                <div class="item-price">${{this.subtotal}}</div>
+                <div class="item-price">${{this.lineAmount}}</div>
             </div>
             {{/each}}
 
             <div class="totals">
                 <p>Subtotal: ${{subtotal}}</p>
+                {{#if discountAmount}}
+                <p>Descuento{{#if discountCode}} ({{discountCode}}){{/if}}: -${{discountAmount}}</p>
+                {{/if}}
                 {{#if tax}}<p>Impuestos: ${{tax}}</p>{{/if}}
                 {{#if shipping}}<p>Envío: ${{shipping}}</p>{{/if}}
                 <p class="total-final">Total: ${{total}}</p>
