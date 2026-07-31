@@ -10,6 +10,7 @@ import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { GuestCustomersService } from './guest-customers.service';
+import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { BanksService } from '../banks/banks.service';
@@ -38,6 +39,7 @@ describe('OrdersService.findOneForErp', () => {
         { provide: DiscountsService, useFactory: mockService },
         { provide: BanksService, useFactory: mockService },
         { provide: GuestCustomersService, useFactory: mockService },
+        { provide: UsersService, useFactory: mockService },
         { provide: ExchangeRatesService, useFactory: mockService },
         { provide: OrderPricingService, useFactory: mockService },
       ],

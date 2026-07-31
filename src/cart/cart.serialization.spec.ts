@@ -81,4 +81,30 @@ describe('Cart — serialización de GET /cart', () => {
     expect(plain.items).toHaveLength(1);
     expect(plain.items[0].quantity).toBe(2);
   });
+
+  /**
+   * Los totales del carrito son getters del prototipo, y `instanceToPlain`
+   * sólo los incluye si llevan `@Expose()`. Sin eso, `GET /cart` respondía sin
+   * `subtotal` ni `totalItems`, y el frontend —que hace `cart?.subtotal ?? 0`—
+   * le mostraba **Bs. 0,00** a todo cliente con sesión iniciada.
+   *
+   * No se prueba sobre la entidad directamente, donde el getter siempre
+   * funciona: se prueba sobre `instanceToPlain`, que es lo que arma la
+   * respuesta HTTP de verdad.
+   */
+  it('expone los totales calculados del carrito', () => {
+    const plain = instanceToPlain(buildCart());
+
+    expect(plain.totalItems).toBe(2);
+    // 2 unidades a 11,60 con IVA incluido
+    expect(plain.subtotal).toBe(23.2);
+    expect(plain.subtotalVes).toBeDefined();
+  });
+
+  it('expone el subtotal de cada renglón', () => {
+    const plain = instanceToPlain(buildCart());
+
+    expect(plain.items[0].subtotal).toBe(23.2);
+    expect(plain.items[0].subtotalVes).toBeDefined();
+  });
 });

@@ -21,6 +21,7 @@ import { DiscountsService } from '../discounts/discounts.service';
 import { IVA_RATES, IvaType } from '../products/enums/iva-type.enum';
 import { BanksService } from '../banks/banks.service';
 import { GuestCustomersService } from './guest-customers.service';
+import { UsersService } from '../users/users.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { OrderPricingService } from './order-pricing.service';
 import { QuoteOrderDto } from './dto/quote-order.dto';
@@ -148,6 +149,7 @@ export class OrdersService {
     private readonly discountsService: DiscountsService,
     private readonly banksService: BanksService,
     private readonly guestCustomersService: GuestCustomersService,
+    private readonly usersService: UsersService,
     private readonly exchangeRatesService: ExchangeRatesService,
     private readonly orderPricingService: OrderPricingService,
   ) {}
@@ -483,6 +485,29 @@ export class OrdersService {
       );
     }
 
+    // 3.2 Si el invitado pide crear cuenta, comprobar acá que el correo esté
+    //     libre — antes de cualquier escritura, por el mismo motivo que la
+    //     validación de la tasa. El alta ocurre al final, después de guardar
+    //     el pedido, crear los renglones y descontar inventario: con un correo
+    //     ya registrado reventaba ahí, dejando el pedido creado y el stock
+    //     descontado mientras el cliente veía un error y no recibía ninguna
+    //     confirmación del pedido que sí se había hecho.
+    if (
+      !userId &&
+      createOrderDto.createAccount &&
+      createOrderDto.customerInfo
+    ) {
+      const cuentaExistente = await this.usersService.findByEmail(
+        createOrderDto.customerInfo.email,
+      );
+
+      if (cuentaExistente) {
+        throw new ConflictException(
+          'Ya existe una cuenta con ese correo. Iniciá sesión, o desmarcá la opción de crear cuenta para seguir como invitado.',
+        );
+      }
+    }
+
     // 3.5 Calcular el desglose con el calculador único, el mismo que usa
     //     POST /orders/quote. Nunca se aceptan montos del cliente.
     //
@@ -589,6 +614,45 @@ export class OrdersService {
         createOrderDto.shippingAddress,
       );
       guestCustomerId = guestCustomer.id;
+    }
+
+    // 5.b Completar la cuenta del cliente autenticado con lo que acaba de
+    //     escribir.
+    //
+    //     El checkout sólo le pide cédula y teléfono a quien tiene sesión
+    //     cuando su cuenta no los tiene, así que recibir `customerInfo` con
+    //     `userId` significa exactamente eso: faltaban. Sin guardarlos, se los
+    //     volvería a pedir en cada pedido y el ERP los seguiría recibiendo
+    //     vacíos.
+    //
+    //     Sólo se rellena lo que falta: el checkout no puede pisar en silencio
+    //     un dato que el cliente ya tenía cargado en su cuenta.
+    if (userId && createOrderDto.customerInfo) {
+      const cuenta = await this.userRepository.findOne({
+        where: { id: userId },
+      });
+
+      if (cuenta) {
+        const faltantes: Partial<User> = {};
+
+        if (
+          !cuenta.identificationNumber &&
+          createOrderDto.customerInfo.identificationNumber
+        ) {
+          faltantes.identificationType =
+            createOrderDto.customerInfo.identificationType;
+          faltantes.identificationNumber =
+            createOrderDto.customerInfo.identificationNumber;
+        }
+
+        if (!cuenta.phone && createOrderDto.customerInfo.phone) {
+          faltantes.phone = createOrderDto.customerInfo.phone;
+        }
+
+        if (Object.keys(faltantes).length > 0) {
+          await this.userRepository.update(userId, faltantes);
+        }
+      }
     }
 
     // 4. Crear la información de pago
@@ -721,17 +785,21 @@ export class OrdersService {
       createOrderDto.password &&
       createOrderDto.customerInfo
     ) {
-      const hashedPassword = await bcrypt.hash(createOrderDto.password, 10);
-
-      const newUser = this.userRepository.create({
+      // El alta se delega en `UsersService.create()`, la misma que usa el
+      // registro normal. Armarlo a mano acá lo dejaba a medias: sin cédula ni
+      // teléfono, y —lo peor— sin el correo de verificación. Como el login
+      // exige `emailVerified` para el rol `user`, cada cuenta creada desde el
+      // checkout nacía sin poder iniciar sesión nunca: justo lo que el cliente
+      // marcó la casilla para conseguir.
+      const savedUser = await this.usersService.create({
         firstName: createOrderDto.customerInfo.firstName,
         lastName: createOrderDto.customerInfo.lastName,
         email: createOrderDto.customerInfo.email,
-        password: hashedPassword,
-        role: UserRole.USER,
+        phone: createOrderDto.customerInfo.phone,
+        identificationType: createOrderDto.customerInfo.identificationType,
+        identificationNumber: createOrderDto.customerInfo.identificationNumber,
+        password: createOrderDto.password,
       });
-
-      const savedUser = await this.userRepository.save(newUser);
 
       // Asociar la orden al nuevo usuario
       order.userId = savedUser.id;

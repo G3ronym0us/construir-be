@@ -513,3 +513,166 @@ El último caso importa: confirma que el orden de declaración de las rutas se
 respetó y que `GET /api/v1/orders/on-hold` —el endpoint que el ERP consulta
 cada 10 minutos— sigue resolviendo por su ruta propia en vez de ser capturado
 como identificador.
+
+---
+
+### H-009 — Al crear cuenta en el checkout, la cédula deja de llegarle al ERP
+
+**Severidad:** alta. El ERP factura sin la identificación del cliente.
+**Ubicación:** `src/api-v1/orders/woo-order.serializer.ts` y
+`src/orders/orders.service.ts` (alta de cuenta en `createOrder`).
+
+#### Reproducción
+
+Comprar como invitado marcando «Crear cuenta para seguir mis pedidos».
+Verificado sobre la orden 36: `billing.address_2` e `identification` llegaban
+**vacíos** al ERP, con la cédula `V-2345678` guardada en `guest_customers`.
+
+#### Causa raíz
+
+Son dos huecos que se encadenan.
+
+`createOrder` daba de alta la cuenta copiando sólo nombre, apellido y correo:
+el usuario nacía **sin cédula ni teléfono**, aunque el cliente los acabara de
+escribir en el checkout.
+
+Y el serializador resolvía la identificación **por rama**, no en cascada:
+
+```ts
+if (order.user) { identificationType = order.user.identificationType ?? null; }
+else if (order.guestCustomer) { /* nunca se llega acá si hay usuario */ }
+```
+
+Una orden con alta de cuenta queda con usuario **y** con ficha de invitado. Con
+el usuario presente, la ficha no se consultaba nunca — así que el dato existía
+pero no viajaba.
+
+Es la misma forma que **H-004** (el teléfono), que sí se había corregido a
+cascada. La identificación quedó como estaba.
+
+#### Arreglo aplicado
+
+- **`woo-order.serializer.ts`:** la identificación cae en cascada —usuario,
+  luego ficha de invitado— igual que el teléfono. El nombre y el correo siguen
+  saliendo del usuario cuando existe: ahí manda la cuenta.
+- **`orders.service.ts`:** la cuenta nueva nace con teléfono, tipo y número de
+  identificación, no sólo con nombre y correo. Así el cliente tampoco tiene que
+  volver a escribirlos en su siguiente pedido.
+
+#### Verificación
+
+Dos casos nuevos en `woo-order.serializer.spec.ts`: que la cédula salga de la
+ficha cuando el usuario no la tiene, y que la del usuario gane cuando ambas
+existen. Suite completa en verde.
+
+En vivo, sobre la orden 36: `address_2` pasó de `""` a `"V-2345678"`.
+
+---
+
+### H-010 — Las cuentas creadas en el checkout no podían iniciar sesión nunca
+
+**Severidad:** alta. La opción no cumplía lo que ofrece.
+**Ubicación:** `src/orders/orders.service.ts`, alta de cuenta en `createOrder`.
+
+#### Reproducción
+
+Comprar marcando «Crear cuenta para seguir mis pedidos» y después intentar
+entrar con ese correo y esa contraseña.
+
+```
+POST /auth/login  →  401  {"message":"Email not verified"}
+```
+
+#### Causa raíz
+
+`createOrder` daba de alta el usuario a mano: hasheaba la contraseña, ponía el
+rol y guardaba. Nunca generaba el token de verificación ni enviaba el correo, y
+`emailVerified` queda en `false` por defecto.
+
+El login rechaza a los roles `customer` y `user` sin verificar
+(`auth.service.ts`), y el chequeo corre **antes** de comparar la contraseña. El
+cliente marcaba la casilla, elegía una contraseña, el pedido salía bien… y la
+cuenta no servía para nada. Sin correo de verificación no había forma de
+recuperarla: hacía falta que un admin tocara `email_verified` en la base.
+
+#### Arreglo aplicado
+
+El alta se delega en `UsersService.create()`, la misma que usa el registro
+normal. Esa función ya hacía todo bien: comprueba que el correo esté libre,
+hashea, genera el token, guarda cédula y teléfono, y envía la verificación.
+Duplicarla a mano en `createOrder` fue el origen del problema.
+
+De paso se cierra el caso **B2** del guion: el correo repetido se comprueba
+ahora **antes de cualquier escritura**, junto a las demás validaciones. Antes
+reventaba al final, con el pedido ya creado y el inventario descontado.
+
+#### Verificación
+
+Suite completa en verde tras inyectar `UsersService` en `OrdersService`. La
+cuenta que destapó el problema (id 8) se desbloqueó por el flujo real, con
+`POST /users/resend-verification`, no tocando la base.
+
+---
+
+### H-011 — El carrito mostraba Bs. 0,00 a todo cliente con sesión iniciada
+
+**Severidad:** alta. El cliente no veía cuánto iba a pagar.
+**Ubicación:** `src/cart/cart.entity.ts` y `src/cart/cart-item.entity.ts`.
+
+`totalItems`, `subtotal` y `subtotalVes` son getters del prototipo, y
+`class-transformer` —que arma la respuesta vía el `ClassSerializerInterceptor`
+global— sólo incluye getters con `@Expose()`. Sin él, `GET /cart` respondía
+`{uuid, userId, items, createdAt, updatedAt}` y ningún total.
+
+El frontend hace `cart?.subtotal ?? 0` para el usuario autenticado, así que
+recibía `undefined` y pintaba cero. El carrito de invitado calcula sus totales
+del lado del cliente, por eso el fallo sólo aparecía **con sesión** — el único
+camino que no se había probado hasta ese momento.
+
+**Arreglo:** `@Expose()` en los cinco getters. La prueba de regresión corre
+sobre `instanceToPlain` y no sobre la entidad: llamar al getter directo siempre
+funciona, y era la serialización lo que fallaba.
+
+---
+
+### H-012 — Un cliente con sesión podía pedir sin cédula ni teléfono
+
+**Severidad:** alta. El ERP recibe el pedido sin con qué facturar ni a quién
+llamar.
+
+#### Reproducción
+
+Iniciar sesión con una cuenta sin cédula, comprar con retiro en local, y mirar
+lo que recibe el ERP. Verificado sobre la orden 37: `address_2`,
+`identification` y `phone` llegaron **vacíos**.
+
+#### Causa raíz
+
+Cuatro cosas que se encadenan:
+
+1. El checkout **saltaba la pantalla de la cédula** a quien tenía sesión.
+2. Enviaba `customerInfo: undefined` en ese caso.
+3. En retiro en local no hay dirección de envío que la lleve.
+4. `CreateUserDto` tiene cédula y teléfono como **opcionales**, así que
+   cualquier vía de alta puede producir una cuenta sin ellos.
+
+No era sólo cosa de las cuentas creadas por el checkout viejo: **cuatro de las
+cinco cuentas de la base** no tenían cédula.
+
+#### Arreglo aplicado
+
+- **`jwt.strategy.ts`:** `/auth/profile` devuelve `phone`,
+  `identificationType` e `identificationNumber` leídos de la fila, no del
+  token. El front no podía distinguir el caso porque no los recibía. Leerlos de
+  la fila y no del token tiene además el efecto de que no queden viejos: el
+  token dura 24 h.
+- **`checkout/page.tsx`:** la pantalla de identificación se muestra cuando
+  faltan, aunque haya sesión, y el `customerInfo` se envía también en ese caso.
+- **`orders.service.ts`:** `createOrder` completa la cuenta con lo que el
+  cliente acaba de escribir — **sólo lo que falta**, nunca pisa un dato que ya
+  tuviera. Así se pide una vez y nunca más.
+
+#### Verificación
+
+En navegador, con sesión de una cuenta sin cédula: la pantalla de
+identificación aparece. Suite completa en verde en ambos repos.

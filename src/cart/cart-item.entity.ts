@@ -1,4 +1,4 @@
-import { Exclude } from 'class-transformer';
+import { Exclude, Expose } from 'class-transformer';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -46,10 +46,12 @@ export class CartItem {
   updatedAt: Date;
 
   // Computed properties
+  @Expose()
   get subtotal(): number {
     return Number(this.price) * this.quantity;
   }
 
+  @Expose()
   get subtotalVes(): number {
     // El precio inclusivo de IVA, para que el monto del carrito sea el mismo
     // que el cliente vio en el catálogo y el que se le facturará.

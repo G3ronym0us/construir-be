@@ -11,6 +11,7 @@ import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { GuestCustomersService } from './guest-customers.service';
+import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { BanksService } from '../banks/banks.service';
@@ -118,6 +119,7 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrdersService,
+        { provide: UsersService, useValue: { create: jest.fn(), findByEmail: jest.fn() } },
         ExchangeRatesService, // servicio real: el test recorre findCurrent()
         { provide: getRepositoryToken(Order), useValue: orderRepo },
         { provide: getRepositoryToken(OrderItem), useValue: orderItemRepo },
@@ -156,6 +158,7 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
         { provide: DiscountsService, useValue: {} },
         { provide: BanksService, useValue: {} },
         { provide: GuestCustomersService, useValue: guestCustomersServiceMock },
+        { provide: UsersService, useValue: { create: jest.fn(), findByEmail: jest.fn() } },
         OrderPricingService, // servicio real: el test recorre el cálculo entero
       ],
     }).compile();
@@ -373,6 +376,7 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrdersService,
+        { provide: UsersService, useValue: { create: jest.fn(), findByEmail: jest.fn() } },
         ExchangeRatesService,
         { provide: getRepositoryToken(Order), useValue: multiOrderRepo },
         {

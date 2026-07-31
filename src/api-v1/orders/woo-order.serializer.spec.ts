@@ -214,6 +214,50 @@ describe('toWooOrder', () => {
       expect(billing.identification).toBe('V-20708398');
     });
 
+    // Cuando el invitado marca "crear cuenta", el pedido queda con usuario Y
+    // con ficha de invitado, pero el usuario nace sin cédula. Resolverla por
+    // rama dejaba al ERP sin cédula en toda orden con alta de cuenta.
+    it('toma la identificación de la ficha del invitado si el usuario no la tiene', () => {
+      const order = makeOrder({
+        user: {
+          firstName: 'Carmen',
+          lastName: 'Pineda',
+          email: 'carmen@test.com',
+          identificationType: null,
+          identificationNumber: null,
+        } as unknown as User,
+        guestCustomer: {
+          identificationType: 'V',
+          identificationNumber: '2345678',
+        } as GuestCustomer,
+      });
+
+      const { billing } = toWooOrder(order, TZ);
+      expect(billing.address_2).toBe('V-2345678');
+      expect(billing.identification).toBe('V-2345678');
+      // El nombre y el correo sí salen del usuario: ahí manda la cuenta.
+      expect(billing.first_name).toBe('Carmen');
+      expect(billing.email).toBe('carmen@test.com');
+    });
+
+    it('la identificación del usuario gana sobre la del invitado', () => {
+      const order = makeOrder({
+        user: {
+          firstName: 'Juan',
+          lastName: 'Pérez',
+          email: 'juan@test.com',
+          identificationType: 'V',
+          identificationNumber: '11111111',
+        } as unknown as User,
+        guestCustomer: {
+          identificationType: 'V',
+          identificationNumber: '22222222',
+        } as GuestCustomer,
+      });
+
+      expect(toWooOrder(order, TZ).billing.address_2).toBe('V-11111111');
+    });
+
     it('la dirección de envío tiene prioridad para la identificación', () => {
       const order = makeOrder({
         guestCustomer: {

@@ -11,6 +11,7 @@ import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { GuestCustomersService } from './guest-customers.service';
+import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { BanksService } from '../banks/banks.service';
@@ -56,6 +57,8 @@ describe('OrdersService — producto borrado en el carrito', () => {
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           OrdersService,
+        { provide: UsersService, useValue: { create: jest.fn(), findByEmail: jest.fn() } },
+        { provide: UsersService, useValue: { create: jest.fn(), findByEmail: jest.fn() } },
           { provide: OrderPricingService, useValue: pricingService },
           { provide: getRepositoryToken(Order), useValue: {} },
           { provide: getRepositoryToken(OrderItem), useValue: {} },
@@ -168,6 +171,7 @@ describe('OrdersService — producto borrado en el carrito', () => {
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           OrdersService,
+        { provide: UsersService, useValue: { create: jest.fn(), findByEmail: jest.fn() } },
           { provide: OrderPricingService, useValue: { price: jest.fn() } },
           { provide: getRepositoryToken(Order), useValue: orderRepo },
           { provide: getRepositoryToken(OrderItem), useValue: {} },
