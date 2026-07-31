@@ -566,3 +566,48 @@ ficha cuando el usuario no la tiene, y que la del usuario gane cuando ambas
 existen. Suite completa en verde.
 
 En vivo, sobre la orden 36: `address_2` pasó de `""` a `"V-2345678"`.
+
+---
+
+### H-010 — Las cuentas creadas en el checkout no podían iniciar sesión nunca
+
+**Severidad:** alta. La opción no cumplía lo que ofrece.
+**Ubicación:** `src/orders/orders.service.ts`, alta de cuenta en `createOrder`.
+
+#### Reproducción
+
+Comprar marcando «Crear cuenta para seguir mis pedidos» y después intentar
+entrar con ese correo y esa contraseña.
+
+```
+POST /auth/login  →  401  {"message":"Email not verified"}
+```
+
+#### Causa raíz
+
+`createOrder` daba de alta el usuario a mano: hasheaba la contraseña, ponía el
+rol y guardaba. Nunca generaba el token de verificación ni enviaba el correo, y
+`emailVerified` queda en `false` por defecto.
+
+El login rechaza a los roles `customer` y `user` sin verificar
+(`auth.service.ts`), y el chequeo corre **antes** de comparar la contraseña. El
+cliente marcaba la casilla, elegía una contraseña, el pedido salía bien… y la
+cuenta no servía para nada. Sin correo de verificación no había forma de
+recuperarla: hacía falta que un admin tocara `email_verified` en la base.
+
+#### Arreglo aplicado
+
+El alta se delega en `UsersService.create()`, la misma que usa el registro
+normal. Esa función ya hacía todo bien: comprueba que el correo esté libre,
+hashea, genera el token, guarda cédula y teléfono, y envía la verificación.
+Duplicarla a mano en `createOrder` fue el origen del problema.
+
+De paso se cierra el caso **B2** del guion: el correo repetido se comprueba
+ahora **antes de cualquier escritura**, junto a las demás validaciones. Antes
+reventaba al final, con el pedido ya creado y el inventario descontado.
+
+#### Verificación
+
+Suite completa en verde tras inyectar `UsersService` en `OrdersService`. La
+cuenta que destapó el problema (id 8) se desbloqueó por el flujo real, con
+`POST /users/resend-verification`, no tocando la base.

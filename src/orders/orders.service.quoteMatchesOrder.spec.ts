@@ -10,6 +10,7 @@ import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { GuestCustomersService } from './guest-customers.service';
+import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
 import { BanksService } from '../banks/banks.service';
@@ -93,6 +94,7 @@ describe('OrdersService — el total del quote coincide con el de la orden cread
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrdersService,
+        { provide: UsersService, useValue: { create: jest.fn(), findByEmail: jest.fn() } },
         ExchangeRatesService, // real: se recorre resolveRate()
         OrderPricingService, // real: se recorre el cálculo entero
         { provide: getRepositoryToken(Order), useValue: orderRepo },
