@@ -114,7 +114,7 @@ describe('EmailService — correos de cuenta', () => {
     noQuedanHuecos(html);
   });
 
-  it('sendEmailVerification compone la plantilla sin huecos', async () => {
+  it('sendEmailVerification incluye el enlace de verificación', async () => {
     await service.sendEmailVerification({
       to: 'ana@example.com',
       firstName: 'Ana',
@@ -122,7 +122,13 @@ describe('EmailService — correos de cuenta', () => {
       storeName: 'Construir',
     });
 
-    noQuedanHuecos(enviados[0].html);
+    const html = enviados[0].html;
+    // Mismo patrón que 'sendPasswordReset incluye el correo y el enlace': si
+    // la plantilla pierde `{{{verificationUrl}}}`, el `href` queda vacío y
+    // `noQuedanHuecos` no lo detecta (Handlebars no estricto renderiza la
+    // variable ausente como cadena vacía, no como "undefined").
+    expect(html).toContain('https://constru-ir.com/verify-email?token=abc');
+    noQuedanHuecos(html);
   });
 
   it('sendWelcome compone la plantilla sin huecos', async () => {

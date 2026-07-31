@@ -153,6 +153,41 @@ describe('EmailService — payload de las plantillas', () => {
     noQuedanHuecos(html);
   });
 
+  // Regresión del hallazgo real: `itemsGrossTotalVes` sumaba
+  // `quantity * Number(item.priceVes)`, y `Number(null)` da `0`. Con
+  // descuento (que es lo que hace visible la fila "Subtotal (con IVA)") y un
+  // renglón sin tasa, la suma daba 0 y `formatVes(0)` devuelve '0,00' -- un
+  // valor "verdadero" que el `{{#if itemsGrossTotalVes}}` de la plantilla no
+  // filtra. El correo salía con "Subtotal (con IVA)   Bs. 0,00", afirmando un
+  // monto falso. Sin descuento la fila ni se pinta, así que el bug sólo se ve
+  // con las dos condiciones juntas.
+  it('no muestra "Bs. 0,00" cuando hay descuento y algún renglón no tiene tasa en bolívares', async () => {
+    await service.sendOrderConfirmation(
+      makeOrder({
+        discountAmount: 5,
+        discountAmountVes: null,
+        items: [
+          {
+            productName: 'TIJERA PODAR MEDIAN 3501-240',
+            productSku: '29346',
+            quantity: 1,
+            price: 27.84,
+            priceVes: null,
+            subtotal: 27.84,
+            subtotalVes: null,
+            base: 24.0,
+            iva: 3.84,
+            product: { ivaType: 0 },
+          },
+        ] as unknown as Order['items'],
+      }),
+    );
+
+    const html = enviados[0].html;
+    expect(html).toContain('Subtotal (con IVA)');
+    expect(html).not.toContain('Bs. 0,00');
+  });
+
   it('incluye el enlace de seguimiento del pedido', async () => {
     await service.sendOrderConfirmation(makeOrder());
 

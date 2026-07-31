@@ -155,26 +155,31 @@ export class EmailService {
   async sendOrderConfirmation(order: Order): Promise<void> {
     const isPickup = order.deliveryMethod === 'pickup';
 
-    // Monto bruto (con IVA) de todos los renglones, sumando cantidad ×
-    // precio unitario. No existe persistido en la orden -- `order.subtotal`
-    // es la BASE ya neta del descuento (ver docs/pricing-iva.md) -- así que
-    // se recalcula acá con los mismos ítems que arma el correo, para que
-    // "Subtotal (con IVA)" coincida exactamente con la suma de los renglones
-    // que el cliente ve arriba.
-    const itemsGrossTotal = round2(
-      order.items.reduce(
-        (sum, item) => sum + item.quantity * Number(item.price),
-        0,
-      ),
-    );
-    // La misma suma, pero en bolívares -- es la que muestra la plantilla; el
-    // dólar quedó sólo como referencia en el total final.
-    const itemsGrossTotalVes = round2(
-      order.items.reduce(
-        (sum, item) => sum + item.quantity * Number(item.priceVes),
-        0,
-      ),
-    );
+    // Monto bruto (con IVA) de todos los renglones, en bolívares -- es la que
+    // muestra la plantilla; el dólar quedó sólo como referencia en el total
+    // final. No existe persistido en la orden -- `order.subtotal` es la BASE
+    // ya neta del descuento (ver docs/pricing-iva.md) -- así que se recalcula
+    // acá con los mismos ítems que arma el correo, para que "Subtotal (con
+    // IVA)" coincida exactamente con la suma de los renglones que el cliente
+    // ve arriba.
+    //
+    // `priceVes` es `number | null` -- una orden sin tasa (o con algún
+    // renglón que no la tenía) deja `null` en el ítem. `Number(null)` da `0`,
+    // así que sumar sin más produciría un total "verdadero" de `Bs. 0,00` en
+    // vez de ausente: exactamente lo que `money.util.ts` dice que hay que
+    // evitar. Si falta la tasa en CUALQUIER renglón, el total en bolívares no
+    // se puede afirmar -- no es cero, es desconocido -- así que el resultado
+    // es `null` y `formatVes` deja que la plantilla oculte el bloque.
+    const itemsGrossTotalVes = order.items.some(
+      (item) => item.priceVes === null,
+    )
+      ? null
+      : round2(
+          order.items.reduce(
+            (sum, item) => sum + item.quantity * Number(item.priceVes),
+            0,
+          ),
+        );
 
     const subject = `Recibimos tu pedido ${order.orderNumber}`;
 
@@ -192,12 +197,6 @@ export class EmailService {
       trackingUrl: this.payloads.trackingUrl(order.orderNumber),
       customerName: this.customerName(order),
       orderNumber: order.orderNumber,
-      orderDate: new Date(order.createdAt).toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      }),
-      orderStatus: this.translateStatus(order.status),
       items: order.items.map((item) => ({
         productName: item.productName,
         quantity: item.quantity,
@@ -219,13 +218,11 @@ export class EmailService {
       // punto de partida desde el que se resta el cupón. Sin descuento sería
       // un segundo subtotal idéntico al de siempre, así que el template lo
       // omite (ver condicional `discountAmount` más abajo).
-      itemsGrossTotal: itemsGrossTotal.toFixed(2),
       itemsGrossTotalVes: formatVes(itemsGrossTotalVes),
       // `order.subtotal` es la BASE imponible, ya neta del descuento (nunca
       // el "subtotal bruto" que sugiere el nombre del campo). Se relabelea acá
       // como "Base imponible" en el template para que no compita con
       // "Subtotal (con IVA)".
-      subtotal: Number(order.subtotal).toFixed(2),
       subtotalVes: formatVes(order.subtotalVes),
       tax: order.tax > 0 ? Number(order.tax).toFixed(2) : null,
       taxVes: formatVes(order.taxVes),
@@ -236,7 +233,6 @@ export class EmailService {
       // a secas es siempre correcto; el detalle por línea ya lo tiene el
       // panel admin.
       ivaLabel: this.ivaLabel(order),
-      shipping: order.shipping > 0 ? Number(order.shipping).toFixed(2) : null,
       // El descuento no aparecía en ningún lado del comprobante: el cliente
       // no tenía forma de reconciliar el total con lo que veía por renglón.
       discountAmount:
@@ -255,7 +251,8 @@ export class EmailService {
       paymentReference: order.paymentInfo?.referenceCode ?? null,
       verificationSla: '24 horas hábiles',
       isZelle: order.paymentInfo.method === PaymentMethod.ZELLE,
-      notes: order.notes,
+      // `order.notes` no se pasa a propósito: la plantilla rediseñada no
+      // muestra la nota del cliente (el admin la sigue viendo en el panel).
     });
     if (!html) return;
 
