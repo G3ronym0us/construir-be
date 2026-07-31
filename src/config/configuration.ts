@@ -31,6 +31,10 @@ export interface AppConfig {
   storeEmail: string;
   storeHours: string;
   storeMapUrl: string;
+  /** Enlace de contacto que ocho plantillas de correo ofrecen al cliente. */
+  storeWhatsappUrl: string;
+  /** Sólo lo usa la plantilla de invitación, que es un correo interno. */
+  storeRif: string;
   /** Zona IANA en la que el ERP espera las fechas. WooCommerce emite hora local del sitio. */
   storeTimezone: string;
 }
@@ -96,6 +100,10 @@ export const appConfig = registerAs(
     storeEmail: process.env.STORE_EMAIL ?? '',
     storeHours: process.env.STORE_HOURS ?? '',
     storeMapUrl: process.env.STORE_MAP_URL ?? '',
+    // Se usa ?? y no ||, igual que los STORE_* vecinos: una cadena vacía es un
+    // valor deliberado, y las plantillas ocultan el bloque cuando llega vacío.
+    storeWhatsappUrl: process.env.STORE_WHATSAPP_URL ?? '',
+    storeRif: process.env.STORE_RIF ?? '',
     // Explícita y no heredada del servidor: el contrato del ERP emite fechas
     // sin marcador de zona, así que un servidor en UTC las corría 4 horas.
     storeTimezone: process.env.STORE_TIMEZONE || 'America/Caracas',
