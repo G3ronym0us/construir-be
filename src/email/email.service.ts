@@ -273,17 +273,19 @@ export class EmailService {
       exchangeRate: formatVes(order.exchangeRate),
       paymentMethod: this.translatePaymentMethod(order.paymentInfo?.method),
       paymentReference: order.paymentInfo?.referenceCode ?? null,
-      // No existe un campo `verifiedAt` dedicado: el pago se marca VERIFIED y
-      // se guarda en el mismo paso que dispara este correo (ver
-      // `orders.service.ts`), así que `updatedAt` del pago es, en la práctica,
-      // el momento de la verificación.
-      verifiedAt: order.paymentInfo?.updatedAt
-        ? new Date(order.paymentInfo.updatedAt).toLocaleDateString('es-VE', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          })
-        : null,
+      // No existe un campo `verifiedAt` dedicado, y `paymentInfo.updatedAt`
+      // no sirve de sustituto: este correo se dispara desde dos sitios
+      // (`updateOrderStatus`, cuando el admin verifica el pago a mano, y
+      // `completeOrder`, cuando el ERP factura) y sólo en el primero
+      // `updatedAt` coincide con la verificación. En `completeOrder` no se
+      // toca `paymentInfo` — `updatedAt` quedaría en la fecha del último
+      // cambio del pago (p.ej. cuando se subió el comprobante), y el correo
+      // le mostraría al cliente una verificación que no ocurrió ese día.
+      // Va en `null` a propósito: la plantilla oculta el bloque, que es
+      // preferible a una fecha inventada. Para llenarlo de verdad hace falta
+      // una columna `verified_at` en `payment_info`, escrita en el momento
+      // en que el pago pasa a VERIFIED.
+      verifiedAt: null,
       // No se calcula ninguna fecha estimada de entrega en el sistema; la
       // plantilla oculta el bloque cuando llega null.
       estimatedDelivery: null,

@@ -156,6 +156,16 @@ describe('EmailService — payload de las plantillas', () => {
     );
   });
 
+  // Regresión: el pie de página lee `storeAddress` como variable suelta, no
+  // `store.address`. Si `buildCommon()` deja de exponer el alias plano, el
+  // pie vuelve a salir vacío en los cuatro correos sin que ningún otro test
+  // lo note (Handlebars no estricto renderiza la variable ausente como '').
+  it('no deja vacío el pie de página con los datos de la tienda', async () => {
+    await service.sendOrderConfirmation(makeOrder());
+
+    expect(enviados[0].html).toContain(CONFIG['app.storeAddress']);
+  });
+
   it('sendPaymentConfirmed compone la plantilla sin huecos', async () => {
     await service.sendPaymentConfirmed(makeOrder());
 

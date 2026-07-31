@@ -29,6 +29,23 @@ export interface CommonPayload {
   whatsappUrl: string | null;
   storeRif: string | null;
   store: StoreInfo;
+  /**
+   * Duplicado plano de cuatro campos de `store.*`, a propósito.
+   *
+   * El pie de página (`templates/partials/footer.hbs`) lee variables sueltas
+   * (`storeAddress`, `storeHours`, `storePhone`, `storeEmail`) porque se
+   * incluye con `{{> footer}}` dentro de layouts que ya usan `store.*` para
+   * el cuerpo del correo, y el pie se escribió para no depender de cómo cada
+   * plantilla nombra su objeto de tienda. El cuerpo, en cambio, usa la forma
+   * anidada (`store.name`, `store.address`, etc.). No es un descuido: hacen
+   * falta las dos formas. Si en algún momento se "limpia" esta duplicación
+   * quitando una de las dos, el pie de página vuelve a salir vacío en los
+   * cuatro correos.
+   */
+  storeAddress: string;
+  storeHours: string;
+  storePhone: string;
+  storeEmail: string;
 }
 
 @Injectable()
@@ -49,19 +66,30 @@ export class EmailPayloadBuilder {
   }
 
   buildCommon(): CommonPayload {
+    const address = this.configService.get<string>('app.storeAddress') ?? '';
+    const hours = this.configService.get<string>('app.storeHours') ?? '';
+    const phone = this.configService.get<string>('app.storePhone') ?? '';
+    const email = this.configService.get<string>('app.storeEmail') ?? '';
+
     return {
       logoUrl: `${this.frontendUrl()}/construir-logo.png`,
       whatsappUrl: this.opcional('app.storeWhatsappUrl'),
       storeRif: this.opcional('app.storeRif'),
       store: {
         name: this.configService.get<string>('app.storeName') ?? '',
-        address: this.configService.get<string>('app.storeAddress') ?? '',
+        address,
         city: this.configService.get<string>('app.storeCity') ?? '',
-        hours: this.configService.get<string>('app.storeHours') ?? '',
-        phone: this.configService.get<string>('app.storePhone') ?? '',
-        email: this.configService.get<string>('app.storeEmail') ?? '',
+        hours,
+        phone,
+        email,
         mapUrl: this.configService.get<string>('app.storeMapUrl') ?? '',
       },
+      // Ver el comentario de `storeAddress` en `CommonPayload`: el pie de
+      // página necesita estos mismos valores en forma plana.
+      storeAddress: address,
+      storeHours: hours,
+      storePhone: phone,
+      storeEmail: email,
     };
   }
 

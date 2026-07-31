@@ -50,6 +50,18 @@ describe('EmailPayloadBuilder', () => {
     expect(comun.storeRif).toBeNull();
   });
 
+  // El pie de página (`footer.hbs`) lee estos cuatro campos sueltos, no
+  // anidados bajo `store.*`: si sólo se llena `store`, el pie sale vacío.
+  it('duplica los datos de tienda que necesita el pie de página en forma plana', () => {
+    const comun = builderCon(COMPLETO).buildCommon();
+
+    expect(comun.storeAddress).toBe(comun.store.address);
+    expect(comun.storeHours).toBe(comun.store.hours);
+    expect(comun.storePhone).toBe(comun.store.phone);
+    expect(comun.storeEmail).toBe(comun.store.email);
+    expect(comun.storeAddress).toBe('Av. Bolívar 123');
+  });
+
   it('arma el enlace de seguimiento con el número de pedido', () => {
     expect(builderCon(COMPLETO).trackingUrl('ORD-MS92XZW4-ASXE')).toBe(
       'https://constru-ir.com/seguimiento/ORD-MS92XZW4-ASXE',
