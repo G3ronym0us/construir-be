@@ -56,6 +56,11 @@ carrito.
 
 **Si falla:** el contador muestra 1 un instante y vuelve el botón de agregar.
 
+**No basta con este paso.** El mismo fallo estaba duplicado en tres sitios —el
+carrito, el cajón lateral y el checkout— y arreglar uno no arreglaba los otros.
+Con **ese mismo producto**, seguir hasta A2 y A3: si el checkout devuelve al
+carrito, el fallo sigue vivo en esa copia.
+
 ### A2 · Ver el carrito
 
 Con **tres o más artículos**, sin scrollear.
@@ -115,6 +120,28 @@ Igual que el Flujo A, marcando «Crear cuenta para seguir mis pedidos».
 ### B1 · Con un correo que NO tenga cuenta ⚠️
 
 **Debe pasar:** el pedido se crea y queda asociado al usuario nuevo.
+
+**Comprobar en la cuenta creada** que no nació a medias:
+
+```sql
+SELECT first_name, last_name, email, phone,
+       identification_type, identification_number, role
+  FROM users ORDER BY id DESC LIMIT 1;
+```
+
+`phone`, `identification_type` e `identification_number` **no deben estar en
+NULL**: son datos que el cliente ya escribió en el checkout.
+
+**Y comprobar que el ERP recibe la cédula** de ese pedido — es el caso que la
+perdía. Una orden con alta de cuenta queda con usuario **y** con ficha de
+invitado, y la identificación tiene que resolverse mirando las dos:
+
+```bash
+curl -s -H "Authorization: Bearer $CK:$CS" "$API/api/v1/orders/<id>" \
+  | python3 -c "import sys,json; b=json.load(sys.stdin)['billing']; print(b['address_2'], '|', b['phone'])"
+```
+
+Ninguno de los dos puede salir vacío.
 
 ### B2 · Con un correo que YA tenga cuenta ⚠️
 
