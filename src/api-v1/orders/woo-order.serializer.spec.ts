@@ -1,4 +1,4 @@
-import { toWooOrder } from './woo-order.serializer';
+import { toWooOrder, formatLocalDate } from './woo-order.serializer';
 import { round2 } from '../../products/iva.util';
 import { Order, OrderStatus, DeliveryMethod } from '../../orders/order.entity';
 import { OrderItem } from '../../orders/order-item.entity';
@@ -239,6 +239,16 @@ describe('toWooOrder', () => {
       expect(toWooOrder(order, TZ).billing.phone).toBe('04249428607');
     });
 
+    // Tercer operando de la cadena `??`: un usuario autenticado (no guest)
+    // sin dirección de envío en la orden.
+    it('cae al teléfono del usuario autenticado cuando no hay dirección ni guestCustomer', () => {
+      const order = makeOrder({
+        user: { phone: '04121112233' } as User,
+      });
+
+      expect(toWooOrder(order, TZ).billing.phone).toBe('04121112233');
+    });
+
     it('la dirección de envío tiene prioridad para el teléfono', () => {
       const order = makeOrder({
         guestCustomer: { phone: '04249428607' } as GuestCustomer,
@@ -391,6 +401,23 @@ describe('toWooOrder', () => {
 
       expect(woo.total).toBe('23.20');
       expect(woo.total_tax).toBe('3.20');
+    });
+  });
+
+  describe('formatLocalDate con STORE_TIMEZONE inválido', () => {
+    // Sin esto, un typo en la variable de entorno tira un RangeError críptico
+    // de Intl ("Invalid time zone specified") y convierte todo listado del
+    // ERP en un 500 permanente sin pista de la causa.
+    it('falla con un mensaje que señala el valor inválido, no el RangeError críptico de Intl', () => {
+      expect(() =>
+        formatLocalDate(new Date('2026-07-31T04:37:03.000Z'), 'Not/AZone'),
+      ).toThrow('STORE_TIMEZONE inválido: "Not/AZone"');
+    });
+
+    it('sigue funcionando con una zona válida', () => {
+      expect(formatLocalDate(new Date('2026-07-31T04:37:03.000Z'), TZ)).toBe(
+        '2026-07-31T00:37:03',
+      );
     });
   });
 });

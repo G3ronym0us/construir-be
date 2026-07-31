@@ -1,7 +1,7 @@
 import { Order, DeliveryMethod } from '../../orders/order.entity';
 import { OrderItem } from '../../orders/order-item.entity';
-import { IVA_RATES, IvaType } from '../../products/enums/iva-type.enum';
-import { round2 } from '../../products/iva.util';
+import { IVA_RATES } from '../../products/enums/iva-type.enum';
+import { round2, fromTotal } from '../../products/iva.util';
 
 /**
  * Traduce una `Order` nuestra a la forma del REST API de WooCommerce, que es
@@ -75,20 +75,41 @@ function text(value: string | null | undefined): string {
  * El locale `sv-SE` produce `YYYY-MM-DD HH:mm:ss`, que es el formato ISO sin la
  * T; sólo hay que cambiarle el separador. Evita traer una dependencia de fechas
  * para una única conversión.
+ *
+ * Se elige fallar ruidoso antes que degradar: un `STORE_TIMEZONE` inválido no
+ * se puede resolver en silencio a UTC o a la zona del servidor, porque eso
+ * desincroniza al ERP sin que nadie lo note hasta que factura con la hora
+ * equivocada — el mismo tipo de falla silenciosa que el resto de este archivo
+ * evita a propósito. `Intl.DateTimeFormat` ya tira un `RangeError` con el
+ * dato mal puesto, pero el mensaje ("Invalid time zone specified") no dice
+ * de dónde salió el valor ni qué variable revisar; acá se lo envuelve para
+ * que el primer listado que falle señale la causa de una.
  */
 export function formatLocalDate(date: Date, timeZone: string): string {
-  const formatted = new Intl.DateTimeFormat('sv-SE', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(date);
+  let formatter: Intl.DateTimeFormat;
 
-  return formatted.replace(' ', 'T');
+  try {
+    formatter = new Intl.DateTimeFormat('sv-SE', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new Error(
+        `STORE_TIMEZONE inválido: "${timeZone}" no es una zona horaria IANA reconocida.`,
+      );
+    }
+
+    throw error;
+  }
+
+  return formatter.format(date).replace(' ', 'T');
 }
 
 /**
@@ -97,25 +118,19 @@ export function formatLocalDate(date: Date, timeZone: string): string {
  * Las órdenes creadas desde que se persiste el desglose lo traen guardado. Las
  * anteriores tienen `base`/`iva` en NULL y hay que derivarlo de la alícuota
  * viva del producto — con la limitación conocida de que esa alícuota pudo
- * cambiar desde que se facturó. Se deriva sólo lo que falta: la convención de
+ * cambiar desde que se facturó. Si falta cualquiera de los dos campos se
+ * deriva el desglose completo a partir del `subtotal` (que sí incluye IVA),
+ * con la misma `fromTotal()` que usa el resto del código: la convención de
  * emisión es la misma para unas y otras.
  */
 function breakdown(item: OrderItem): { base: number; iva: number } {
-  if (
-    item.base !== null &&
-    item.base !== undefined &&
-    item.iva !== null &&
-    item.iva !== undefined
-  ) {
+  if (item.base != null && item.iva != null) {
     return { base: Number(item.base), iva: Number(item.iva) };
   }
 
-  const ivaType = item.product?.ivaType ?? IvaType.NORMAL;
-  const rate = IVA_RATES[ivaType];
-  const subtotal = Number(item.subtotal);
-  const iva = round2((subtotal * rate) / (1 + rate));
+  const { base, iva } = fromTotal(Number(item.subtotal), item.product?.ivaType);
 
-  return { base: round2(subtotal - iva), iva };
+  return { base, iva };
 }
 
 // Alícuotas nominales conocidas, como porcentaje (0, 8, 16, 24).
