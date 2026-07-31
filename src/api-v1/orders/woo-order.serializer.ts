@@ -101,7 +101,12 @@ export function formatLocalDate(date: Date, timeZone: string): string {
  * emisión es la misma para unas y otras.
  */
 function breakdown(item: OrderItem): { base: number; iva: number } {
-  if (item.base !== null && item.base !== undefined && item.iva !== null && item.iva !== undefined) {
+  if (
+    item.base !== null &&
+    item.base !== undefined &&
+    item.iva !== null &&
+    item.iva !== undefined
+  ) {
     return { base: Number(item.base), iva: Number(item.iva) };
   }
 
@@ -111,6 +116,49 @@ function breakdown(item: OrderItem): { base: number; iva: number } {
   const iva = round2((subtotal * rate) / (1 + rate));
 
   return { base: round2(subtotal - iva), iva };
+}
+
+// Alícuotas nominales conocidas, como porcentaje (0, 8, 16, 24).
+const NOMINAL_TAX_RATES = Object.values(IVA_RATES).map((rate) => rate * 100);
+
+/**
+ * Tolerancia para ajustar `tax_rate` a la alícuota nominal más cercana.
+ *
+ * `base` e `iva` llegan cada uno ya redondeado a 2 decimales de forma
+ * independiente (persistidos así, o derivados más arriba), así que su
+ * cociente no reproduce la alícuota nominal salvo que la división caiga
+ * exacta: 0.73 / 4.55 = 16.0439...%, no 16%. El desvío crece cuanto más chica
+ * es la base, porque la misma media unidad de redondeo en cada monto pesa
+ * proporcionalmente más. Un punto porcentual cubre con margen el peor caso
+ * visto en el payload real de OrbisNet (orden 6284, línea de `base = 2.40`:
+ * desvío de 0.167 puntos) y queda lejos de la mitad de la distancia entre
+ * alícuotas conocidas (4 puntos), así que no hay riesgo de confundir un
+ * cociente ruidoso con la alícuota vecina.
+ */
+const TAX_RATE_TOLERANCE = 1;
+
+/**
+ * `iva / base` no reproduce la alícuota nominal por el redondeo de cada
+ * monto a 2 decimales (ver `TAX_RATE_TOLERANCE`); acá se ajusta el cociente
+ * calculado a la alícuota conocida más cercana cuando el desvío es chico. No
+ * se resuelve leyendo `IVA_RATES[item.product?.ivaType]` directo porque eso
+ * rompe el caso de un producto borrado con desglose exento guardado: emitiría
+ * 16 en vez de 0.
+ */
+function nominalTaxRate(base: number, iva: number): number {
+  if (base <= 0) {
+    return 0;
+  }
+
+  const computed = round2((iva / base) * 100);
+
+  const nearest = NOMINAL_TAX_RATES.reduce((closest, rate) =>
+    Math.abs(rate - computed) < Math.abs(closest - computed) ? rate : closest,
+  );
+
+  return Math.abs(nearest - computed) <= TAX_RATE_TOLERANCE
+    ? nearest
+    : computed;
 }
 
 function toWooLineItem(item: OrderItem): WooLineItem {
@@ -124,7 +172,7 @@ function toWooLineItem(item: OrderItem): WooLineItem {
     // WooCommerce emite la clase de impuesto como string vacío; la alícuota
     // viaja en `tax_rate`, que es campo nuestro.
     tax_class: '',
-    tax_rate: base > 0 ? round2((iva / base) * 100) : 0,
+    tax_rate: nominalTaxRate(base, iva),
     total: base.toFixed(2),
     total_tax: iva.toFixed(2),
     sku: item.productSku ?? null,

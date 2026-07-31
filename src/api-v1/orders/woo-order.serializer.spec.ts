@@ -14,7 +14,9 @@ const TZ = 'America/Caracas';
 // runtime puede llegar `null` cuando el producto fue borrado — el resto del
 // código (p.ej. `orders.service.ts`) ya lo trata como opcional con `?.`.
 const makeItem = (
-  overrides: Partial<Omit<OrderItem, 'product'>> & { product?: Product | null } = {},
+  overrides: Partial<Omit<OrderItem, 'product'>> & {
+    product?: Product | null;
+  } = {},
 ): OrderItem =>
   ({
     id: 1,
@@ -132,7 +134,9 @@ describe('toWooOrder', () => {
 
     it('respeta la exención cuando el desglose guardado dice 0', () => {
       const order = makeOrder({
-        items: [makeItem({ base: 23.2, iva: 0, subtotal: 23.2, product: null })],
+        items: [
+          makeItem({ base: 23.2, iva: 0, subtotal: 23.2, product: null }),
+        ],
       });
 
       expect(toWooOrder(order, TZ).line_items[0].total_tax).toBe('0.00');
@@ -305,13 +309,14 @@ describe('toWooOrder', () => {
         woo.line_items.map((l) => ({
           total: l.total,
           total_tax: l.total_tax,
+          tax_rate: l.tax_rate,
           quantity: l.quantity,
         })),
       ).toEqual([
-        { total: '98.46', total_tax: '15.75', quantity: 3 },
-        { total: '4.55', total_tax: '0.73', quantity: 5 },
-        { total: '2.17', total_tax: '0.35', quantity: 7 },
-        { total: '2.40', total_tax: '0.38', quantity: 10 },
+        { total: '98.46', total_tax: '15.75', tax_rate: 16, quantity: 3 },
+        { total: '4.55', total_tax: '0.73', tax_rate: 16, quantity: 5 },
+        { total: '2.17', total_tax: '0.35', tax_rate: 16, quantity: 7 },
+        { total: '2.40', total_tax: '0.38', tax_rate: 16, quantity: 10 },
       ]);
     });
 
@@ -320,6 +325,15 @@ describe('toWooOrder', () => {
       const precios = woo.line_items.map((l) => round2(l.price));
 
       expect(precios).toEqual([32.82, 0.91, 0.31, 0.24]);
+    });
+
+    // Discrimina la decisión deliberada de no redondear `price`: 4.55 / 5 no
+    // cae exacto en punto flotante. Si el código redondeara antes de emitir,
+    // este valor daría 0.91 y la mutación pasaría desapercibida.
+    it('emite price sin redondear, con el residuo de punto flotante intacto', () => {
+      const woo = toWooOrder(referencia(), TZ);
+
+      expect(woo.line_items[1].price).toBe(0.9099999999999999);
     });
 
     it('cierra contra el total de la orden', () => {
