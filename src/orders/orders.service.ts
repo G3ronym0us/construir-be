@@ -723,10 +723,18 @@ export class OrdersService {
     ) {
       const hashedPassword = await bcrypt.hash(createOrderDto.password, 10);
 
+      // La cuenta nace con TODO lo que el cliente ya escribió en el checkout.
+      // Antes sólo se copiaban nombre, apellido y correo, así que el usuario
+      // quedaba sin cédula ni teléfono aunque los acabara de dar: el ERP se
+      // quedaba sin la cédula en toda orden con alta de cuenta, y el cliente
+      // tenía que volver a escribirlos en su siguiente pedido.
       const newUser = this.userRepository.create({
         firstName: createOrderDto.customerInfo.firstName,
         lastName: createOrderDto.customerInfo.lastName,
         email: createOrderDto.customerInfo.email,
+        phone: createOrderDto.customerInfo.phone,
+        identificationType: createOrderDto.customerInfo.identificationType,
+        identificationNumber: createOrderDto.customerInfo.identificationNumber,
         password: hashedPassword,
         role: UserRole.USER,
       });

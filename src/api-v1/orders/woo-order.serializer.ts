@@ -209,17 +209,29 @@ export function toWooOrder(order: Order, timeZone: string): WooOrder {
     firstName = order.user.firstName;
     lastName = order.user.lastName;
     email = order.user.email;
-    identificationType = order.user.identificationType ?? null;
-    identificationNumber = order.user.identificationNumber ?? null;
   } else if (order.guestCustomer) {
     firstName = order.guestCustomer.firstName;
     lastName = order.guestCustomer.lastName;
     email = order.guestCustomer.email;
-    identificationType = order.guestCustomer.identificationType ?? null;
-    identificationNumber = order.guestCustomer.identificationNumber ?? null;
   } else if (order.guestEmail) {
     email = order.guestEmail;
   }
+
+  // La identificación cae en cascada, no por rama.
+  //
+  // Cuando el invitado marca "crear cuenta" en el checkout, el pedido queda
+  // con usuario Y con ficha de invitado, pero el usuario nace sin cédula: sólo
+  // está en la ficha. Resolverla por rama —usuario primero, invitado si no hay
+  // usuario— dejaba al ERP sin cédula en toda orden con alta de cuenta, aunque
+  // el cliente la hubiera escrito.
+  identificationType =
+    order.user?.identificationType ??
+    order.guestCustomer?.identificationType ??
+    null;
+  identificationNumber =
+    order.user?.identificationNumber ??
+    order.guestCustomer?.identificationNumber ??
+    null;
 
   const addr = order.shippingAddress;
 

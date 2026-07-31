@@ -513,3 +513,56 @@ El último caso importa: confirma que el orden de declaración de las rutas se
 respetó y que `GET /api/v1/orders/on-hold` —el endpoint que el ERP consulta
 cada 10 minutos— sigue resolviendo por su ruta propia en vez de ser capturado
 como identificador.
+
+---
+
+### H-009 — Al crear cuenta en el checkout, la cédula deja de llegarle al ERP
+
+**Severidad:** alta. El ERP factura sin la identificación del cliente.
+**Ubicación:** `src/api-v1/orders/woo-order.serializer.ts` y
+`src/orders/orders.service.ts` (alta de cuenta en `createOrder`).
+
+#### Reproducción
+
+Comprar como invitado marcando «Crear cuenta para seguir mis pedidos».
+Verificado sobre la orden 36: `billing.address_2` e `identification` llegaban
+**vacíos** al ERP, con la cédula `V-2345678` guardada en `guest_customers`.
+
+#### Causa raíz
+
+Son dos huecos que se encadenan.
+
+`createOrder` daba de alta la cuenta copiando sólo nombre, apellido y correo:
+el usuario nacía **sin cédula ni teléfono**, aunque el cliente los acabara de
+escribir en el checkout.
+
+Y el serializador resolvía la identificación **por rama**, no en cascada:
+
+```ts
+if (order.user) { identificationType = order.user.identificationType ?? null; }
+else if (order.guestCustomer) { /* nunca se llega acá si hay usuario */ }
+```
+
+Una orden con alta de cuenta queda con usuario **y** con ficha de invitado. Con
+el usuario presente, la ficha no se consultaba nunca — así que el dato existía
+pero no viajaba.
+
+Es la misma forma que **H-004** (el teléfono), que sí se había corregido a
+cascada. La identificación quedó como estaba.
+
+#### Arreglo aplicado
+
+- **`woo-order.serializer.ts`:** la identificación cae en cascada —usuario,
+  luego ficha de invitado— igual que el teléfono. El nombre y el correo siguen
+  saliendo del usuario cuando existe: ahí manda la cuenta.
+- **`orders.service.ts`:** la cuenta nueva nace con teléfono, tipo y número de
+  identificación, no sólo con nombre y correo. Así el cliente tampoco tiene que
+  volver a escribirlos en su siguiente pedido.
+
+#### Verificación
+
+Dos casos nuevos en `woo-order.serializer.spec.ts`: que la cédula salga de la
+ficha cuando el usuario no la tiene, y que la del usuario gane cuando ambas
+existen. Suite completa en verde.
+
+En vivo, sobre la orden 36: `address_2` pasó de `""` a `"V-2345678"`.
