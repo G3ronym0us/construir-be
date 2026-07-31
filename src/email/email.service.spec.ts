@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { EmailService } from './email.service';
+import { EmailPayloadBuilder } from './payload.builder';
 import { Order, DeliveryMethod, OrderStatus } from '../orders/order.entity';
 import { PaymentMethod } from '../orders/payment-info.entity';
 import { OrderPricingService } from '../orders/order-pricing.service';
@@ -55,6 +56,7 @@ describe('EmailService.sendOrderConfirmation', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EmailService,
+        EmailPayloadBuilder,
         OrderPricingService,
         { provide: DiscountsService, useValue: discountsService },
         { provide: ExchangeRatesService, useValue: exchangeRatesService },
@@ -153,18 +155,22 @@ describe('EmailService.sendOrderConfirmation', () => {
     expect(sendMailMock).toHaveBeenCalledTimes(1);
     const html: string = sendMailMock.mock.calls[0][0].html;
 
-    // El renglón: cantidad × precio unitario, que es lo que el cliente puede
-    // verificar a mano.
-    expect(html).toContain('Cantidad: 3 × $11.60');
-    expect(html).toContain('$34.80');
+    // La plantilla rediseñada separa etiqueta y monto en celdas distintas (ya
+    // no arma un string "Etiqueta: $monto"), y el bolívar es el protagonista
+    // de cada renglón de totales -- el dólar sólo queda como referencia del
+    // renglón (bruto por ítem) y del total final. Este fixture no simula una
+    // tasa (`findCurrent` rechaza a propósito, ver arriba), así que los
+    // montos en bolívares de estas filas quedan vacíos; lo que se puede
+    // verificar en dólares es el bruto por renglón y la referencia del total.
+    expect(html).toContain('$34.80'); // bruto del renglón: 3 × $11.60
 
-    // El bloque de totales completo, con las dos sumas que tienen que cerrar:
-    // 34.80 − 3.48 = 31.32 (arriba) y 27.00 + 4.32 = 31.32 (fiscal).
-    expect(html).toContain('Subtotal (con IVA): $34.80');
-    expect(html).toContain('Descuento (PROMO10): -$3.48');
-    expect(html).toContain('Base imponible: $27.00');
-    expect(html).toContain('IVA (16%): $4.32');
-    expect(html).toContain('Total: $31.32');
+    expect(html).toContain('Subtotal (con IVA)');
+    expect(html).toContain('Descuento PROMO10');
+    expect(html).toContain('Base imponible');
+    expect(html).toContain('IVA (16%)');
+    expect(html).toContain('Total a pagar');
+    // El total final, con el dólar como referencia: 34.80 − 3.48 = 31.32.
+    expect(html).toContain('ref. $31.32');
 
     // El error original: el total mostrado como si fuera base − descuento +
     // IVA (27.00 − 3.48 + 4.32 = 27.84) no debe aparecer en ningún lado.
@@ -188,8 +194,10 @@ describe('EmailService.sendOrderConfirmation', () => {
     // aparecer la fila de "Subtotal (con IVA)" ni la de "Descuento".
     expect(html).not.toContain('Subtotal (con IVA)');
     expect(html).not.toContain('Descuento');
-    expect(html).toContain('Base imponible: $30.00');
-    expect(html).toContain('IVA (16%): $4.80');
-    expect(html).toContain('Total: $34.80');
+    expect(html).toContain('Base imponible');
+    expect(html).toContain('IVA (16%)');
+    expect(html).toContain('Total a pagar');
+    // El total final, con el dólar como referencia (sin cupón, base + IVA).
+    expect(html).toContain('ref. $34.80');
   });
 });

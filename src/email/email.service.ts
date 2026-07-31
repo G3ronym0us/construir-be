@@ -4,10 +4,12 @@ import * as nodemailer from 'nodemailer';
 import * as handlebars from 'handlebars';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Order } from '../orders/order.entity';
+import { Order, DeliveryMethod } from '../orders/order.entity';
 import { PaymentMethod } from '../orders/payment-info.entity';
 import { round2 } from '../products/iva.util';
 import { IVA_RATES } from '../products/enums/iva-type.enum';
+import { EmailPayloadBuilder } from './payload.builder';
+import { formatVes } from './money.util';
 
 @Injectable()
 export class EmailService {
@@ -38,7 +40,10 @@ export class EmailService {
     return adminEmail;
   }
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private readonly payloads: EmailPayloadBuilder,
+  ) {
     const port = this.configService.get('email.port') || 587;
     const isSecure = port === 465; // 465 usa SSL, 587 usa TLS
 
@@ -141,11 +146,6 @@ export class EmailService {
   }
 
   async sendOrderConfirmation(order: Order): Promise<void> {
-    const templateSource = await this.loadTemplate('order-confirmation');
-    const template = handlebars.compile(templateSource);
-
-    const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
-
     const isPickup = order.deliveryMethod === 'pickup';
 
     // Monto bruto (con IVA) de todos los renglones, sumando cantidad ×
@@ -160,9 +160,22 @@ export class EmailService {
         0,
       ),
     );
+    // La misma suma, pero en bolívares -- es la que muestra la plantilla; el
+    // dólar quedó sólo como referencia en el total final.
+    const itemsGrossTotalVes = round2(
+      order.items.reduce(
+        (sum, item) => sum + item.quantity * Number(item.priceVes),
+        0,
+      ),
+    );
 
-    const html = template({
-      logoUrl: this.getLogoUrl(),
+    const subject = `Recibimos tu pedido ${order.orderNumber}`;
+
+    const html = await this.render('order-confirmation', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: `Estamos verificando tu pago · Bs. ${formatVes(order.totalVes) ?? ''}`,
+      trackingUrl: this.payloads.trackingUrl(order.orderNumber),
       customerName:
         order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
@@ -176,6 +189,7 @@ export class EmailService {
         productName: item.productName,
         quantity: item.quantity,
         price: Number(item.price).toFixed(2),
+        priceVes: formatVes(item.priceVes),
         // Monto BRUTO del renglón (cantidad × precio unitario), no
         // `item.subtotal`: desde que el checkout desglosa el descuento por
         // línea, `item.subtotal` viene NETO de la porción de descuento que
@@ -186,18 +200,22 @@ export class EmailService {
         // renglón vuelve a sumar a mano: "3 × $3.00 = $9.00", con los $4.27
         // en su propia fila.
         lineAmount: round2(item.quantity * Number(item.price)).toFixed(2),
+        lineAmountVes: formatVes(item.subtotalVes),
       })),
       // "Subtotal (con IVA)" sólo tiene sentido cuando hay descuento: es el
       // punto de partida desde el que se resta el cupón. Sin descuento sería
       // un segundo subtotal idéntico al de siempre, así que el template lo
       // omite (ver condicional `discountAmount` más abajo).
       itemsGrossTotal: itemsGrossTotal.toFixed(2),
+      itemsGrossTotalVes: formatVes(itemsGrossTotalVes),
       // `order.subtotal` es la BASE imponible, ya neta del descuento (nunca
       // el "subtotal bruto" que sugiere el nombre del campo). Se relabelea acá
       // como "Base imponible" en el template para que no compita con
       // "Subtotal (con IVA)".
       subtotal: Number(order.subtotal).toFixed(2),
+      subtotalVes: formatVes(order.subtotalVes),
       tax: order.tax > 0 ? Number(order.tax).toFixed(2) : null,
+      taxVes: formatVes(order.taxVes),
       // El rótulo del IVA sólo lleva porcentaje cuando se puede afirmar una
       // única alícuota para todo el pedido: si algún ítem tiene alícuotas
       // mezcladas (o su producto fue borrado y no se puede consultar), un
@@ -212,25 +230,21 @@ export class EmailService {
         Number(order.discountAmount) > 0
           ? Number(order.discountAmount).toFixed(2)
           : null,
+      discountAmountVes: formatVes(order.discountAmountVes),
       discountCode: order.discountCode || null,
       total: Number(order.total).toFixed(2),
+      totalVes: formatVes(order.totalVes),
+      exchangeRate: order.exchangeRate ? formatVes(order.exchangeRate) : null,
+      exchangeRateDate: order.exchangeRateDate,
       isPickup,
       shippingAddress: isPickup ? null : order.shippingAddress,
-      store: isPickup
-        ? {
-            name: this.configService.get('app.storeName'),
-            address: this.configService.get('app.storeAddress'),
-            city: this.configService.get('app.storeCity'),
-            phone: this.configService.get('app.storePhone'),
-            hours: this.configService.get('app.storeHours'),
-            mapUrl: this.configService.get('app.storeMapUrl'),
-          }
-        : null,
       paymentMethod: this.translatePaymentMethod(order.paymentInfo.method),
+      paymentReference: order.paymentInfo?.referenceCode ?? null,
+      verificationSla: '24 horas hábiles',
       isZelle: order.paymentInfo.method === PaymentMethod.ZELLE,
       notes: order.notes,
-      trackingUrl: `${appUrl}/orders/track/${order.orderNumber}`,
     });
+    if (!html) return;
 
     const recipientEmail = order.user?.email || order.guestEmail;
     if (!recipientEmail) {
@@ -238,28 +252,43 @@ export class EmailService {
       return;
     }
 
-    await this.sendEmail(
-      recipientEmail,
-      `Confirmación de Orden #${order.orderNumber}`,
-      html,
-    );
+    await this.sendEmail(recipientEmail, subject, html);
   }
 
   async sendPaymentConfirmed(order: Order): Promise<void> {
-    const templateSource = await this.loadTemplate('payment-confirmed');
-    const template = handlebars.compile(templateSource);
+    const subject = `Confirmamos tu pago del pedido ${order.orderNumber}`;
 
-    const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
-
-    const html = template({
-      logoUrl: this.getLogoUrl(),
+    const html = await this.render('payment-confirmed', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Tu pedido pasa a preparación',
+      trackingUrl: this.payloads.trackingUrl(order.orderNumber),
       customerName:
         order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
       orderStatus: this.translateStatus(order.status),
+      isPickup: order.deliveryMethod === DeliveryMethod.PICKUP,
       total: Number(order.total).toFixed(2),
-      trackingUrl: `${appUrl}/orders/track/${order.orderNumber}`,
+      totalVes: formatVes(order.totalVes),
+      exchangeRate: formatVes(order.exchangeRate),
+      paymentMethod: this.translatePaymentMethod(order.paymentInfo?.method),
+      paymentReference: order.paymentInfo?.referenceCode ?? null,
+      // No existe un campo `verifiedAt` dedicado: el pago se marca VERIFIED y
+      // se guarda en el mismo paso que dispara este correo (ver
+      // `orders.service.ts`), así que `updatedAt` del pago es, en la práctica,
+      // el momento de la verificación.
+      verifiedAt: order.paymentInfo?.updatedAt
+        ? new Date(order.paymentInfo.updatedAt).toLocaleDateString('es-VE', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })
+        : null,
+      // No se calcula ninguna fecha estimada de entrega en el sistema; la
+      // plantilla oculta el bloque cuando llega null.
+      estimatedDelivery: null,
     });
+    if (!html) return;
 
     const recipientEmail = order.user?.email || order.guestEmail;
     if (!recipientEmail) {
@@ -267,28 +296,23 @@ export class EmailService {
       return;
     }
 
-    await this.sendEmail(
-      recipientEmail,
-      `Pago Confirmado - Orden #${order.orderNumber}`,
-      html,
-    );
+    await this.sendEmail(recipientEmail, subject, html);
   }
 
-  async sendOrderShipped(order: Order, trackingNumber?: string): Promise<void> {
-    const templateSource = await this.loadTemplate('order-shipped');
-    const template = handlebars.compile(templateSource);
+  async sendOrderShipped(order: Order): Promise<void> {
+    const subject = `Tu pedido ${order.orderNumber} va en camino`;
 
-    const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
-
-    const html = template({
-      logoUrl: this.getLogoUrl(),
+    const html = await this.render('order-shipped', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Coordinamos la entrega contigo por WhatsApp',
+      trackingUrl: this.payloads.trackingUrl(order.orderNumber),
       customerName:
         order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
       orderNumber: order.orderNumber,
-      trackingNumber,
       shippingAddress: order.shippingAddress,
-      trackingUrl: `${appUrl}/orders/track/${order.orderNumber}`,
     });
+    if (!html) return;
 
     const recipientEmail = order.user?.email || order.guestEmail;
     if (!recipientEmail) {
@@ -296,27 +320,24 @@ export class EmailService {
       return;
     }
 
-    await this.sendEmail(
-      recipientEmail,
-      `Tu Orden ha Sido Enviada - #${order.orderNumber}`,
-      html,
-    );
+    await this.sendEmail(recipientEmail, subject, html);
   }
 
   async sendAdminNewOrder(order: Order): Promise<void> {
     const adminEmail = this.resolveAdminEmail('pedido nuevo');
     if (!adminEmail) return;
 
-    const templateSource = await this.loadTemplate('admin-new-order');
-    const template = handlebars.compile(templateSource);
-
     const frontendUrl =
       this.configService.get('app.frontendUrl') || 'http://localhost:3001';
     const customerName = order.shippingAddress
       ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
       : order.user?.email || order.guestEmail || 'Cliente invitado';
+    const itemCount = order.items?.length || 0;
 
-    const html = template({
+    const html = await this.render('admin-new-order', {
+      ...this.payloads.buildCommon(),
+      subject: `Pedido nuevo ${order.orderNumber}`,
+      preheader: `${itemCount} artículos · Bs. ${formatVes(order.totalVes) ?? ''}`,
       orderNumber: order.orderNumber,
       orderDate: new Date(order.createdAt).toLocaleDateString('es-ES', {
         year: 'numeric',
@@ -328,19 +349,18 @@ export class EmailService {
       customerName,
       customerEmail: order.user?.email || order.guestEmail || '—',
       total: Number(order.total).toFixed(2),
+      totalVes: formatVes(order.totalVes),
+      exchangeRate: formatVes(order.exchangeRate),
       paymentMethod: this.translatePaymentMethod(order.paymentInfo?.method),
       isZelle: order.paymentInfo?.method === PaymentMethod.ZELLE,
       deliveryMethod:
         order.deliveryMethod === 'pickup' ? 'Retiro en tienda' : 'Delivery',
-      itemCount: order.items?.length || 0,
+      itemCount,
       adminUrl: `${frontendUrl}/admin/dashboard/ordenes/${order.uuid}`,
     });
+    if (!html) return;
 
-    await this.sendEmail(
-      adminEmail,
-      `🛒 Nueva orden #${order.orderNumber}`,
-      html,
-    );
+    await this.sendEmail(adminEmail, `Pedido nuevo ${order.orderNumber}`, html);
   }
 
   async sendEmailVerification(params: {
