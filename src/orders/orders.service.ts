@@ -1469,7 +1469,16 @@ export class OrdersService {
     }
 
     if (order.status !== OrderStatus.ON_HOLD) {
-      if (order.purchaseOrderKey === orderKey) {
+      // El atajo idempotente sólo aplica mientras la orden sigue viva en el
+      // flujo (pending: ya se acusó; completed: ya se facturó). Una orden
+      // `cancelled` con la misma O/C no es un reintento exitoso — es el
+      // acuse tardío de algo que ya se anuló — y debe seguir fallando con
+      // 400 para que el ERP no la dé por sincronizada.
+      const stillAlive =
+        order.status === OrderStatus.PENDING ||
+        order.status === OrderStatus.COMPLETED;
+
+      if (stillAlive && order.purchaseOrderKey === orderKey) {
         return order;
       }
 

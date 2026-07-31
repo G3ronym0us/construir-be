@@ -176,5 +176,23 @@ describe('OrdersService.acknowledgeOrder', () => {
       ).rejects.toThrow(BadRequestException);
       expect(orderRepo.save).not.toHaveBeenCalled();
     });
+
+    // La orden se acusó, después se anuló, y el ERP reintenta el acuse con la
+    // misma O/C. No es un reintento exitoso: es un acuse tardío de algo que
+    // ya no existe en el flujo, y debe seguir dando 400 en vez de un 200 que
+    // el ERP lea como "sincronizada, seguí a facturar".
+    it('rechaza el reintento del acuse cuando la orden ya fue anulada', async () => {
+      const order = makeOrder({
+        status: OrderStatus.CANCELLED,
+        orderKey: 'OC-ORBIS-88213',
+        purchaseOrderKey: 'OC-ORBIS-88213',
+      });
+      orderRepo.findOne.mockResolvedValue(order);
+
+      await expect(
+        service.acknowledgeOrder(100, 'OC-ORBIS-88213'),
+      ).rejects.toThrow(BadRequestException);
+      expect(orderRepo.save).not.toHaveBeenCalled();
+    });
   });
 });
