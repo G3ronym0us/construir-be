@@ -677,6 +677,10 @@ export class OrdersService {
         // de la porción de descuento que le tocó a la línea.
         price: line.unitPrice,
         subtotal: line.total,
+        // El desglose que ya calculó `price()`, congelado acá para que el
+        // contrato del ERP no dependa del `ivaType` vivo del producto.
+        base: line.base,
+        iva: line.iva,
         priceVes:
           pricing.exchangeRate !== null
             ? round2(line.unitPrice * pricing.exchangeRate)
