@@ -138,9 +138,9 @@ export class OrdersV1Controller {
   @Get(':id')
   @RequireApiKeyPermission(ApiKeyPermission.READ)
   @ApiOperation({
-    summary: 'Obtener orden por UUID',
+    summary: 'Obtener orden por ID o UUID',
     description:
-      'Retorna una orden con todos sus detalles incluyendo items, información de pago, dirección de envío y cliente',
+      'Retorna una orden con todos sus detalles incluyendo items, información de pago, dirección de envío y cliente. Acepta el id numérico de la orden o su UUID.',
   })
   @ApiParam({
     name: 'id',

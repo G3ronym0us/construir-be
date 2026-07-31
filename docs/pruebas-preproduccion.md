@@ -474,16 +474,42 @@ en `docs/pricing-iva.md` (sección Pendientes).
 
 ---
 
-### H-008 — `GET /api/v1/orders/:uuid` respondía 500 con un id numérico
+### H-008 — `GET /api/v1/orders/:id` respondía 500 con un id numérico
 
 **Severidad:** media. Bloqueaba una consulta natural del ERP.
-**Detectado en:** `api_request_logs`, 2026-04-09 y 2026-04-10.
+**Ubicación:** `src/orders/orders.service.ts:883` (`OrdersService.findOneForErp`)
+y `src/api-v1/orders/orders-v1.controller.ts:138` (`OrdersV1Controller.findOne`)
 
-El integrador consultó `GET /api/v1/orders/13` dos veces y recibió 500 las dos.
-Es razonable que lo intentara: todo el resto del contrato direcciona las órdenes
-por su id numérico, y el `number` que emitimos es ese id. Esa ruta era la única
-que exigía uuid, y Postgres falla al castear `'13'`.
+Detectado en `api_request_logs`: el integrador consultó `GET /api/v1/orders/13`
+dos veces —2026-04-09 y 2026-04-10— y recibió 500 las dos. Es razonable que lo
+intentara: todo el resto del contrato direcciona las órdenes por su id
+numérico, y el `number` que emitimos es ese id. Esa ruta era la única que
+exigía uuid, y Postgres falla al castear `'13'`.
 
-**Arreglo:** `OrdersService.findOneForErp` resuelve por id o por uuid, y valida
-la forma antes de consultar — un valor que no sea ninguno de los dos responde
-404 sin llegar a la base. Sin esa guarda, `abc` habría seguido dando 500.
+**Arreglo aplicado**
+
+`OrdersService.findOneForErp` resuelve por id o por uuid, y valida la forma
+antes de consultar — un valor que no sea ninguno de los dos responde 404 sin
+llegar a la base. Sin esa guarda, `abc` habría seguido dando 500.
+
+**Verificación**
+
+- `src/orders/orders.service.findOneForErp.spec.ts` — 4 casos: busca por id
+  cuando el identificador es numérico, busca por uuid cuando es un uuid,
+  responde 404 cuando no existe, y responde 404 **sin consultar la base**
+  cuando no es ni id ni uuid (con aserción sobre el repositorio, no sólo sobre
+  la excepción).
+- En vivo, contra la orden 13:
+
+```
+13                                       -> 200
+5f2fdf51-1b4f-4e2a-a69a-17d76b6009ab     -> 200   (uuid de la misma orden)
+abc                                      -> 404
+999999                                   -> 404
+on-hold                                  -> 200   (la ruta paramétrica no la captura)
+```
+
+El último caso importa: confirma que el orden de declaración de las rutas se
+respetó y que `GET /api/v1/orders/on-hold` —el endpoint que el ERP consulta
+cada 10 minutos— sigue resolviendo por su ruta propia en vez de ser capturado
+como identificador.
