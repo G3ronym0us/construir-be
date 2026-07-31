@@ -703,10 +703,20 @@ producto, anotadas para que no se pierdan:
   comprobante y no la de verificación. Hoy va en `null` y la fila se oculta.
   Para llenarla haría falta una columna `verified_at` escrita en la transición
   a verificado.
-- **Se tocaron las plantillas del handoff en cuatro sitios**, con
-  autorización, para condicionar campos opcionales que salían como rótulos
-  huérfanos (`Bs. ` y `BCV ` vacíos, y una fila «Verificado» sin valor).
-  Fueron `payment-rejected.hbs` (el monto reportado), `order-confirmation.hbs`,
-  `payment-confirmed.hbs` y `admin-new-order.hbs`. Hay que avisarle a quien
-  diseñó para que lo incorpore al handoff, porque si mandan una versión nueva
-  de esas plantillas el arreglo se pierde.
+- **Se tocaron siete plantillas del handoff**, con autorización, por dos
+  motivos distintos:
+  - **Cuatro** para condicionar campos opcionales que salían como rótulos
+    huérfanos (`Bs. ` y `BCV ` vacíos, y una fila «Verificado» sin valor):
+    `payment-rejected.hbs` (el monto reportado), `order-confirmation.hbs`,
+    `payment-confirmed.hbs` y `admin-new-order.hbs`.
+  - **Tres** para resolver el escapado de URLs con token (Handlebars escapa el
+    `=` del query string a `&#x3D;`, lo que rompe el enlace para clientes de
+    correo que no decodifican entidades). Se usó triple llave (`{{{...}}}`) en
+    lugar de doble (`{{...}}`): `email-verification.hbs` (variable
+    `verificationUrl`), `invitation.hbs` (`inviteUrl`) y `password-reset.hbs`
+    (`resetUrl`).
+
+  En ambos casos hay que avisarle a quien diseñó para que lo incorpore al
+  handoff, porque si mandan versiones nuevas de esas plantillas los arreglos
+  se pierden: los campos condicionales volverían a mostrar rótulos vacíos, y
+  los enlaces de token quedarían rotos.
