@@ -1019,9 +1019,8 @@ export class OrdersService {
 
     order.status = OrderStatus.CANCELLED;
     const cancelledOrder = await this.orderRepository.save(order);
-    const fullOrder = await this.findOneByUuid(cancelledOrder.uuid);
-    await this.emailService.sendOrderCanceled(fullOrder);
-    await this.emailService.sendAdminOrderCancelled(fullOrder);
+    // Las cancelaciones no se notifican por correo: las atiende un vendedor por
+    // WhatsApp, que es lo que el cliente necesita cuando su pedido se cae.
     return cancelledOrder;
   }
 
@@ -1644,9 +1643,8 @@ export class OrdersService {
     order.dateCompleted = dateCompleted;
 
     const cancelledOrder = await this.orderRepository.save(order);
-    const fullOrder = await this.findOneByUuid(cancelledOrder.uuid);
-    await this.emailService.sendOrderCanceled(fullOrder);
-    await this.emailService.sendAdminOrderCancelled(fullOrder);
+    // Las cancelaciones no se notifican por correo: las atiende un vendedor por
+    // WhatsApp, que es lo que el cliente necesita cuando su pedido se cae.
     return cancelledOrder;
   }
 

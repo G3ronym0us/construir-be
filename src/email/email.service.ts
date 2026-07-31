@@ -252,59 +252,6 @@ export class EmailService {
     );
   }
 
-  async sendOrderDelivered(order: Order): Promise<void> {
-    const templateSource = await this.loadTemplate('order-delivered');
-    const template = handlebars.compile(templateSource);
-
-    const html = template({
-      logoUrl: this.getLogoUrl(),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
-      orderNumber: order.orderNumber,
-      deliveryDate: new Date().toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      }),
-    });
-
-    const recipientEmail = order.user?.email || order.guestEmail;
-    if (!recipientEmail) {
-      console.error('No recipient email found for order:', order.orderNumber);
-      return;
-    }
-
-    await this.sendEmail(
-      recipientEmail,
-      `Orden Entregada - #${order.orderNumber}`,
-      html,
-    );
-  }
-
-  async sendOrderCanceled(order: Order): Promise<void> {
-    const templateSource = await this.loadTemplate('order-canceled');
-    const template = handlebars.compile(templateSource);
-
-    const html = template({
-      logoUrl: this.getLogoUrl(),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
-      orderNumber: order.orderNumber,
-    });
-
-    const recipientEmail = order.user?.email || order.guestEmail;
-    if (!recipientEmail) {
-      console.error('No recipient email found for order:', order.orderNumber);
-      return;
-    }
-
-    await this.sendEmail(
-      recipientEmail,
-      `Orden Cancelada #${order.orderNumber}`,
-      html,
-    );
-  }
-
   async sendAdminNewOrder(order: Order): Promise<void> {
     const adminEmail = this.resolveAdminEmail('pedido nuevo');
     if (!adminEmail) return;
@@ -341,34 +288,6 @@ export class EmailService {
     await this.sendEmail(
       adminEmail,
       `🛒 Nueva orden #${order.orderNumber}`,
-      html,
-    );
-  }
-
-  async sendAdminOrderCancelled(order: Order): Promise<void> {
-    const adminEmail = this.resolveAdminEmail('pedido anulado');
-    if (!adminEmail) return;
-
-    const templateSource = await this.loadTemplate('admin-order-cancelled');
-    const template = handlebars.compile(templateSource);
-
-    const frontendUrl =
-      this.configService.get('app.frontendUrl') || 'http://localhost:3001';
-    const customerName = order.shippingAddress
-      ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
-      : order.user?.email || order.guestEmail || 'Cliente invitado';
-
-    const html = template({
-      orderNumber: order.orderNumber,
-      customerName,
-      customerEmail: order.user?.email || order.guestEmail || '—',
-      total: Number(order.total).toFixed(2),
-      adminUrl: `${frontendUrl}/admin/dashboard/ordenes/${order.uuid}`,
-    });
-
-    await this.sendEmail(
-      adminEmail,
-      `❌ Orden cancelada #${order.orderNumber}`,
       html,
     );
   }
