@@ -178,8 +178,25 @@ export class Order {
   })
   discountAmountVes: number | null;
 
+  /**
+   * Última referencia que escribió el ERP: la O/C al acusar recibo, y luego el
+   * número de factura al facturar. Se conserva con esa semántica porque ya la
+   * consumen la API v1 y el panel; `purchaseOrderKey` es la que guarda la O/C
+   * sin que la factura la pise.
+   */
   @Column({ name: 'order_key', type: 'varchar', nullable: true })
   orderKey: string | null;
+
+  /**
+   * La orden de compra que registró el ERP al acusar recibo.
+   *
+   * Existe porque facturar sobreescribe `order_key` con el número de factura:
+   * sin esta columna, la referencia de la O/C se perdía y no había con qué
+   * reconciliar una factura contra su orden de compra. Se escribe una sola vez,
+   * al acusar recibo, y no la toca nadie más.
+   */
+  @Column({ name: 'purchase_order_key', type: 'varchar', nullable: true })
+  purchaseOrderKey: string | null;
 
   @Column({ name: 'date_completed', type: 'timestamptz', nullable: true })
   dateCompleted: Date | null;

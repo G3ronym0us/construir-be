@@ -10,7 +10,7 @@ import { Repository } from 'typeorm';
 import { Order, OrderStatus, DeliveryMethod } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
-import { PaymentInfo, PaymentStatus } from './payment-info.entity';
+import { PaymentInfo, PaymentMethod, PaymentStatus } from './payment-info.entity';
 import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User, UserRole } from '../users/user.entity';
@@ -24,6 +24,10 @@ import { GuestCustomersService } from './guest-customers.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { OrderPricingService } from './order-pricing.service';
 import { QuoteOrderDto } from './dto/quote-order.dto';
+import {
+  OrderTrackingDto,
+  toOrderTrackingDto,
+} from './dto/order-tracking.dto';
 import { round2 } from '../products/iva.util';
 import * as bcrypt from 'bcrypt';
 
@@ -75,6 +79,52 @@ export interface OrderQuote {
     totalVes: number | null;
   };
   canCheckout: boolean;
+}
+
+/**
+ * Fila del listado de órdenes del panel.
+ *
+ * La orden completa trae items, dirección y relaciones que la tabla no pinta;
+ * esto es lo que el listado sí muestra, ya resuelto en el backend para que el
+ * panel no tenga que reunir al comprador desde tres sitios distintos en cada
+ * fila.
+ */
+export interface AdminOrderRow {
+  uuid: string;
+  orderNumber: string;
+  status: OrderStatus;
+  createdAt: Date;
+  deliveryMethod: DeliveryMethod;
+  totalItems: number;
+  total: number;
+  totalVes: number | null;
+  exchangeRate: number | null;
+  paymentStatus: PaymentStatus | null;
+  paymentMethod: PaymentMethod | null;
+  paymentReference: string | null;
+  hasReceipt: boolean;
+  customerName: string | null;
+  customerIdentification: string | null;
+  customerEmail: string | null;
+  isGuest: boolean;
+}
+
+/** Cabecera del listado de órdenes: KPIs y conteos de los chips por estado. */
+export interface AdminOrderStats {
+  totalOrders: number;
+  todayOrders: number;
+  monthOrders: number;
+  ordersByStatus: Record<OrderStatus, number>;
+  /** Órdenes con el pago aún sin verificar: el trabajo pendiente del panel. */
+  paymentReviewCount: number;
+  oldestPaymentReviewAt: string | null;
+  verifiedOrders: number;
+  verifiedRevenue: number;
+  verifiedRevenueVes: number | null;
+  averageTicket: number;
+  averageTicketVes: number | null;
+  /** Tasa BCV vigente hoy, no la fijada en ninguna orden. */
+  exchangeRate: number | null;
 }
 
 @Injectable()
@@ -830,6 +880,18 @@ export class OrdersService {
   }
 
   /**
+   * Seguimiento público de un pedido a partir de su número.
+   *
+   * Devuelve un DTO, nunca la entidad: quien tenga el número de orden no está
+   * autenticado como nadie, así que sólo puede ver el avance del pedido. Ver
+   * `OrderTrackingDto` para qué queda afuera y por qué.
+   */
+  async trackByOrderNumber(orderNumber: string): Promise<OrderTrackingDto> {
+    const order = await this.findByOrderNumber(orderNumber);
+    return toOrderTrackingDto(order);
+  }
+
+  /**
    * Cancela una orden
    */
   async cancelOrder(uuid: string, userId?: number): Promise<Order> {
@@ -859,58 +921,115 @@ export class OrdersService {
   /**
    * Obtiene estadísticas del dashboard de admin
    */
-  async getAdminStats(): Promise<any> {
-    const [totalOrders, onHoldOrders, pendingOrders, completedOrders] =
-      await Promise.all([
-        this.orderRepository.count(),
-        this.orderRepository.count({ where: { status: OrderStatus.ON_HOLD } }),
-        this.orderRepository.count({ where: { status: OrderStatus.PENDING } }),
-        this.orderRepository.count({
-          where: { status: OrderStatus.COMPLETED },
-        }),
-      ]);
+  async getAdminStats(): Promise<AdminOrderStats> {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfMonth = new Date(
+      startOfToday.getFullYear(),
+      startOfToday.getMonth(),
+      1,
+    );
 
-    // Calcular ingresos totales
-    const orders = await this.orderRepository.find({
-      where: { status: OrderStatus.COMPLETED },
-    });
+    // Un solo group by en vez de un count por estado: los chips del listado
+    // necesitan los cuatro conteos y el total sale de sumarlos.
+    const statusRows = await this.orderRepository
+      .createQueryBuilder('order')
+      .select('order.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('order.status')
+      .getRawMany<{ status: OrderStatus; count: string }>();
 
-    const totalRevenue = orders.reduce(
-      (sum, order) => sum + Number(order.total),
+    const ordersByStatus = Object.values(OrderStatus).reduce(
+      (acc, status) => ({ ...acc, [status]: 0 }),
+      {} as Record<OrderStatus, number>,
+    );
+    for (const row of statusRows) {
+      ordersByStatus[row.status] = Number(row.count);
+    }
+
+    const totalOrders = Object.values(ordersByStatus).reduce(
+      (sum, count) => sum + count,
       0,
     );
 
-    // Órdenes de hoy
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Los ingresos son los de los pagos verificados, no los de las órdenes
+    // completadas: el panel cobra por adelantado y lo que interesa aquí es el
+    // dinero ya confirmado, así que las canceladas no cuentan como ingreso.
+    //
+    // El conteo de pagos por revisar, en cambio, NO las excluye: es el número
+    // que lleva el chip del listado y tiene que cuadrar con las filas que ese
+    // mismo chip muestra al pulsarlo (`?paymentStatus=pending`), que sí las
+    // trae. Un pago sin verificar de una orden cancelada también da trabajo.
+    const [todayOrders, monthOrders, pendingPayment, verifiedOrdersList, currentRate] =
+      await Promise.all([
+        this.orderRepository
+          .createQueryBuilder('order')
+          .where('order.createdAt >= :startOfToday', { startOfToday })
+          .getCount(),
+        this.orderRepository
+          .createQueryBuilder('order')
+          .where('order.createdAt >= :startOfMonth', { startOfMonth })
+          .getCount(),
+        this.ordersByPaymentStatus(PaymentStatus.PENDING),
+        this.ordersByPaymentStatus(PaymentStatus.VERIFIED, {
+          excludeCancelled: true,
+        }),
+        this.exchangeRatesService.findLatest(),
+      ]);
 
-    const todayOrders = await this.orderRepository.count({
-      where: {
-        createdAt: new Date(today),
-      },
-    });
-
-    // Órdenes del mes
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthOrders = await this.orderRepository
-      .createQueryBuilder('order')
-      .where('order.createdAt >= :startOfMonth', { startOfMonth })
-      .getCount();
+    const verifiedOrders = verifiedOrdersList.length;
+    const verifiedRevenue = round2(
+      verifiedOrdersList.reduce((sum, order) => sum + Number(order.total), 0),
+    );
+    // `totalVes` es nulo en las órdenes anteriores a la tasa fijada; si ninguna
+    // la tiene no hay monto en Bs. que mostrar y la tarjeta cae al USD.
+    const withVes = verifiedOrdersList.filter((order) => order.totalVes !== null);
+    const verifiedRevenueVes = withVes.length
+      ? round2(withVes.reduce((sum, order) => sum + Number(order.totalVes), 0))
+      : null;
 
     return {
       totalOrders,
-      onHoldOrders,
-      pendingOrders,
-      completedOrders,
-      totalRevenue: Number(totalRevenue.toFixed(2)),
       todayOrders,
       monthOrders,
-      ordersByStatus: {
-        onHold: onHoldOrders,
-        pending: pendingOrders,
-        completed: completedOrders,
-      },
+      ordersByStatus,
+      paymentReviewCount: pendingPayment.length,
+      oldestPaymentReviewAt: pendingPayment.length
+        ? new Date(
+            Math.min(
+              ...pendingPayment.map((order) => order.createdAt.getTime()),
+            ),
+          ).toISOString()
+        : null,
+      verifiedOrders,
+      verifiedRevenue,
+      verifiedRevenueVes,
+      averageTicket: verifiedOrders ? round2(verifiedRevenue / verifiedOrders) : 0,
+      averageTicketVes:
+        verifiedRevenueVes !== null
+          ? round2(verifiedRevenueVes / withVes.length)
+          : null,
+      exchangeRate: currentRate ? Number(currentRate.rate) : null,
     };
+  }
+
+  /** Órdenes con el pago en un estado dado, para los KPIs del listado. */
+  private ordersByPaymentStatus(
+    status: PaymentStatus,
+    { excludeCancelled = false } = {},
+  ): Promise<Order[]> {
+    const query = this.orderRepository
+      .createQueryBuilder('order')
+      .innerJoin('order.paymentInfo', 'paymentInfo')
+      .where('paymentInfo.status = :status', { status });
+
+    if (excludeCancelled) {
+      query.andWhere('order.status != :cancelled', {
+        cancelled: OrderStatus.CANCELLED,
+      });
+    }
+
+    return query.getMany();
   }
 
   /**
@@ -1126,18 +1245,25 @@ export class OrdersService {
     limit?: number;
     offset?: number;
   }): Promise<{ orders: Order[]; total: number }> {
-    const query = this.orderRepository.createQueryBuilder('order');
+    // Las relaciones se cargan siempre: el listado del panel pinta al cliente y
+    // el estado del pago en cada fila, y el CSV los exporta. Con QueryBuilder no
+    // valen las relaciones `eager` de la entidad, hay que unirlas a mano.
+    const query = this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('order.paymentInfo', 'paymentInfo')
+      .leftJoinAndSelect('order.guestCustomer', 'guestCustomer')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.shippingAddress', 'shippingAddress');
 
     if (filters.status) {
       query.andWhere('order.status = :status', { status: filters.status });
     }
 
     if (filters.paymentStatus) {
-      query
-        .leftJoinAndSelect('order.paymentInfo', 'paymentInfo')
-        .andWhere('paymentInfo.status = :paymentStatus', {
-          paymentStatus: filters.paymentStatus,
-        });
+      query.andWhere('paymentInfo.status = :paymentStatus', {
+        paymentStatus: filters.paymentStatus,
+      });
     }
 
     if (filters.startDate) {
@@ -1153,12 +1279,42 @@ export class OrdersService {
     }
 
     if (filters.search) {
-      query.andWhere(
-        '(order.orderNumber LIKE :search OR order.guestEmail LIKE :search)',
-        {
-          search: `%${filters.search}%`,
-        },
-      );
+      // El buscador del panel es uno solo para número de orden, nombre,
+      // cédula/RIF y referencia de pago.
+      const conditions = [
+        'order.orderNumber ILIKE :search',
+        'order.guestEmail ILIKE :search',
+        'guestCustomer.email ILIKE :search',
+        "CONCAT(guestCustomer.firstName, ' ', guestCustomer.lastName) ILIKE :search",
+        'user.email ILIKE :search',
+        "CONCAT(user.firstName, ' ', user.lastName) ILIKE :search",
+        "CONCAT(shippingAddress.firstName, ' ', shippingAddress.lastName) ILIKE :search",
+        'paymentInfo.referenceCode ILIKE :search',
+        'paymentInfo.referenceNumber ILIKE :search',
+      ];
+      const params: Record<string, string> = { search: `%${filters.search}%` };
+
+      // La cédula la teclea el admin como la lee ("V-18.402.117") pero en la
+      // base está cruda y sin normalizar, así que se comparan solo los dígitos
+      // de ambos lados. Con menos de cuatro no se busca por identificación: no
+      // distinguiría a nadie y ensuciaría el resto de coincidencias.
+      const digits = filters.search.replace(/\D/g, '');
+      if (digits.length >= 4) {
+        const identificationColumns = [
+          'guestCustomer.identificationNumber',
+          'user.identificationNumber',
+          'shippingAddress.identificationNumber',
+        ];
+        conditions.push(
+          ...identificationColumns.map(
+            (column) =>
+              `REPLACE(REPLACE(${column}, '.', ''), '-', '') ILIKE :identification`,
+          ),
+        );
+        params.identification = `%${digits}%`;
+      }
+
+      query.andWhere(`(${conditions.join(' OR ')})`, params);
     }
 
     const total = await query.getCount();
@@ -1179,7 +1335,93 @@ export class OrdersService {
   }
 
   /**
+   * Listado de órdenes del panel: las mismas órdenes filtradas, resumidas a lo
+   * que la tabla pinta.
+   */
+  async getAdminOrders(filters: {
+    status?: OrderStatus;
+    paymentStatus?: PaymentStatus;
+    startDate?: Date;
+    endDate?: Date;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ orders: AdminOrderRow[]; total: number }> {
+    const { orders, total } = await this.filterOrders(filters);
+
+    return { orders: orders.map((order) => this.toAdminOrderRow(order)), total };
+  }
+
+  /**
+   * Resume una orden para el listado del panel.
+   *
+   * Al comprador se le busca en las tres fuentes que puede tener una orden —
+   * invitado, usuario registrado y dirección de envío, la única con datos en las
+   * órdenes anteriores a `guest_customers` — y se completa hueco por hueco.
+   */
+  private toAdminOrderRow(order: Order): AdminOrderRow {
+    const guest = order.guestCustomer;
+    const user = order.user;
+    const address = order.shippingAddress;
+
+    const fullName = (first?: string | null, last?: string | null) =>
+      `${first ?? ''} ${last ?? ''}`.trim() || null;
+
+    const identification = (
+      type?: string | null,
+      number?: string | null,
+    ): string | null => (number ? `${type ?? ''}-${number}`.replace(/^-/, '') : null);
+
+    return {
+      uuid: order.uuid,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      createdAt: order.createdAt,
+      deliveryMethod: order.deliveryMethod,
+      totalItems: order.totalItems,
+      total: Number(order.total),
+      totalVes: order.totalVes === null ? null : Number(order.totalVes),
+      exchangeRate:
+        order.exchangeRate === null ? null : Number(order.exchangeRate),
+      paymentStatus: order.paymentInfo?.status ?? null,
+      paymentMethod: order.paymentInfo?.method ?? null,
+      paymentReference:
+        order.paymentInfo?.referenceCode ??
+        order.paymentInfo?.referenceNumber ??
+        null,
+      hasReceipt: Boolean(order.paymentInfo?.receiptUrl),
+      customerName:
+        fullName(guest?.firstName, guest?.lastName) ??
+        fullName(user?.firstName, user?.lastName) ??
+        fullName(address?.firstName, address?.lastName),
+      customerIdentification:
+        identification(guest?.identificationType, guest?.identificationNumber) ??
+        identification(user?.identificationType, user?.identificationNumber) ??
+        identification(
+          address?.identificationType,
+          address?.identificationNumber,
+        ),
+      customerEmail:
+        guest?.email ?? user?.email ?? address?.email ?? order.guestEmail ?? null,
+      isGuest: !order.userId,
+    };
+  }
+
+  /**
    * Registra el order_key del sistema externo y avanza el estado on-hold → pending
+   */
+  /**
+   * Acusa recibo de la orden desde el ERP (on-hold → pending) y registra su O/C.
+   *
+   * Es idempotente a propósito: si el ERP escribe bien pero pierde la respuesta
+   * por timeout, va a reintentar — es lo correcto de su lado — y un 400 en ese
+   * reintento es indistinguible de un fallo real. O marca la orden como fallida
+   * y la deja fuera de sincronía, o reintenta en un bucle que nunca va a
+   * funcionar. Repetir el mismo `order_key` devuelve la orden tal como quedó.
+   *
+   * Lo que sí sigue siendo un error es acusar recibo con una O/C **distinta**
+   * de la ya registrada: eso no es un reintento, son dos órdenes de compra
+   * peleando por el mismo pedido, y hay que resolverlo a mano.
    */
   async acknowledgeOrder(id: number, orderKey: string): Promise<Order> {
     const order = await this.orderRepository.findOne({ where: { id } });
@@ -1189,12 +1431,17 @@ export class OrdersService {
     }
 
     if (order.status !== OrderStatus.ON_HOLD) {
+      if (order.purchaseOrderKey === orderKey) {
+        return order;
+      }
+
       throw new BadRequestException(
         `Only on-hold orders can be acknowledged. Current status: ${order.status}`,
       );
     }
 
     order.orderKey = orderKey;
+    order.purchaseOrderKey = orderKey;
     order.status = OrderStatus.PENDING;
 
     return this.orderRepository.save(order);
@@ -1215,11 +1462,23 @@ export class OrdersService {
     }
 
     if (order.status !== OrderStatus.PENDING) {
+      // Reintento de una facturación ya aplicada: se devuelve la orden como
+      // quedó, sin volver a escribir ni a mandar el correo de pago confirmado.
+      // Ver el comentario de `acknowledgeOrder` para el porqué.
+      if (
+        order.status === OrderStatus.COMPLETED &&
+        order.orderKey === orderKey
+      ) {
+        return order;
+      }
+
       throw new BadRequestException(
         `Only pending orders can be completed. Current status: ${order.status}`,
       );
     }
 
+    // Pisa `orderKey` con el número de factura, a propósito: `purchaseOrderKey`
+    // ya conserva la O/C que registró el acknowledge.
     order.orderKey = orderKey;
     order.status = OrderStatus.COMPLETED;
     order.dateCompleted = dateCompleted;
@@ -1244,6 +1503,14 @@ export class OrdersService {
       order.status !== OrderStatus.PENDING &&
       order.status !== OrderStatus.ON_HOLD
     ) {
+      // Reintento de una anulación ya aplicada. La salida temprana es
+      // obligatoria, no una comodidad: seguir de largo devolvería el
+      // inventario una segunda vez por cada renglón, inflando el stock de
+      // productos que nunca volvieron al depósito.
+      if (order.status === OrderStatus.CANCELLED) {
+        return order;
+      }
+
       throw new BadRequestException(
         `Order cannot be cancelled. Current status: ${order.status}`,
       );
@@ -1352,7 +1619,15 @@ export class OrdersService {
             identification,
             city: addr?.city ?? null,
             email,
-            phone: addr?.phone ?? null,
+            // El teléfono cae al perfil del cliente igual que el nombre y el
+            // correo. Leerlo sólo de la dirección de envío dejaba sin teléfono
+            // a TODA orden de pickup — que por definición no tiene dirección —
+            // y sin teléfono no se coordina el retiro en local.
+            phone:
+              addr?.phone ??
+              order.guestCustomer?.phone ??
+              order.user?.phone ??
+              null,
           },
           payment_method_title: deliveryMethodTitles[order.deliveryMethod],
           customer_note: order.notes,

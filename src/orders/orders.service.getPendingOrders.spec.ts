@@ -246,4 +246,73 @@ describe('OrdersService.getPendingOrders', () => {
 
     expect(result.line_items[0].product_id).toBe(0);
   });
+
+  // Una orden de pickup no tiene dirección de envío. Leer el teléfono sólo de
+  // ahí dejaba al ERP sin forma de contactar al cliente para coordinar el
+  // retiro, aun teniéndolo guardado en su perfil.
+  describe('billing.phone en órdenes sin dirección de envío', () => {
+    it('toma el teléfono del guest customer cuando es pickup', async () => {
+      const order = makeOrder({
+        deliveryMethod: DeliveryMethod.PICKUP,
+        shippingAddress: null,
+        user: null,
+        guestEmail: 'guest@test.com',
+        guestCustomer: {
+          firstName: 'María',
+          lastName: 'González',
+          email: 'guest@test.com',
+          phone: '04249428607',
+        } as GuestCustomer,
+      });
+      mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
+
+      const { data } = await service.getPendingOrders();
+
+      expect(data[0].billing.phone).toBe('04249428607');
+    });
+
+    it('toma el teléfono del usuario autenticado cuando es pickup', async () => {
+      const order = makeOrder({
+        deliveryMethod: DeliveryMethod.PICKUP,
+        shippingAddress: null,
+        user: {
+          firstName: 'Juan',
+          lastName: 'Pérez',
+          email: 'juan@test.com',
+          phone: '04141112233',
+        } as User,
+      });
+      mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
+
+      const { data } = await service.getPendingOrders();
+
+      expect(data[0].billing.phone).toBe('04141112233');
+    });
+
+    it('la dirección de envío tiene prioridad sobre el perfil', async () => {
+      const order = makeOrder({
+        shippingAddress: { phone: '04121234567' } as ShippingAddress,
+        guestCustomer: { phone: '04249428607' } as GuestCustomer,
+      });
+      mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
+
+      const { data } = await service.getPendingOrders();
+
+      expect(data[0].billing.phone).toBe('04121234567');
+    });
+
+    it('queda en null cuando no hay teléfono en ninguna parte', async () => {
+      const order = makeOrder({
+        deliveryMethod: DeliveryMethod.PICKUP,
+        shippingAddress: null,
+        user: null,
+        guestEmail: 'unknown@test.com',
+      });
+      mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
+
+      const { data } = await service.getPendingOrders();
+
+      expect(data[0].billing.phone).toBeNull();
+    });
+  });
 });

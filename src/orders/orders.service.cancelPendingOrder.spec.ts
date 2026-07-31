@@ -98,14 +98,30 @@ describe('OrdersService.cancelPendingOrder', () => {
     ).resolves.not.toThrow();
   });
 
-  it('throws BadRequestException when status is CANCELLED', async () => {
+  // Reintento del ERP sobre una anulación ya aplicada. Antes devolvía 400;
+  // ahora responde con la orden tal como quedó — pero SIN volver a devolver el
+  // inventario, que es lo que haría un segundo paso por el bucle.
+  it('es idempotente cuando la orden ya está CANCELLED', async () => {
+    const order = makeOrder({ status: OrderStatus.CANCELLED });
+    orderRepo.findOne.mockResolvedValue(order);
+
+    const result = await service.cancelPendingOrder(100, dateCompleted);
+
+    expect(result).toBe(order);
+    expect(productRepo.increment).not.toHaveBeenCalled();
+    expect(orderRepo.save).not.toHaveBeenCalled();
+    expect(emailService.sendOrderCanceled).not.toHaveBeenCalled();
+  });
+
+  it('sigue rechazando anular una orden ya facturada', async () => {
     orderRepo.findOne.mockResolvedValue(
-      makeOrder({ status: OrderStatus.CANCELLED }),
+      makeOrder({ status: OrderStatus.COMPLETED }),
     );
 
     await expect(
       service.cancelPendingOrder(100, dateCompleted),
     ).rejects.toThrow(BadRequestException);
+    expect(productRepo.increment).not.toHaveBeenCalled();
   });
 
   it('calls productRepo.increment once per item to restore inventory', async () => {

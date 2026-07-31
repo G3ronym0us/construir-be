@@ -139,11 +139,17 @@ export class OrdersController {
   }
 
   /**
-   * Obtener orden por número de orden (público con el número)
+   * Seguimiento público de un pedido, con sólo el número de orden.
+   *
+   * Devuelve un `OrderTrackingDto`, no la entidad `Order`: acá no hay sesión
+   * que diga quién pregunta, así que la respuesta se limita al avance del
+   * pedido. Devolver la entidad entregaba, además, la cédula y el domicilio
+   * del cliente, los datos del pago con el enlace al comprobante, las notas
+   * internas y la referencia del ERP.
    */
   @Get('track/:orderNumber')
   async trackOrder(@Param('orderNumber') orderNumber: string) {
-    return this.ordersService.findByOrderNumber(orderNumber);
+    return this.ordersService.trackByOrderNumber(orderNumber);
   }
 
   /**
@@ -197,11 +203,11 @@ export class OrdersController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.ordersService.filterOrders({
+    return this.ordersService.getAdminOrders({
       status,
       paymentStatus,
       startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
+      endDate: toEndOfDay(endDate),
       search,
       limit: limit ? parseInt(limit) : 50,
       offset: offset ? parseInt(offset) : 0,
@@ -222,7 +228,7 @@ export class OrdersController {
     const csv = await this.ordersService.exportToCSV({
       status,
       startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
+      endDate: toEndOfDay(endDate),
     });
 
     const filename = `orders_${new Date().toISOString().split('T')[0]}.csv`;
@@ -231,4 +237,25 @@ export class OrdersController {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);
   }
+}
+
+/**
+ * Cierra el rango en el último instante del día indicado.
+ *
+ * El panel manda `endDate` como fecha suelta ("2026-07-28") y `new Date()` la
+ * lee como medianoche, así que sin esto el filtro dejaba fuera todas las
+ * órdenes del propio día que el admin escogió como fin del rango. Una fecha con
+ * hora explícita se respeta tal cual.
+ */
+function toEndOfDay(value?: string): Date | undefined {
+  if (!value) return undefined;
+
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return undefined;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    date.setUTCHours(23, 59, 59, 999);
+  }
+
+  return date;
 }

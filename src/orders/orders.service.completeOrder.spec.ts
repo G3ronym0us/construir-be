@@ -158,4 +158,72 @@ describe('OrdersService.completeOrder', () => {
 
     expect(result).toBe(savedOrder);
   });
+
+  // Reintento del ERP sobre una facturación ya aplicada.
+  describe('reintentos del ERP', () => {
+    it('devuelve la orden sin reescribir ni reenviar el correo', async () => {
+      const order = makeOrder({
+        status: OrderStatus.COMPLETED,
+        orderKey: 'FAC-ORBIS-00457',
+      });
+      orderRepo.findOne.mockResolvedValue(order);
+
+      const result = await service.completeOrder(
+        100,
+        'FAC-ORBIS-00457',
+        dateCompleted,
+      );
+
+      expect(result).toBe(order);
+      expect(orderRepo.save).not.toHaveBeenCalled();
+      expect(emailService.sendPaymentConfirmed).not.toHaveBeenCalled();
+    });
+
+    it('rechaza facturar de nuevo con un número de factura distinto', async () => {
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({
+          status: OrderStatus.COMPLETED,
+          orderKey: 'FAC-ORBIS-00457',
+        }),
+      );
+
+      await expect(
+        service.completeOrder(100, 'FAC-ORBIS-99999', dateCompleted),
+      ).rejects.toThrow(BadRequestException);
+      expect(orderRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('sigue rechazando facturar una orden que nunca fue acusada', async () => {
+      orderRepo.findOne.mockResolvedValue(
+        makeOrder({ status: OrderStatus.ON_HOLD }),
+      );
+
+      await expect(
+        service.completeOrder(100, 'FAC-ORBIS-00457', dateCompleted),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('conserva la O/C al facturar', async () => {
+      const order = makeOrder({
+        status: OrderStatus.PENDING,
+        orderKey: 'OC-ORBIS-88213',
+        purchaseOrderKey: 'OC-ORBIS-88213',
+      });
+      const savedOrder = { ...order, status: OrderStatus.COMPLETED };
+
+      orderRepo.findOne
+        .mockResolvedValueOnce(order)
+        .mockResolvedValueOnce(savedOrder);
+      orderRepo.save.mockResolvedValue(savedOrder);
+
+      await service.completeOrder(100, 'FAC-ORBIS-00457', dateCompleted);
+
+      expect(orderRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderKey: 'FAC-ORBIS-00457',
+          purchaseOrderKey: 'OC-ORBIS-88213',
+        }),
+      );
+    });
+  });
 });
