@@ -179,11 +179,19 @@ Esto resuelve tres cosas de una:
    impuesto a órdenes ya facturadas, y si el producto fue borrado, `?? 0` asume
    16% sobre una línea que podía ser exenta.
 
-**Órdenes anteriores a la migración:** las columnas quedan en `NULL`. El
-serializador cae al cálculo actual para esas filas, con la fórmula exacta de hoy
-para que su salida no cambie. **No hay backfill**: recalcular con el `ivaType`
-actual del producto es precisamente el error que este cambio corrige, y fingir
-precisión sobre órdenes históricas es peor que marcarlas como calculadas al
+**Órdenes anteriores a la migración:** las columnas quedan en `NULL` y el
+serializador deriva el desglose al vuelo, con la fórmula de hoy —alícuota del
+`ivaType` vivo del producto, `iva = subtotal × r / (1 + r)`, `base = subtotal −
+iva`.
+
+Lo que **no** se conserva de hoy es cómo se emite ese desglose: las órdenes
+viejas también salen bajo la convención correcta (`total` = `base`). El
+respaldo sólo repone los números que no están guardados; no reintroduce el
+error de convención en las filas históricas.
+
+**No hay backfill** de las columnas: recalcular con el `ivaType` actual del
+producto es precisamente el error que este cambio corrige, y fingir precisión
+sobre órdenes históricas es peor que dejarlas marcadas como calculadas al
 vuelo.
 
 ### Componente 3 — `GET /api/v1/orders/:id` acepta id numérico
@@ -246,8 +254,8 @@ Además:
 - `tax_class` es `""`, `tax_rate` conserva la alícuota
 - `canceled` y `cancelled` ambas aceptadas por el DTO
 - `GET` por id numérico y por uuid; 404 en vez de 500
-- orden sin `base`/`iva` cayendo al cálculo de respaldo, con la salida idéntica
-  a la de hoy
+- orden sin `base`/`iva` cayendo al respaldo, emitida bajo la convención
+  correcta igual que una orden nueva
 - `createOrder` persiste `base` e `iva`, y se cumple `base + iva === subtotal`
 
 Las suites existentes de `getPendingOrders` (13 casos) deben seguir pasando o
