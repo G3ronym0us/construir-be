@@ -1539,13 +1539,17 @@ export class OrdersService {
   }
 
   /**
-   * Retorna órdenes en estado on-hold con el formato de integración externa
+   * Órdenes en espera de que el ERP las tome.
+   *
+   * Devuelve entidades: traducirlas al contrato de WooCommerce es tarea del
+   * controlador v1, vía `toWooOrder`. Tenerlo acá haría que el dominio
+   * dependiera de la forma que espera un consumidor externo.
    */
   async getPendingOrders(
     page: number = 1,
     perPage: number = 10,
   ): Promise<{
-    data: any[];
+    data: Order[];
     total: number;
     page: number;
     perPage: number;
@@ -1566,100 +1570,8 @@ export class OrdersService {
       .take(perPage)
       .getManyAndCount();
 
-    const deliveryMethodTitles = {
-      [DeliveryMethod.PICKUP]: 'Entrega y/o recogida en el local',
-      [DeliveryMethod.DELIVERY]: 'Envío a domicilio',
-    };
-
-    const data = await Promise.all(
-      orders.map(async (order) => {
-        let firstName: string | null = null;
-        let lastName: string | null = null;
-        let email: string | null = null;
-        let identificationType: string | null = null;
-        let identificationNumber: string | null = null;
-
-        if (order.user) {
-          firstName = order.user.firstName;
-          lastName = order.user.lastName;
-          email = order.user.email;
-          identificationType = order.user.identificationType ?? null;
-          identificationNumber = order.user.identificationNumber ?? null;
-        } else if (order.guestCustomer) {
-          firstName = order.guestCustomer.firstName;
-          lastName = order.guestCustomer.lastName;
-          email = order.guestCustomer.email;
-          identificationType = order.guestCustomer.identificationType ?? null;
-          identificationNumber =
-            order.guestCustomer.identificationNumber ?? null;
-        } else if (order.guestEmail) {
-          email = order.guestEmail;
-        }
-
-        const addr = order.shippingAddress;
-
-        // shippingAddress takes priority over user/guest profile
-        if (addr?.identificationType && addr?.identificationNumber) {
-          identificationType = addr.identificationType;
-          identificationNumber = addr.identificationNumber;
-        }
-
-        const identification =
-          identificationType && identificationNumber
-            ? `${identificationType}-${identificationNumber}`
-            : null;
-
-        return {
-          id: order.id,
-          status: order.status,
-          date_created: order.createdAt.toISOString().slice(0, 19),
-          total: Number(order.total).toFixed(2),
-          total_tax: Number(order.tax).toFixed(2),
-          billing: {
-            first_name: firstName,
-            last_name: lastName,
-            company: null,
-            address_1: addr?.address ?? null,
-            identification,
-            city: addr?.city ?? null,
-            email,
-            // El teléfono cae al perfil del cliente igual que el nombre y el
-            // correo. Leerlo sólo de la dirección de envío dejaba sin teléfono
-            // a TODA orden de pickup — que por definición no tiene dirección —
-            // y sin teléfono no se coordina el retiro en local.
-            phone:
-              addr?.phone ??
-              order.guestCustomer?.phone ??
-              order.user?.phone ??
-              null,
-          },
-          payment_method_title: deliveryMethodTitles[order.deliveryMethod],
-          customer_note: order.notes,
-          number: String(order.id),
-          line_items: order.items.map((item) => {
-            const ivaType = item.product?.ivaType ?? 0;
-            const ivaRate = IVA_RATES[ivaType];
-            const subtotal = Number(item.subtotal);
-            const itemTax = (subtotal * ivaRate) / (1 + ivaRate);
-            return {
-              id: item.id,
-              name: item.productName,
-              product_id: item.product?.id ?? 0,
-              quantity: item.quantity,
-              tax_class: ivaType,
-              tax_rate: ivaRate * 100,
-              total: subtotal.toFixed(2),
-              total_tax: itemTax.toFixed(2),
-              sku: item.productSku ?? null,
-              price: Number(item.price),
-            };
-          }),
-        };
-      }),
-    );
-
     return {
-      data,
+      data: orders,
       total,
       page,
       perPage,

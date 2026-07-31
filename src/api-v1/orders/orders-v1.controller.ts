@@ -20,6 +20,7 @@ import {
   ApiOkResponse,
   ApiNotFoundResponse,
 } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { OrdersService } from '../../orders/orders.service';
 import { ApiKeyGuard } from '../../api-keys/guards/api-key.guard';
 import { RequireApiKeyPermission } from '../../api-keys/decorators/api-key-permission.decorator';
@@ -28,6 +29,7 @@ import { WebhookInterceptor } from '../common/interceptors/webhook.interceptor';
 import { PaginationLinkInterceptor } from '../common/interceptors/pagination-link.interceptor';
 import { AcknowledgeOrderDto } from '../../orders/dto/acknowledge-order.dto';
 import { UpdateOrderExternalDto } from '../../orders/dto/update-order-external.dto';
+import { toWooOrder } from './woo-order.serializer';
 import {
   ApiSecurityAll,
   ApiPaginatedQuery,
@@ -42,7 +44,10 @@ import {
 @UseGuards(ApiKeyGuard)
 @UseInterceptors(WebhookInterceptor, PaginationLinkInterceptor)
 export class OrdersV1Controller {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Get()
   @RequireApiKeyPermission(ApiKeyPermission.READ)
@@ -121,7 +126,13 @@ export class OrdersV1Controller {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('perPage', new DefaultValuePipe(10), ParseIntPipe) perPage: number,
   ) {
-    return this.ordersService.getPendingOrders(page, perPage);
+    const result = await this.ordersService.getPendingOrders(page, perPage);
+    const timeZone = this.config.get<string>('app.storeTimezone')!;
+
+    return {
+      ...result,
+      data: result.data.map((order) => toWooOrder(order, timeZone)),
+    };
   }
 
   @Get(':uuid')
