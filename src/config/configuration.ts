@@ -31,6 +31,8 @@ export interface AppConfig {
   storeEmail: string;
   storeHours: string;
   storeMapUrl: string;
+  /** Zona IANA en la que el ERP espera las fechas. WooCommerce emite hora local del sitio. */
+  storeTimezone: string;
 }
 
 export interface BcvRatesConfig {
@@ -94,6 +96,9 @@ export const appConfig = registerAs(
     storeEmail: process.env.STORE_EMAIL ?? '',
     storeHours: process.env.STORE_HOURS ?? '',
     storeMapUrl: process.env.STORE_MAP_URL ?? '',
+    // Explícita y no heredada del servidor: el contrato del ERP emite fechas
+    // sin marcador de zona, así que un servidor en UTC las corría 4 horas.
+    storeTimezone: process.env.STORE_TIMEZONE || 'America/Caracas',
   }),
 );
 
