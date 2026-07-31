@@ -135,7 +135,7 @@ export class OrdersV1Controller {
     };
   }
 
-  @Get(':uuid')
+  @Get(':id')
   @RequireApiKeyPermission(ApiKeyPermission.READ)
   @ApiOperation({
     summary: 'Obtener orden por UUID',
@@ -143,9 +143,9 @@ export class OrdersV1Controller {
       'Retorna una orden con todos sus detalles incluyendo items, información de pago, dirección de envío y cliente',
   })
   @ApiParam({
-    name: 'uuid',
-    description: 'UUID de la orden',
-    example: 'b2c3d4e5-f6a7-8901-bcde-234567890abc',
+    name: 'id',
+    description: 'ID numérico o UUID de la orden',
+    example: '34',
     type: String,
   })
   @ApiOkResponse({
@@ -156,8 +156,8 @@ export class OrdersV1Controller {
     description: 'Orden no encontrada',
   })
   @ApiStandardResponses()
-  async findOne(@Param('uuid') uuid: string) {
-    return this.ordersService.findOneByUuid(uuid);
+  async findOne(@Param('id') id: string) {
+    return this.ordersService.findOneForErp(id);
   }
 
   @Put(':id/acknowledge')

@@ -869,6 +869,40 @@ export class OrdersService {
   }
 
   /**
+   * Busca una orden por id numérico o por uuid, para el ERP.
+   *
+   * Todo el resto del contrato del ERP direcciona las órdenes por su id
+   * numérico (`PUT /orders/:id`, y el `number` que emitimos es el id), así que
+   * el integrador lo intenta también acá — y lo hizo: quedaron dos 500 en
+   * `api_request_logs` de un `GET /api/v1/orders/13`. Postgres falla al castear
+   * '13' a uuid y el error sube como 500.
+   *
+   * La guarda de forma es la que evita repetirlo: sin ella, un identificador
+   * que no sea ni número ni uuid llega igual a la consulta y vuelve a reventar.
+   */
+  async findOneForErp(identifier: string): Promise<Order> {
+    const isNumericId = /^\d+$/.test(identifier);
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        identifier,
+      );
+
+    if (!isNumericId && !isUuid) {
+      throw new NotFoundException(`Order ${identifier} not found`);
+    }
+
+    const order = await this.orderRepository.findOne({
+      where: isNumericId ? { id: Number(identifier) } : { uuid: identifier },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order ${identifier} not found`);
+    }
+
+    return order;
+  }
+
+  /**
    * Obtiene una orden por número de orden
    */
   async findByOrderNumber(orderNumber: string): Promise<Order> {
