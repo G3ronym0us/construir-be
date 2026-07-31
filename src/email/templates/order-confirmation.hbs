@@ -1,256 +1,188 @@
-<!DOCTYPE html>
-<html lang="es" xmlns:v="urn:schemas-microsoft-com:vml">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="light dark">
-    <meta name="supported-color-schemes" content="light dark">
-    <title>Confirmación de Orden</title>
-    <style>
-        :root { color-scheme: light dark; }
-
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #1a1a1a;
-            background-color: #e8e8e8;
-            margin: 0;
-            padding: 20px;
-        }
-
-        .wrapper { max-width: 600px; margin: 0 auto; }
-
-        .header {
-            background-color: #1e3a8a;
-            padding: 24px 20px;
-            text-align: center;
-            border-radius: 8px 8px 0 0;
-        }
-
-        .header img { height: 44px; width: auto; display: block; margin: 0 auto; }
-
-        .header h1 {
-            margin: 12px 0 0;
-            font-size: 20px;
-            font-weight: 700;
-            color: #ffffff;
-        }
-
-        .content {
-            background-color: #f2f2f2;
-            padding: 24px;
-            border: 1px solid #cccccc;
-        }
-
-        .content > p { color: #1a1a1a; margin: 0 0 16px; }
-
-        .order-info {
-            background-color: #ffffff;
-            padding: 16px;
-            margin: 16px 0;
-            border-radius: 6px;
-            border: 1px solid #e0e0e0;
-        }
-
-        .order-info h3 {
-            margin: 0 0 12px;
-            font-size: 15px;
-            color: #1e3a8a;
-            border-bottom: 1px solid #e0e0e0;
-            padding-bottom: 8px;
-        }
-
-        .order-info p { margin: 6px 0; color: #333333; }
-
-        .order-items { margin: 16px 0; }
-        .order-items h3 { font-size: 15px; color: #1a1a1a; margin: 0 0 8px; }
-
-        .item {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid #e0e0e0;
-            color: #333333;
-        }
-
-        .item-name { font-weight: 600; color: #1a1a1a; }
-        .item-qty { font-size: 13px; color: #555555; }
-
-        .item-price {
-            font-weight: 600;
-            color: #1a1a1a;
-            white-space: nowrap;
-        }
-
-        .totals { margin: 8px 0 0; text-align: right; }
-        .totals p { margin: 4px 0; font-size: 14px; color: #333333; }
-        .totals-divider { border-top: 1px solid #cccccc; margin: 8px 0; }
-
-        .totals .total-final {
-            font-size: 20px;
-            font-weight: 700;
-            color: #2563eb;
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 2px solid #2563eb;
-        }
-
-        .phone-highlight {
-            display: inline-block;
-            font-size: 16px;
-            font-weight: 700;
-            color: #1a1a1a;
-            background-color: #f0f0f0;
-            padding: 4px 10px;
-            border-radius: 4px;
-            margin: 6px 0;
-        }
-
-        .hours { font-size: 13px; color: #555555; margin: 6px 0; }
-
-        .map-link { color: #2563eb; font-weight: 600; text-decoration: none; }
-
-        .button-wrap { text-align: center; margin: 16px 0 4px; }
-
-        .button {
-            display: inline-block;
-            padding: 13px 32px;
-            background-color: #2563eb;
-            color: #ffffff !important;
-            text-decoration: none;
-            border-radius: 6px;
-            font-weight: 700;
-            font-size: 15px;
-        }
-
-        .footer {
-            text-align: center;
-            padding: 20px;
-            color: #777777;
-            font-size: 12px;
-            background-color: #e8e8e8;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            body { background-color: #121212 !important; color: #e8e8e8 !important; }
-            .wrapper { background-color: #121212; }
-            .header { background-color: #1e3a8a !important; }
-            .content { background-color: #1e1e1e !important; border-color: #333333 !important; }
-            .content > p { color: #e0e0e0 !important; }
-            .order-info { background-color: #2a2a2a !important; border-color: #3a3a3a !important; }
-            .order-info h3 { color: #93c5fd !important; border-color: #3a3a3a !important; }
-            .order-info p { color: #cccccc !important; }
-            .order-items h3 { color: #f0f0f0 !important; }
-            .item { border-color: #3a3a3a !important; color: #cccccc !important; }
-            .item-name { color: #f0f0f0 !important; }
-            .item-qty { color: #aaaaaa !important; }
-            .item-price { color: #f0f0f0 !important; }
-            .totals p { color: #cccccc !important; }
-            .totals-divider { border-color: #3a3a3a !important; }
-            .totals .total-final { color: #93c5fd !important; border-color: #93c5fd !important; }
-            .phone-highlight { color: #f0f0f0 !important; background-color: #333333 !important; }
-            .hours { color: #aaaaaa !important; }
-            .map-link { color: #93c5fd !important; }
-            .footer { background-color: #121212 !important; color: #888888 !important; }
-        }
-    </style>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light only" />
+<meta name="supported-color-schemes" content="light only" />
+<title>{{subject}}</title>
+<!--[if mso]><style>body,table,td{font-family:Arial,Helvetica,sans-serif !important}</style><![endif]-->
 </head>
-<body>
-<div class="wrapper">
-    <div class="header">
-        <img src="{{logoUrl}}" alt="Constru-ir" />
-        <h1>¡Gracias por tu compra!</h1>
-    </div>
+<body style="margin:0;padding:0;background-color:#eceae5;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;font-size:1px;color:#f2efe9;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">{{preheader}}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eceae5">
+  <tr>
+    <td align="center" style="padding:24px 12px">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background-color:#ffffff;border:1px solid #ded9d2;border-radius:14px;overflow:hidden">
+{{> header eyebrow=(concat "Pedido " orderNumber) }}
+        <tr>
+          <td style="background-color:#f7f5f2;padding:26px 26px 0">
+            <h1 style="margin:0 0 8px;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:23px;line-height:1.2;font-weight:700;color:#0f4c81">Recibimos tu pedido, {{customerName}}</h1>
+            <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#55524d">{{#if isZelle}}Elegiste pagar por Zelle: un vendedor te enviará los datos de la cuenta para que puedas pagar. Apartamos el material mientras eso pasa.{{else}}Lo tenemos apartado y ya recibimos el comprobante que cargaste. Falta que confirmemos el pago con el banco para empezar a prepararlo.{{/if}}</p>
+          </td>
+        </tr>
 
-    <div class="content">
-        <p>Hola <strong>{{customerName}}</strong>,</p>
-        <p>Hemos recibido tu orden y está siendo procesada.</p>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+{{#if isZelle}}
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fdf3e3;border:1px solid #f0d7ae;border-left:4px solid #e2851b;border-radius:8px">
+              <tr><td style="padding:15px 17px">
+                <p style="margin:0 0 6px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#8a5108">No envíes el Zelle todavía</p>
+                <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.6;color:#7a5518">Un vendedor de Constru-ir te contacta hoy mismo con los datos de la cuenta. Nunca pedimos pagos a cuentas que lleguen por otro canal.</p>
+              </td></tr>
+            </table>
+{{else}}
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fdf3e3;border:1px solid #f0d7ae;border-left:4px solid #e2851b;border-radius:8px">
+              <tr><td style="padding:15px 17px">
+                <p style="margin:0 0 6px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#8a5108">Tu pago está en confirmación · no tienes que hacer nada más</p>
+                <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.6;color:#7a5518">Recibimos tu comprobante de {{paymentMethod}}{{#if paymentReference}} con la referencia {{paymentReference}}{{/if}}. Lo comparamos contra el movimiento del banco y te escribimos en cuanto quede confirmado, en menos de {{verificationSla}}.</p>
+              </td></tr>
+            </table>
+{{/if}}
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e7e3dd;border-radius:10px">
+              <tr><td style="padding:18px">
+                <p style="margin:0 0 10px;padding-bottom:10px;border-bottom:1px solid #e7e3dd;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;color:#14181d">Tu pedido · {{items.length}} renglones</p>
+{{#each items}}
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="padding:0 12px 3px 0">
+                      <span style="display:block;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14.5px;font-weight:600;color:#14181d">{{productName}}</span>
+                      <span style="display:block;margin-top:2px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;color:#8b8781">{{quantity}} × Bs. {{priceVes}}</span>
+                    </td>
+                    <td align="right" style="padding:0 0 3px;white-space:nowrap">
+                      <span style="display:block;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14.5px;font-weight:700;color:#14181d">Bs. {{lineAmountVes}}</span>
+                      <span style="display:block;margin-top:2px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;color:#8b8781">${{lineAmount}}</span>
+                    </td>
+                  </tr>
+                  <tr><td colspan="2" style="padding:10px 0;font-size:0;line-height:0"><div style="height:1px;background-color:#f0ece5">&nbsp;</div></td></tr>
+                </table>
+{{/each}}
+{{#if discountAmount}}
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Subtotal (con IVA)</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">Bs. {{itemsGrossTotalVes}}</td>
+                  </tr>
+                </table>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Descuento{{#if discountCode}} {{discountCode}}{{/if}}</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#1f7a4d;padding:0 0 10px">− Bs. {{discountAmountVes}}</td>
+                  </tr>
+                </table>
+{{/if}}
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Base imponible</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">Bs. {{subtotalVes}}</td>
+                  </tr>
+                </table>
+{{#if tax}}
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">{{ivaLabel}}</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">Bs. {{taxVes}}</td>
+                  </tr>
+                </table>
+{{/if}}
+{{#if isPickup}}
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Retiro en tienda</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#1f7a4d;padding:0 0 10px">Sin costo</td>
+                  </tr>
+                </table>
+{{else}}
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Entrega a domicilio</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#8a5108;padding:0 0 10px">La coordina el vendedor</td>
+                  </tr>
+                </table>
+{{/if}}
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:2px solid #0f4c81;margin-top:4px">
+                  <tr>
+                    <td align="left" style="padding:12px 0 0;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d">{{#if isPickup}}Total a pagar{{else}}Total del material{{/if}}</td>
+                    <td align="right" style="padding:12px 0 0">
+                      <span style="display:block;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;line-height:1;font-weight:700;color:#0f4c81">Bs. {{totalVes}}</span>
+                      <span style="display:block;margin-top:4px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;color:#7d7a74">ref. ${{total}} · BCV {{exchangeRate}}{{#if exchangeRateDate}} del {{exchangeRateDate}}{{/if}}</span>
+                    </td>
+                  </tr>
+                </table>
 
-        <div class="order-info">
-            <h3>Información de la Orden</h3>
-            <p><strong>Número de Orden:</strong> {{orderNumber}}</p>
-            <p><strong>Fecha:</strong> {{orderDate}}</p>
-            <p><strong>Estado:</strong> {{orderStatus}}</p>
-        </div>
-
-        <div class="order-items">
-            <h3>Artículos de tu Orden</h3>
-            {{#each items}}
-            <div class="item">
-                <div>
-                    <div class="item-name">{{this.productName}}</div>
-                    <div class="item-qty">Cantidad: {{this.quantity}} × ${{this.price}}</div>
-                </div>
-                <div class="item-price">${{this.lineAmount}}</div>
-            </div>
-            {{/each}}
-
-            <div class="totals">
-                {{#if discountAmount}}
-                <p>Subtotal (con IVA): ${{itemsGrossTotal}}</p>
-                <p>Descuento{{#if discountCode}} ({{discountCode}}){{/if}}: -${{discountAmount}}</p>
-                <div class="totals-divider"></div>
-                {{/if}}
-                <p>Base imponible: ${{subtotal}}</p>
-                {{#if tax}}<p>{{ivaLabel}}: ${{tax}}</p>{{/if}}
-                {{#if shipping}}<p>Envío: ${{shipping}}</p>{{/if}}
-                <p class="total-final">Total: ${{total}}</p>
-            </div>
-        </div>
-
-        {{#if isPickup}}
-        <div class="order-info">
-            <h3>📍 Retiro en Tienda</h3>
-            <p><strong>{{store.name}}</strong></p>
-            {{#if store.address}}<p>{{store.address}}{{#if store.city}}<br>{{store.city}}{{/if}}</p>
-            {{else}}{{#if store.city}}<p>{{store.city}}</p>{{/if}}{{/if}}
-            {{#if store.phone}}
-            <p><span class="phone-highlight">📞 {{store.phone}}</span></p>
-            {{/if}}
-            {{#if store.hours}}
-            <p class="hours">🕐 {{store.hours}}</p>
-            {{/if}}
-            {{#if store.mapUrl}}
-            <p><a href="{{store.mapUrl}}" class="map-link">Ver en el mapa →</a></p>
-            {{/if}}
-        </div>
-        {{else}}
-        <div class="order-info">
-            <h3>📦 Dirección de Envío</h3>
-            <p><strong>{{shippingAddress.firstName}} {{shippingAddress.lastName}}</strong><br>
-            {{shippingAddress.address}}<br>
-            {{shippingAddress.city}}, {{shippingAddress.state}} {{shippingAddress.zipCode}}<br>
-            {{shippingAddress.country}}</p>
-            <p><span class="phone-highlight">📞 {{shippingAddress.phone}}</span></p>
-        </div>
-        {{/if}}
-
-        <div class="order-info">
-            <h3>💳 Información de Pago</h3>
-            <p><strong>Método:</strong> {{paymentMethod}}</p>
-            {{#if isZelle}}
-            <div style="margin: 12px 0 0; padding: 12px 14px; background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 4px;">
-                <p style="margin: 0 0 6px; font-weight: 700; color: #b45309; font-size: 14px;">⚠️ Instrucciones de Pago Zelle</p>
-                <p style="margin: 0; color: #78350f; font-size: 13px;">Un <strong>vendedor de Construir</strong> se comunicará contigo a la brevedad para suministrarte los datos de la cuenta Zelle a la que debes realizar el pago. Por favor, mantén tu teléfono disponible.</p>
-            </div>
-            {{/if}}
-            <div class="button-wrap">
-                <a href="{{trackingUrl}}" class="button">Ver mi Orden</a>
-            </div>
-        </div>
-
-        {{#if notes}}
-        <div class="order-info">
-            <h3>📝 Notas</h3>
-            <p>{{notes}}</p>
-        </div>
-        {{/if}}
-    </div>
-
-    <div class="footer">
-        <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
-        <p>Si tienes alguna pregunta, contáctanos.</p>
-    </div>
-</div>
+{{#unless isPickup}}
+                <p style="margin:12px 0 0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;line-height:1.6;color:#7d7a74">No incluye el flete: el vendedor te escribe por WhatsApp para acordar la entrega y su costo.</p>
+{{/unless}}
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+{{#if isPickup}}
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e7e3dd;border-radius:10px">
+              <tr><td style="padding:18px">
+                <p style="margin:0 0 9px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:#8b8781">Retiras en</p>
+                <p style="margin:0 0 6px;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d">{{store.name}}</p>
+                <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.6;color:#55524d">{{store.address}}{{#if store.city}}, {{store.city}}{{/if}}<br />{{store.hours}}</p>
+                <p style="margin:9px 0 0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#7d7a74">Te escribimos cuando esté empacado y listo para retirar. No vengas antes de ese aviso.</p>
+{{#if store.mapUrl}}
+                <p style="margin:12px 0 0"><a href="{{store.mapUrl}}" style="display:inline-block;background-color:#f7f5f2;border:1px solid #e7e3dd;border-radius:99px;padding:7px 12px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:700;color:#0f4c81;text-decoration:none">Ver en el mapa</a></p>
+{{/if}}
+              </td></tr>
+            </table>
+{{else}}
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e7e3dd;border-radius:10px">
+              <tr><td style="padding:18px">
+                <p style="margin:0 0 9px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:#8b8781">Entrega a domicilio</p>
+                <p style="margin:0 0 6px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#14181d">{{shippingAddress.firstName}} {{shippingAddress.lastName}}</p>
+                <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.6;color:#55524d">{{shippingAddress.address}}<br />{{shippingAddress.city}}, {{shippingAddress.state}} {{shippingAddress.zipCode}}<br />{{shippingAddress.phone}}</p>
+                <p style="margin:9px 0 0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;line-height:1.6;color:#7d7a74">Un vendedor te escribe por WhatsApp a este número para acordar el día, el costo del flete y cómo descargar.</p>
+              </td></tr>
+            </table>
+{{/if}}
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e7e3dd;border-radius:10px">
+              <tr><td style="padding:18px">
+                <p style="margin:0 0 9px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:#8b8781">Qué sigue</p>
+                <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.7;color:#55524d">
+                  <strong style="color:#14181d">1.</strong> {{#if isZelle}}Un vendedor te envía los datos de Zelle{{else}}Confirmamos tu pago con el banco (hasta {{verificationSla}}){{/if}}<br />
+                  <strong style="color:#14181d">2.</strong> Preparamos y empacamos tu material<br />
+                  <strong style="color:#14181d">3.</strong> {{#if isPickup}}Te avisamos por correo cuando puedas retirarlo en {{store.name}}{{else}}Un vendedor te escribe por WhatsApp para coordinar la entrega{{/if}}
+                </p>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td align="center" bgcolor="#e2851b" style="border-radius:10px">
+                <a href="{{trackingUrl}}" style="display:block;padding:15px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d;text-decoration:none;border-radius:10px">Ver mi pedido</a>
+              </td></tr>
+            </table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px">
+              <tr><td align="center" bgcolor="#ffffff" style="border:1.5px solid #d9d4cc;border-radius:10px">
+                <a href="{{whatsappUrl}}" style="display:block;padding:13px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#0f4c81;text-decoration:none;border-radius:10px">Escribirnos por WhatsApp</a>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+        <tr><td style="background-color:#f7f5f2;line-height:26px;font-size:26px;height:26px">&nbsp;</td></tr>
+{{> footer }}
+      </table>
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px">
+        <tr><td style="padding:14px 8px 0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11.5px;line-height:1.6;color:#9a968f">Constru-ir · Materiales de construcción · Caracas, Venezuela</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
 </body>
 </html>

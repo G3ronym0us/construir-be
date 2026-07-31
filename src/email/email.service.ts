@@ -51,6 +51,34 @@ export class EmailService {
         pass: this.configService.get('email.password'),
       },
     });
+
+    this.registerTemplateHelpers();
+  }
+
+  /**
+   * Registra los parciales y el helper que usan las plantillas.
+   *
+   * Va en el constructor y no en cada envío: `registerPartial` es global de
+   * Handlebars, y hacerlo por correo relee del disco en cada envío sin ninguna
+   * ganancia.
+   *
+   * `concat` es el único helper que las plantillas necesitan — lo usan para
+   * armar textos como `eyebrow="Pedido {{orderNumber}}"`. Handlebars pasa su
+   * propio objeto de opciones como último argumento, por eso se descarta.
+   */
+  private registerTemplateHelpers(): void {
+    const dir = path.join(__dirname, 'templates', 'partials');
+
+    for (const file of fs.readdirSync(dir)) {
+      handlebars.registerPartial(
+        path.basename(file, '.hbs'),
+        fs.readFileSync(path.join(dir, file), 'utf-8'),
+      );
+    }
+
+    handlebars.registerHelper('concat', (...args: unknown[]) =>
+      args.slice(0, -1).join(''),
+    );
   }
 
   private async loadTemplate(templateName: string): Promise<string> {
@@ -60,6 +88,29 @@ export class EmailService {
       `${templateName}.hbs`,
     );
     return fs.readFileSync(templatePath, 'utf-8');
+  }
+
+  /**
+   * Compone el HTML de una plantilla, o `null` si algo falla.
+   *
+   * Un correo es una notificación, no parte de la transacción: varios envíos
+   * ocurren después de escrituras que ya no se pueden deshacer. Una plantilla
+   * que falta o que no compila tiene que quedar en el log, no propagar hacia
+   * una anulación que ya devolvió inventario.
+   */
+  private async render(
+    templateName: string,
+    payload: Record<string, unknown>,
+  ): Promise<string | null> {
+    try {
+      const source = await this.loadTemplate(templateName);
+      return handlebars.compile(source)(payload);
+    } catch (error) {
+      this.logger.error(
+        `No se pudo componer la plantilla "${templateName}": ${error}`,
+      );
+      return null;
+    }
   }
 
   private async sendEmail(

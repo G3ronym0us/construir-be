@@ -1,72 +1,97 @@
-<!DOCTYPE html>
-<html lang="es">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nueva orden #{{orderNumber}}</title>
-  <style>
-    body { margin: 0; padding: 0; background-color: #f4f4f4; font-family: Arial, sans-serif; }
-    .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
-    .header { background-color: #1e3a8a; padding: 24px 32px; }
-    .header h1 { color: #ffffff; margin: 0; font-size: 20px; }
-    .body { padding: 32px; }
-    .row { display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding: 10px 0; font-size: 14px; color: #374151; }
-    .label { color: #6b7280; }
-    .value { font-weight: 600; color: #111827; }
-    .total-row { border-bottom: none; font-size: 16px; }
-    .btn { display: inline-block; margin-top: 24px; padding: 12px 24px; background-color: #1e3a8a; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600; }
-    .footer { padding: 16px 32px; background: #f9fafb; font-size: 12px; color: #9ca3af; text-align: center; }
-  </style>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light only" />
+<meta name="supported-color-schemes" content="light only" />
+<title>{{subject}}</title>
+<!--[if mso]><style>body,table,td{font-family:Arial,Helvetica,sans-serif !important}</style><![endif]-->
 </head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🛒 Nueva orden recibida</h1>
-    </div>
-    <div class="body">
-      <div class="row">
-        <span class="label">Número de orden</span>
-        <span class="value">#{{orderNumber}}</span>
-      </div>
-      <div class="row">
-        <span class="label">Fecha</span>
-        <span class="value">{{orderDate}}</span>
-      </div>
-      <div class="row">
-        <span class="label">Cliente</span>
-        <span class="value">{{customerName}}</span>
-      </div>
-      <div class="row">
-        <span class="label">Email</span>
-        <span class="value">{{customerEmail}}</span>
-      </div>
-      <div class="row">
-        <span class="label">Método de pago</span>
-        <span class="value">{{paymentMethod}}</span>
-      </div>
-      {{#if isZelle}}
-      <div style="margin: 16px 0; padding: 14px 16px; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
-        <p style="margin: 0 0 6px; font-weight: 700; color: #92400e; font-size: 14px;">⚠️ ACCIÓN REQUERIDA — Pago por Zelle</p>
-        <p style="margin: 0; font-size: 13px; color: #78350f;">
-          Debes contactar al cliente <strong>{{customerName}}</strong> ({{customerEmail}}) para proporcionarle los datos de tu cuenta Zelle y coordinar el pago. Puedes hacerlo por WhatsApp o el canal que prefieras.
-        </p>
-      </div>
-      {{/if}}
-      <div class="row">
-        <span class="label">Entrega</span>
-        <span class="value">{{deliveryMethod}}</span>
-      </div>
-      <div class="row">
-        <span class="label">Productos</span>
-        <span class="value">{{itemCount}} artículo(s)</span>
-      </div>
-      <div class="row total-row">
-        <span class="label">Total</span>
-        <span class="value">${{total}}</span>
-      </div>
-      <a href="{{adminUrl}}" class="btn">Ver en el panel admin</a>
-    </div>
-    <div class="footer">Este es un correo automático del sistema Construir.</div>
-  </div>
+<body style="margin:0;padding:0;background-color:#eceae5;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;font-size:1px;color:#f2efe9;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">{{preheader}}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eceae5">
+  <tr>
+    <td align="center" style="padding:24px 12px">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background-color:#ffffff;border:1px solid #ded9d2;border-radius:14px;overflow:hidden">
+{{> header eyebrow="Panel administrativo" }}
+        <tr>
+          <td style="background-color:#fdf3e3;border-bottom:1px solid #f0d7ae;padding:12px 26px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:700;letter-spacing:.4px;color:#8a5108">NUEVA ORDEN{{#if isZelle}} · Zelle, hay que enviar los datos de la cuenta{{else}} · hay un comprobante por verificar{{/if}}</td>
+        </tr>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:26px 26px 0">
+            <h1 style="margin:0 0 8px;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:23px;line-height:1.2;font-weight:700;color:#0f4c81">Orden {{orderNumber}}</h1>
+            <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#55524d">{{customerName}} · {{orderDate}}</p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e7e3dd;border-radius:10px">
+              <tr><td style="padding:18px">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Cliente</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">{{customerName}}</td>
+                  </tr>
+                </table>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Correo</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">{{customerEmail}}</td>
+                  </tr>
+                </table>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Renglones</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">{{itemCount}}</td>
+                  </tr>
+                </table>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Método de pago</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">{{paymentMethod}}</td>
+                  </tr>
+                </table>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Entrega</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">{{deliveryMethod}}</td>
+                  </tr>
+                </table>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:2px solid #0f4c81;margin-top:4px">
+                  <tr>
+                    <td align="left" style="padding:12px 0 0;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d">Total</td>
+                    <td align="right" style="padding:12px 0 0">
+                      <span style="display:block;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;line-height:1;font-weight:700;color:#0f4c81">Bs. {{totalVes}}</span>
+                      <span style="display:block;margin-top:4px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;color:#7d7a74">ref. ${{total}} · BCV {{exchangeRate}}</span>
+                    </td>
+                  </tr>
+                </table>
+
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td align="center" bgcolor="#e2851b" style="border-radius:10px">
+                <a href="{{adminUrl}}" style="display:block;padding:15px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d;text-decoration:none;border-radius:10px">Abrir la orden en el panel</a>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+        <tr><td style="background-color:#f7f5f2;line-height:26px;font-size:26px;height:26px">&nbsp;</td></tr>
+<tr>
+  <td style="background-color:#f2efe9;border-top:1px solid #e7e3dd;padding:18px 26px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#7d7a74">Aviso interno del panel de Constru-ir.</td>
+</tr>
+      </table>
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px">
+        <tr><td style="padding:14px 8px 0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11.5px;line-height:1.6;color:#9a968f">Constru-ir · Materiales de construcción · Caracas, Venezuela</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
 </body>
 </html>
