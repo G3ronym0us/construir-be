@@ -87,6 +87,12 @@ export class UsersService {
     user.emailVerificationToken = null;
     user.emailVerificationExpiresAt = null;
     await this.usersRepository.save(user);
+
+    // La cuenta recién queda utilizable acá: hasta verificar, el login la
+    // rechaza. Se envía sin await ni propagar, igual que la verificación.
+    this.emailService
+      .sendWelcome({ to: user.email, firstName: user.firstName })
+      .catch((err) => console.error('Error sending welcome email:', err));
   }
 
   async resendVerification(email: string): Promise<void> {

@@ -139,10 +139,17 @@ export class EmailService {
     }
   }
 
-  private getLogoUrl(): string {
-    const frontendUrl =
-      this.configService.get('app.frontendUrl') || 'http://localhost:4000';
-    return `${frontendUrl}/construir-logo.png`;
+  /**
+   * Nombre para saludar al cliente en el cuerpo del correo.
+   *
+   * Prioriza los datos de envío -- son los que el cliente tecleó para ESTE
+   * pedido -- y cae al nombre de la cuenta cuando no hay dirección (retiro en
+   * tienda). 'Cliente' es el último recurso para invitados sin nombre.
+   */
+  private customerName(order: Order): string {
+    return (
+      order.shippingAddress?.firstName || order.user?.firstName || 'Cliente'
+    );
   }
 
   async sendOrderConfirmation(order: Order): Promise<void> {
@@ -183,8 +190,7 @@ export class EmailService {
           : `$${Number(order.total).toFixed(2)}`
       }`,
       trackingUrl: this.payloads.trackingUrl(order.orderNumber),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+      customerName: this.customerName(order),
       orderNumber: order.orderNumber,
       orderDate: new Date(order.createdAt).toLocaleDateString('es-ES', {
         year: 'numeric',
@@ -270,8 +276,7 @@ export class EmailService {
       subject,
       preheader: 'Tu pedido pasa a preparación',
       trackingUrl: this.payloads.trackingUrl(order.orderNumber),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+      customerName: this.customerName(order),
       orderNumber: order.orderNumber,
       orderStatus: this.translateStatus(order.status),
       isPickup: order.deliveryMethod === DeliveryMethod.PICKUP,
@@ -316,8 +321,7 @@ export class EmailService {
       subject,
       preheader: 'Coordinamos la entrega contigo por WhatsApp',
       trackingUrl: this.payloads.trackingUrl(order.orderNumber),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+      customerName: this.customerName(order),
       orderNumber: order.orderNumber,
       shippingAddress: order.shippingAddress,
     });
@@ -384,21 +388,19 @@ export class EmailService {
     verificationUrl: string;
     storeName: string;
   }): Promise<void> {
-    const templateSource = await this.loadTemplate('email-verification');
-    const template = handlebars.compile(templateSource);
+    const subject = `Confirma tu correo electrónico - ${params.storeName}`;
 
-    const html = template({
-      logoUrl: this.getLogoUrl(),
+    const html = await this.render('email-verification', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Confírmalo para activar tu cuenta',
       firstName: params.firstName,
       verificationUrl: params.verificationUrl,
       storeName: params.storeName,
     });
+    if (!html) return;
 
-    await this.sendEmail(
-      params.to,
-      `Confirma tu correo electrónico - ${params.storeName}`,
-      html,
-    );
+    await this.sendEmail(params.to, subject, html);
   }
 
   async sendPasswordReset(params: {
@@ -407,21 +409,22 @@ export class EmailService {
     resetUrl: string;
     storeName: string;
   }): Promise<void> {
-    const templateSource = await this.loadTemplate('password-reset');
-    const template = handlebars.compile(templateSource);
+    const subject = `Restablece tu contraseña - ${params.storeName}`;
 
-    const html = template({
-      logoUrl: this.getLogoUrl(),
+    const html = await this.render('password-reset', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'El enlace vence en 1 hora',
+      // La plantilla lo muestra para que el cliente sepa a qué cuenta
+      // corresponde el enlace, sin depender de `firstName` (opcional).
+      email: params.to,
       firstName: params.firstName,
       resetUrl: params.resetUrl,
       storeName: params.storeName,
     });
+    if (!html) return;
 
-    await this.sendEmail(
-      params.to,
-      `Restablece tu contraseña - ${params.storeName}`,
-      html,
-    );
+    await this.sendEmail(params.to, subject, html);
   }
 
   async sendInvitationEmail(params: {
@@ -429,26 +432,78 @@ export class EmailService {
     inviteUrl: string;
     firstName?: string;
     role: string;
-    expiresAtFormatted: string;
+    expiresAt: Date | string;
+    invitedByName?: string;
     storeName: string;
   }): Promise<void> {
-    const templateSource = await this.loadTemplate('invitation');
-    const template = handlebars.compile(templateSource);
+    const subject = `Invitación para unirte a ${params.storeName}`;
 
-    const html = template({
-      logoUrl: this.getLogoUrl(),
+    const html = await this.render('invitation', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Crea tu contraseña para entrar al panel',
       firstName: params.firstName,
       inviteUrl: params.inviteUrl,
-      role: params.role,
-      expiresAtFormatted: params.expiresAtFormatted,
+      invitedByName: params.invitedByName ?? null,
+      roleLabel: this.roleLabel(params.role),
+      permissions: this.permissionsFor(params.role),
+      expiresAtFormatted: new Date(params.expiresAt).toLocaleDateString(
+        'es-VE',
+        { day: 'numeric', month: 'long', year: 'numeric' },
+      ),
       storeName: params.storeName,
     });
+    if (!html) return;
 
-    await this.sendEmail(
-      params.to,
-      `Invitación para unirte a ${params.storeName}`,
-      html,
-    );
+    await this.sendEmail(params.to, subject, html);
+  }
+
+  /**
+   * Aviso de que el pago no se pudo verificar.
+   *
+   * `reportedAmountVes` -- lo que el cliente dijo haber pagado -- no se
+   * recoge en ninguna parte: al rechazar, el admin sólo puede dejar
+   * `adminNotes`. Va en `null`, igual que `differenceVes` y `reservedUntil`
+   * (tampoco existen en el sistema), y la plantilla omite esos renglones.
+   */
+  async sendPaymentRejected(order: Order): Promise<void> {
+    const recipientEmail = order.user?.email || order.guestEmail;
+    if (!recipientEmail) return;
+
+    const subject = `No pudimos verificar tu pago del pedido ${order.orderNumber}`;
+
+    const html = await this.render('payment-rejected', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Escríbenos y lo revisamos contigo',
+      orderNumber: order.orderNumber,
+      customerName: this.customerName(order),
+      paymentReference: order.paymentInfo?.referenceCode ?? null,
+      totalVes: formatVes(order.totalVes),
+      reportedAmountVes: null,
+      differenceVes: null,
+      reservedUntil: null,
+    });
+    if (!html) return;
+
+    await this.sendEmail(recipientEmail, subject, html);
+  }
+
+  /** Se envía cuando la cuenta queda utilizable, es decir tras verificar el correo. */
+  async sendWelcome(params: { to: string; firstName: string }): Promise<void> {
+    const comun = this.payloads.buildCommon();
+    const subject = `Tu cuenta en ${comun.store.name} ya está lista`;
+
+    const html = await this.render('welcome', {
+      ...comun,
+      subject,
+      preheader: 'Ya puedes seguir tus pedidos desde tu cuenta',
+      firstName: params.firstName,
+      catalogUrl: `${this.configService.get('app.frontendUrl')}/productos`,
+    });
+    if (!html) return;
+
+    await this.sendEmail(params.to, subject, html);
   }
 
   /**
@@ -492,5 +547,39 @@ export class EmailService {
       transferencia: 'Transferencia Bancaria',
     };
     return methodMap[method] || method;
+  }
+
+  /** Rol en español para el correo de invitación. */
+  private roleLabel(role: string): string {
+    const etiquetas: Record<string, string> = {
+      admin: 'Administrador',
+      order_admin: 'Gestor de pedidos',
+      customer: 'Cliente',
+      user: 'Cliente',
+    };
+    return etiquetas[role] ?? role;
+  }
+
+  /**
+   * Qué puede y qué no puede hacer el rol invitado, para que quien acepta la
+   * invitación sepa antes de entrar. Sólo hay dos niveles reales en el panel
+   * (admin y todo lo demás), así que cualquier rol que no sea `admin` recibe
+   * el set de permisos de gestor de pedidos.
+   */
+  private permissionsFor(role: string): { text: string; denied?: boolean }[] {
+    if (role === 'admin') {
+      return [
+        { text: 'Gestionar productos y categorías' },
+        { text: 'Gestionar pedidos y verificar pagos' },
+        { text: 'Invitar y administrar usuarios' },
+      ];
+    }
+
+    return [
+      { text: 'Ver y gestionar pedidos' },
+      { text: 'Verificar pagos' },
+      { text: 'Gestionar productos', denied: true },
+      { text: 'Administrar usuarios', denied: true },
+    ];
   }
 }

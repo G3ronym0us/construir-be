@@ -894,6 +894,15 @@ export class OrdersService {
       await this.emailService.sendPaymentConfirmed(updatedOrder);
     }
 
+    // Simétrico al aviso de pago verificado: hasta ahora el rechazo no
+    // notificaba nada y el cliente se quedaba esperando sin saber por qué.
+    if (
+      previousPaymentStatus !== PaymentStatus.REJECTED &&
+      order.paymentInfo.status === PaymentStatus.REJECTED
+    ) {
+      await this.emailService.sendPaymentRejected(updatedOrder);
+    }
+
     return updatedOrder;
   }
 

@@ -43,7 +43,11 @@
           <td style="background-color:#f7f5f2;padding:18px 26px 0">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr><td align="center" bgcolor="#e2851b" style="border-radius:10px">
-                <a href="{{inviteUrl}}" style="display:block;padding:15px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d;text-decoration:none;border-radius:10px">Crear mi contraseña</a>
+                <!-- Triple-stash: mismo motivo que en password-reset.hbs -- el
+                     "=" del query string no debe salir como "&#x3D;" en el HTML
+                     crudo. El token lo genera el sistema, no hay input de
+                     usuario que escapar. -->
+                <a href="{{{inviteUrl}}}" style="display:block;padding:15px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d;text-decoration:none;border-radius:10px">Crear mi contraseña</a>
               </td></tr>
             </table>
           </td>

@@ -26,7 +26,7 @@
           <td style="background-color:#f7f5f2;padding:18px 26px 0">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr><td align="center" bgcolor="#e2851b" style="border-radius:10px">
-                <a href="{{verificationUrl}}" style="display:block;padding:15px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d;text-decoration:none;border-radius:10px">Confirmar mi correo</a>
+                <a href="{{{verificationUrl}}}" style="display:block;padding:15px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d;text-decoration:none;border-radius:10px">Confirmar mi correo</a>
               </td></tr>
             </table>
           </td>
@@ -36,7 +36,11 @@
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e7e3dd;border-radius:10px">
               <tr><td style="padding:18px">
                 <p style="margin:0 0 7px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:600;color:#7d7a74">Si el botón no abre, copia este enlace:</p>
-                <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;line-height:1.5;color:#0f4c81;word-break:break-all">{{verificationUrl}}</p>
+                <!-- Triple-stash: mismo motivo que en password-reset.hbs -- el
+                     "=" del query string no debe salir como "&#x3D;" en el HTML
+                     crudo. El token lo genera el sistema, no hay input de
+                     usuario que escapar. -->
+                <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;line-height:1.5;color:#0f4c81;word-break:break-all">{{{verificationUrl}}}</p>
               </td></tr>
             </table>
           </td>

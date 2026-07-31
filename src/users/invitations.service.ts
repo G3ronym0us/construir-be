@@ -73,36 +73,41 @@ export class InvitationsService {
 
     await this.invitationsRepository.save(invitation);
 
-    this.sendInvitationEmail(invitation).catch((err) =>
+    // Quien invita: se busca aparte porque `invitation` recién se creó en
+    // memoria (con sólo `invitedByUserId`) y no trae la relación `invitedBy`
+    // cargada desde la base.
+    const invitedByUser = await this.usersRepository.findOne({
+      where: { id: adminUserId },
+    });
+    const invitedByName = invitedByUser
+      ? `${invitedByUser.firstName} ${invitedByUser.lastName}`.trim()
+      : undefined;
+
+    this.sendInvitationEmail(invitation, invitedByName).catch((err) =>
       console.error('Error sending invitation email:', err),
     );
 
     return invitation;
   }
 
-  private async sendInvitationEmail(invitation: UserInvitation): Promise<void> {
+  private async sendInvitationEmail(
+    invitation: UserInvitation,
+    invitedByName?: string,
+  ): Promise<void> {
     const frontendUrl = this.configService.get<string>('app.frontendUrl');
     const storeName =
       this.configService.get<string>('app.storeName') || 'Construir';
     const inviteUrl = `${frontendUrl}/register/invitation?token=${invitation.token}`;
 
-    const expiresAtFormatted = invitation.expiresAt.toLocaleDateString(
-      'es-ES',
-      {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      },
-    );
-
+    // El formateo de la fecha (es-VE, sin hora) lo hace `EmailService`, que es
+    // quien conoce el formato que espera la plantilla.
     await this.emailService.sendInvitationEmail({
       to: invitation.email,
       inviteUrl,
       firstName: invitation.firstName ?? undefined,
       role: invitation.role,
-      expiresAtFormatted,
+      expiresAt: invitation.expiresAt,
+      invitedByName,
       storeName,
     });
   }
