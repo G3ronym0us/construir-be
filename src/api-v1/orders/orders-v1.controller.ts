@@ -234,7 +234,8 @@ export class OrdersV1Controller {
       );
     }
 
-    // cancelled
+    // cancelled — incluye la grafía `canceled` que documenta OrbisNet: esta
+    // rama es el descarte de `pending` y `completed`.
     if (!dto.date_completed) {
       throw new BadRequestException(
         'date_completed is required when status is cancelled',
