@@ -157,7 +157,10 @@ export class OrdersV1Controller {
   })
   @ApiStandardResponses()
   async findOne(@Param('id') id: string) {
-    return this.ordersService.findOneForErp(id);
+    const order = await this.ordersService.findOneForErp(id);
+    const timeZone = this.config.get<string>('app.storeTimezone')!;
+
+    return toWooOrder(order, timeZone);
   }
 
   @Put(':id/acknowledge')
