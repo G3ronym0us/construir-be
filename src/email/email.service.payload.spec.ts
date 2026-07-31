@@ -131,6 +131,11 @@ describe('EmailService — payload de las plantillas', () => {
   });
 
   // Un pedido facturado sin tasa disponible no tiene montos en bolívares.
+  // Handlebars nunca renderiza `null` como el texto "null" (lo hace como
+  // cadena vacía), así que 'Bs. null' o 'Bs. ,' nunca pueden aparecer y una
+  // aserción que los busque no puede fallar. El patrón real que deja un
+  // monto ausente sin condicional es el rótulo pegado al cierre de la
+  // etiqueta: 'Bs. <' o 'BCV <'.
   it('no imprime bloques vacíos cuando no hubo tasa', async () => {
     await service.sendOrderConfirmation(
       makeOrder({
@@ -143,8 +148,8 @@ describe('EmailService — payload de las plantillas', () => {
     );
 
     const html = enviados[0].html;
-    expect(html).not.toContain('Bs. null');
-    expect(html).not.toContain('Bs. ,');
+    expect(html).not.toContain('Bs. <');
+    expect(html).not.toContain('BCV <');
     noQuedanHuecos(html);
   });
 

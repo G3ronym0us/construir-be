@@ -174,7 +174,14 @@ export class EmailService {
     const html = await this.render('order-confirmation', {
       ...this.payloads.buildCommon(),
       subject,
-      preheader: `Estamos verificando tu pago · Bs. ${formatVes(order.totalVes) ?? ''}`,
+      // Igual que en la plantilla: si no hay tasa, `formatVes` devuelve
+      // `null` y el preheader cae al dólar en vez de dejar un "Bs. " suelto
+      // (`{{preheader}}` va sin condicional en el `<div>` oculto de arriba).
+      preheader: `Estamos verificando tu pago · ${
+        formatVes(order.totalVes) !== null
+          ? `Bs. ${formatVes(order.totalVes)}`
+          : `$${Number(order.total).toFixed(2)}`
+      }`,
       trackingUrl: this.payloads.trackingUrl(order.orderNumber),
       customerName:
         order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
@@ -339,7 +346,13 @@ export class EmailService {
     const html = await this.render('admin-new-order', {
       ...this.payloads.buildCommon(),
       subject: `Pedido nuevo ${order.orderNumber}`,
-      preheader: `${itemCount} artículos · Bs. ${formatVes(order.totalVes) ?? ''}`,
+      // Mismo motivo que en `sendOrderConfirmation`: sin tasa, cae al dólar
+      // en vez de dejar un "Bs. " suelto en el preheader.
+      preheader: `${itemCount} artículos · ${
+        formatVes(order.totalVes) !== null
+          ? `Bs. ${formatVes(order.totalVes)}`
+          : `$${Number(order.total).toFixed(2)}`
+      }`,
       orderNumber: order.orderNumber,
       orderDate: new Date(order.createdAt).toLocaleDateString('es-ES', {
         year: 'numeric',
