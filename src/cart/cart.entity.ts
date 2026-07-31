@@ -1,4 +1,4 @@
-import { Exclude } from 'class-transformer';
+import { Exclude, Expose } from 'class-transformer';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -51,14 +51,17 @@ export class Cart {
   updatedAt: Date;
 
   // Computed properties
+  @Expose()
   get totalItems(): number {
     return this.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
   }
 
+  @Expose()
   get subtotal(): number {
     return this.items?.reduce((sum, item) => sum + item.subtotal, 0) || 0;
   }
 
+  @Expose()
   get subtotalVes(): number | null {
     if (!this.items || this.items.length === 0) {
       return null;
