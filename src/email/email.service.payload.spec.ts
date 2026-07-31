@@ -178,6 +178,20 @@ describe('EmailService — payload de las plantillas', () => {
     noQuedanHuecos(enviados[0].html);
   });
 
+  // Mismo patrón que 'no imprime bloques vacíos cuando no hubo tasa' de
+  // sendOrderConfirmation: el bloque "Total pagado" imprimía
+  // 'Bs. {{totalVes}}' y '· BCV {{exchangeRate}}' sin condicional.
+  it('sendPaymentConfirmed no imprime bloques vacíos cuando no hubo tasa', async () => {
+    await service.sendPaymentConfirmed(
+      makeOrder({ exchangeRate: null, exchangeRateDate: null, totalVes: null }),
+    );
+
+    const html = enviados[0].html;
+    expect(html).not.toContain('Bs. <');
+    expect(html).not.toContain('BCV <');
+    noQuedanHuecos(html);
+  });
+
   it('sendOrderShipped compone la plantilla sin huecos', async () => {
     await service.sendOrderShipped(makeOrder());
 
@@ -191,5 +205,18 @@ describe('EmailService — payload de las plantillas', () => {
     expect(enviados).toHaveLength(1);
     expect(enviados[0].to).toBe('admin@constru-ir.com');
     noQuedanHuecos(enviados[0].html);
+  });
+
+  // Mismo patrón, mismo bloque "Total", en el correo interno de pedido
+  // nuevo.
+  it('sendAdminNewOrder no imprime bloques vacíos cuando no hubo tasa', async () => {
+    await service.sendAdminNewOrder(
+      makeOrder({ exchangeRate: null, exchangeRateDate: null, totalVes: null }),
+    );
+
+    const html = enviados[0].html;
+    expect(html).not.toContain('Bs. <');
+    expect(html).not.toContain('BCV <');
+    noQuedanHuecos(html);
   });
 });

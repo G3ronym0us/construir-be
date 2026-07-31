@@ -57,8 +57,8 @@
                   <tr>
                     <td align="left" style="padding:12px 0 0;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d">Total pagado</td>
                     <td align="right" style="padding:12px 0 0">
-                      <span style="display:block;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;line-height:1;font-weight:700;color:#1f7a4d">Bs. {{totalVes}}</span>
-                      <span style="display:block;margin-top:4px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;color:#7d7a74">ref. ${{total}} · BCV {{exchangeRate}}</span>
+                      <span style="display:block;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;line-height:1;font-weight:700;color:#1f7a4d">{{#if totalVes}}Bs. {{totalVes}}{{/if}}</span>
+                      <span style="display:block;margin-top:4px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;color:#7d7a74">ref. ${{total}}{{#if exchangeRate}} · BCV {{exchangeRate}}{{/if}}</span>
                     </td>
                   </tr>
                 </table>
