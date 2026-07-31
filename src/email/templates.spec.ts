@@ -45,7 +45,12 @@ describe('plantillas de correo', () => {
     (archivo) => {
       const fuente = fs.readFileSync(path.join(DIR, archivo), 'utf-8');
 
-      expect(() => handlebars.compile(fuente)).not.toThrow();
+      // `handlebars.compile` es perezoso: no parsea la fuente hasta que se
+      // invoca la función que devuelve. Un `{{#if}}` sin cerrar o un parcial
+      // inexistente no lanzan al compilar, sólo al ejecutar. Por eso hay que
+      // invocar el template (con un payload vacío alcanza, ya que en modo no
+      // estricto Handlebars rinde las variables ausentes como cadena vacía).
+      expect(() => handlebars.compile(fuente)({})).not.toThrow();
     },
   );
 });
