@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import * as handlebars from 'handlebars';
@@ -11,7 +11,32 @@ import { IVA_RATES } from '../products/enums/iva-type.enum';
 
 @Injectable()
 export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter;
+
+  /**
+   * Destinatario de los avisos al admin, o `null` si no está configurado.
+   *
+   * Sin `ADMIN_NOTIFICATION_EMAIL` los avisos de pedido nuevo y de pedido
+   * anulado no se envían. Eso antes ocurría en silencio —un `return` sin más—
+   * así que una tienda podía estar sin recibir aviso de ningún pedido y no
+   * había nada que lo delatara. El aviso en el log es la única señal posible:
+   * fallar el arranque por esto dejaría la tienda sin vender.
+   */
+  private resolveAdminEmail(motivo: string): string | null {
+    const adminEmail = this.configService.get<string>(
+      'email.adminNotificationEmail',
+    );
+
+    if (!adminEmail) {
+      this.logger.warn(
+        `ADMIN_NOTIFICATION_EMAIL no está configurado: no se envió el aviso de ${motivo}.`,
+      );
+      return null;
+    }
+
+    return adminEmail;
+  }
 
   constructor(private configService: ConfigService) {
     const port = this.configService.get('email.port') || 587;
@@ -281,9 +306,7 @@ export class EmailService {
   }
 
   async sendAdminNewOrder(order: Order): Promise<void> {
-    const adminEmail = this.configService.get<string>(
-      'email.adminNotificationEmail',
-    );
+    const adminEmail = this.resolveAdminEmail('pedido nuevo');
     if (!adminEmail) return;
 
     const templateSource = await this.loadTemplate('admin-new-order');
@@ -323,9 +346,7 @@ export class EmailService {
   }
 
   async sendAdminOrderCancelled(order: Order): Promise<void> {
-    const adminEmail = this.configService.get<string>(
-      'email.adminNotificationEmail',
-    );
+    const adminEmail = this.resolveAdminEmail('pedido anulado');
     if (!adminEmail) return;
 
     const templateSource = await this.loadTemplate('admin-order-cancelled');
