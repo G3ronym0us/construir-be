@@ -13,7 +13,10 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { CategoriesService } from './categories.service';
+import {
+  CategoriesService,
+  type CategoryListFilter,
+} from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -41,12 +44,14 @@ export class CategoriesController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
+    @Query('filter') filter?: CategoryListFilter,
   ) {
-    if (page || limit || search) {
+    if (page || limit || search || filter) {
       return this.categoriesService.findAllPaginated(
         page ? parseInt(page) : 1,
         limit ? parseInt(limit) : 20,
         search,
+        filter,
       );
     }
     return this.categoriesService.findAll();
@@ -80,6 +85,13 @@ export class CategoriesController {
   @Get('slug/:slug')
   findBySlug(@Param('slug') slug: string) {
     return this.categoriesService.findBySlug(slug);
+  }
+
+  @Get(':uuid/usage')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  getUsage(@Param('uuid', ParseUUIDPipe) uuid: string) {
+    return this.categoriesService.getUsage(uuid);
   }
 
   @Get(':uuid')
