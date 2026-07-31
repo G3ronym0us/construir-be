@@ -1,14 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { OrdersService } from './orders.service';
-import { Order, OrderStatus, DeliveryMethod } from './order.entity';
+import { Order, OrderStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
 import { PaymentInfo } from './payment-info.entity';
 import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
-import { GuestCustomer } from './guest-customer.entity';
 import { GuestCustomersService } from './guest-customers.service';
 import { EmailService } from '../email/email.service';
 import { DiscountsService } from '../discounts/discounts.service';
@@ -71,179 +70,54 @@ describe('OrdersService.getPendingOrders', () => {
     service = module.get(OrdersService);
   });
 
-  const makeItem = (
-    overrides: Omit<Partial<OrderItem>, 'product'> & {
-      product?: Product | null;
-    } = {},
-  ): OrderItem =>
-    ({
-      id: 1,
-      productName: 'Cemento',
-      product: { id: 10 } as Product,
-      quantity: 2,
-      subtotal: 20.0,
-      productSku: 'CEM-001',
-      price: 10.0,
-      ...overrides,
-    }) as OrderItem;
-
   const makeOrder = (overrides: Partial<Order> = {}): Order =>
     ({
       id: 100,
       status: OrderStatus.ON_HOLD,
       createdAt: new Date('2026-03-07T10:00:00.000Z'),
       total: 20.0,
-      tax: 0,
-      deliveryMethod: DeliveryMethod.DELIVERY,
-      notes: null,
-      user: null,
-      guestEmail: null,
-      shippingAddress: {
-        address: 'Av. Bolívar 123',
-        city: 'Caracas',
-        phone: '04121234567',
-      } as ShippingAddress,
-      items: [makeItem()],
+      items: [{ id: 1, quantity: 2 }],
       ...overrides,
     }) as Order;
 
-  it('returns empty data array when no on-hold orders exist', async () => {
+  it('devuelve vacío cuando no hay órdenes on-hold', async () => {
     mockQueryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
 
     const result = await service.getPendingOrders();
 
     expect(result.data).toEqual([]);
     expect(result.total).toBe(0);
+    expect(result.lastPage).toBe(1);
   });
 
-  it('maps billing from authenticated user', async () => {
-    const order = makeOrder({
-      user: {
-        firstName: 'Juan',
-        lastName: 'Pérez',
-        email: 'juan@test.com',
-      } as User,
-      guestEmail: null,
-    });
+  // El servicio ya no traduce al contrato del ERP: eso es del serializador.
+  it('devuelve las entidades sin transformar', async () => {
+    const order = makeOrder();
     mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
 
-    const { data } = await service.getPendingOrders();
-    const result = data[0];
+    const result = await service.getPendingOrders();
 
-    expect(result.billing.first_name).toBe('Juan');
-    expect(result.billing.last_name).toBe('Pérez');
-    expect(result.billing.email).toBe('juan@test.com');
-    expect(guestCustomersService.findByEmail).not.toHaveBeenCalled();
+    expect(result.data).toEqual([order]);
   });
 
-  it('maps billing from linked guest customer when no user', async () => {
-    const order = makeOrder({
-      user: null,
-      guestEmail: 'guest@test.com',
-      guestCustomer: {
-        firstName: 'María',
-        lastName: 'González',
-        email: 'guest@test.com',
-      } as GuestCustomer,
-    });
-    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
+  it('filtra por on-hold', async () => {
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
 
-    const { data } = await service.getPendingOrders();
-    const result = data[0];
+    await service.getPendingOrders();
 
-    expect(result.billing.first_name).toBe('María');
-    expect(result.billing.last_name).toBe('González');
-    expect(result.billing.email).toBe('guest@test.com');
-  });
-
-  it('sets billing name to null when no linked guest customer', async () => {
-    const order = makeOrder({ user: null, guestEmail: 'unknown@test.com' });
-    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
-
-    const { data } = await service.getPendingOrders();
-    const result = data[0];
-
-    expect(result.billing.first_name).toBeNull();
-    expect(result.billing.last_name).toBeNull();
-    expect(result.billing.email).toBe('unknown@test.com');
-  });
-
-  it('sets billing address fields to null for pickup orders (no shippingAddress)', async () => {
-    const order = makeOrder({
-      deliveryMethod: DeliveryMethod.PICKUP,
-      shippingAddress: null,
-    });
-    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
-
-    const { data } = await service.getPendingOrders();
-    const result = data[0];
-
-    expect(result.billing.address_1).toBeNull();
-    expect(result.billing.city).toBeNull();
-    expect(result.billing.phone).toBeNull();
-    expect(result.payment_method_title).toBe(
-      'Entrega y/o recogida en el local',
+    expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+      'order.status = :status',
+      { status: OrderStatus.ON_HOLD },
     );
   });
 
-  it('sets payment_method_title for delivery orders', async () => {
-    const order = makeOrder({ deliveryMethod: DeliveryMethod.DELIVERY });
-    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
+  it('pagina con skip y take', async () => {
+    mockQueryBuilder.getManyAndCount.mockResolvedValue([[], 25]);
 
-    const { data } = await service.getPendingOrders();
-    const result = data[0];
+    const result = await service.getPendingOrders(3, 10);
 
-    expect(result.payment_method_title).toBe('Envío a domicilio');
-  });
-
-  it('returns correct shape for each order', async () => {
-    const order = makeOrder();
-    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
-
-    const { data } = await service.getPendingOrders();
-    const result = data[0];
-
-    expect(result).toMatchObject({
-      id: 100,
-      status: 'on-hold',
-      date_created: '2026-03-07T10:00:00',
-      total: '20.00',
-      total_tax: '0.00',
-      number: '100',
-      customer_note: null,
-    });
-  });
-
-  it('returns correct line_items shape', async () => {
-    const order = makeOrder();
-    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
-
-    const { data } = await service.getPendingOrders();
-    const result = data[0];
-
-    expect(result.line_items).toHaveLength(1);
-    expect(result.line_items[0]).toMatchObject({
-      id: 1,
-      name: 'Cemento',
-      product_id: 10,
-      quantity: 2,
-      tax_class: 0,
-      tax_rate: 16,
-      total: '20.00',
-      // IVA incluido en el subtotal: 20 * 0.16 / 1.16
-      total_tax: '2.76',
-      sku: 'CEM-001',
-      price: 10,
-    });
-  });
-
-  it('uses product_id 0 when item has no product relation', async () => {
-    const order = makeOrder({ items: [makeItem({ product: null })] });
-    mockQueryBuilder.getManyAndCount.mockResolvedValue([[order], 1]);
-
-    const { data } = await service.getPendingOrders();
-    const result = data[0];
-
-    expect(result.line_items[0].product_id).toBe(0);
+    expect(mockQueryBuilder.skip).toHaveBeenCalledWith(20);
+    expect(mockQueryBuilder.take).toHaveBeenCalledWith(10);
+    expect(result.lastPage).toBe(3);
   });
 });

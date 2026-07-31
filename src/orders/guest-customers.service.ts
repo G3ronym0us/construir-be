@@ -4,18 +4,6 @@ import { Repository } from 'typeorm';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
 import { CustomerInfoDto, ShippingAddressDto } from './dto/create-order.dto';
 
-function normalizarEmail(valor?: string | null): string | null {
-  const limpio = (valor ?? '').trim().toLowerCase();
-  return limpio || null;
-}
-
-function normalizarTelefono(valor?: string | null): string | null {
-  const digitos = (valor ?? '').replace(/\D/g, '');
-  // Menos de 7 dígitos no identifica a nadie: se descarta para que dos valores
-  // basura no se comparen como iguales.
-  return digitos.length >= 7 ? digitos.slice(-10) : null;
-}
-
 @Injectable()
 export class GuestCustomersService {
   constructor(
@@ -25,13 +13,6 @@ export class GuestCustomersService {
 
   /**
    * Busca un cliente guest por su identificación.
-   *
-   * USO INTERNO ÚNICAMENTE. Buscar sólo por cédula es correcto para el alta de
-   * una orden (`createOrUpdate`), donde el cliente ya demostró tener sus datos
-   * porque acaba de escribirlos. No debe exponerse en una ruta pública: las
-   * cédulas venezolanas son secuenciales, así que un endpoint que devuelva
-   * datos personales a partir de una cédula sola permite recorrer el padrón
-   * entero. Para el autocompletado público está `findForAutocomplete()`.
    */
   async findByIdentification(
     identificationType: IdentificationType,
@@ -46,51 +27,24 @@ export class GuestCustomersService {
   }
 
   /**
-   * Busca un cliente guest para autocompletar el formulario de checkout,
-   * exigiendo que quien consulta ya conozca un segundo dato del cliente.
+   * Busca un cliente guest para autocompletar el formulario de checkout.
    *
-   * Devuelve el cliente sólo si la cédula existe **y** el correo o el teléfono
-   * recibido coincide con el registrado. Con eso, conocer una cédula deja de
-   * alcanzar para obtener nombre, correo, teléfono y domicilio de una persona.
+   * Basta la identificación: el comprador escribe su cédula y recupera sus
+   * datos sin tener que recordar con qué correo o teléfono compró la vez
+   * anterior. Es una decisión de producto deliberada.
    *
-   * Devuelve `null` de forma indistinguible en los tres casos de fallo —cédula
-   * inexistente, segundo dato ausente y segundo dato incorrecto— para no
-   * convertirse en un oráculo que confirme qué cédulas están registradas.
+   * El riesgo que acepta es que las cédulas venezolanas son secuenciales, así
+   * que quien recorra números en orden va obteniendo los datos de contacto de
+   * cada cliente que haya comprado. La contención es el límite de tasa del
+   * controlador, no esta consulta: mantenlo puesto.
+   *
+   * Devuelve `null` cuando la identificación no existe.
    */
   async findForAutocomplete(
     identificationType: IdentificationType,
     identificationNumber: string,
-    contacto: { email?: string; phone?: string },
   ): Promise<GuestCustomer | null> {
-    if (!contacto.email && !contacto.phone) {
-      return null;
-    }
-
-    const cliente = await this.findByIdentification(
-      identificationType,
-      identificationNumber,
-    );
-
-    if (!cliente) {
-      return null;
-    }
-
-    // Cada comparación exige que el valor recibido normalice a algo real. Sin
-    // esa condición, un dato en blanco contra un campo vacío del cliente daría
-    // `null === null`, es decir una coincidencia falsa que reabriría el agujero.
-    const emailRecibido = normalizarEmail(contacto.email);
-    const coincideEmail =
-      emailRecibido !== null &&
-      emailRecibido === normalizarEmail(cliente.email);
-
-    // Se comparan los últimos 10 dígitos para que '04141234567',
-    // '+58 414 123 4567' y '414-1234567' se consideren el mismo número.
-    const telefonoRecibido = normalizarTelefono(contacto.phone);
-    const coincideTelefono =
-      telefonoRecibido !== null &&
-      telefonoRecibido === normalizarTelefono(cliente.phone);
-
-    return coincideEmail || coincideTelefono ? cliente : null;
+    return this.findByIdentification(identificationType, identificationNumber);
   }
 
   /**

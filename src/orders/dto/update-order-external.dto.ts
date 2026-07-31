@@ -8,10 +8,18 @@ import {
 } from 'class-validator';
 import { OrderStatus } from '../order.entity';
 
+/**
+ * El documento de OrbisNet escribe la anulación como `canceled`, con una sola
+ * L, mientras nuestro enum usa `cancelled`. No está confirmado si es un typo
+ * del documento o la grafía real que envían, y equivocarse cuesta que toda
+ * anulación muera en un 400 de validación sin llegar al servicio. Se aceptan
+ * las dos y el controlador normaliza.
+ */
 const ERP_STATUSES = [
   OrderStatus.PENDING,
   OrderStatus.COMPLETED,
   OrderStatus.CANCELLED,
+  'canceled',
 ] as const;
 
 export type ErpStatus = (typeof ERP_STATUSES)[number];

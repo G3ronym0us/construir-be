@@ -12,30 +12,27 @@ export class GuestCustomersController {
   /**
    * Autocompleta el formulario de checkout de un invitado que ya compró antes.
    *
-   * Es público porque el checkout de invitados no tiene sesión, pero **exige un
-   * segundo dato**: además de la identificación hay que enviar el correo o el
-   * teléfono, y tiene que coincidir con el registrado.
+   * Basta la identificación. Es público porque el checkout de invitados no
+   * tiene sesión, y se decidió que pedir un segundo dato estorbaba más de lo
+   * que protegía: el comprador no tiene por qué recordar con qué correo o
+   * teléfono compró la vez pasada.
    *
-   * El motivo es que las cédulas venezolanas son secuenciales. Cuando bastaba
-   * la cédula, cualquiera podía recorrerlas en orden y descargar nombre,
-   * correo, teléfono, domicilio y coordenadas de todos los clientes que
-   * hubieran comprado alguna vez. Con el segundo dato eso deja de ser posible:
-   * hay que conocer de antemano el par identificación + contacto.
+   * El riesgo asumido es real y conviene tenerlo presente: las cédulas
+   * venezolanas son secuenciales, así que quien recorra números en orden va
+   * obteniendo nombre, correo, teléfono y domicilio de cada cliente que haya
+   * comprado alguna vez.
    *
-   * Devuelve `null` de forma indistinguible ante cualquier fallo, para no
-   * confirmar qué identificaciones están registradas.
-   *
-   * El límite de tasa es la segunda línea de defensa: encarece la prueba masiva
-   * de pares identificación + contacto aunque alguien tuviera una lista.
+   * **El límite de tasa es la única contención que queda, no lo quites.** A 5
+   * consultas por minuto, barrer un rango de millones de cédulas desde una IP
+   * pasa a tomar años. Si algún día hace falta más, el siguiente paso natural
+   * es exigir el correo o el teléfono como segundo dato.
    */
   @Get('search')
   @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   async searchByIdentification(
     @Query('identificationType') identificationType: IdentificationType,
     @Query('identificationNumber') identificationNumber: string,
-    @Query('email') email?: string,
-    @Query('phone') phone?: string,
   ): Promise<GuestCustomer | null> {
     if (!identificationType || !identificationNumber) {
       return null;
@@ -44,7 +41,6 @@ export class GuestCustomersController {
     return this.guestCustomersService.findForAutocomplete(
       identificationType,
       identificationNumber,
-      { email, phone },
     );
   }
 

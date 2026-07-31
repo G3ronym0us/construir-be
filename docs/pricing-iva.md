@@ -18,12 +18,11 @@ Todo lo demás se deriva:
 | `iva`, `price_with_iva` | `price` + `iva_type` | `Product.syncUsdIvaFields()` (hook de entidad) |
 | `price_ves`, `iva_ves`, `price_with_iva_ves` | `price` + `iva_type` + tasa | `applyVesPrices()` en `src/products/pricing.util.ts` |
 
-La matemática está centralizada en `src/products/iva.util.ts`, con una excepción conocida:
-`getPendingOrders` en `src/orders/orders.service.ts` reimplementa la extracción de
-`total_tax` por línea a mano, usando `.toFixed(2)` en lugar de `round2()`. Hoy ambas
-producen el mismo resultado (verificado sobre 800.000 montos en las cuatro alícuotas),
-pero el riesgo es de desincronización futura si se toca la regla de redondeo o de
-extracción en una sola de las dos versiones.
+La matemática está centralizada en `src/products/iva.util.ts`. La excepción que
+había —`getPendingOrders` reimplementaba la extracción del IVA por línea a mano,
+con `.toFixed(2)` en lugar de `round2()`— desapareció: el desglose se persiste
+en `order_items.base` / `.iva` al crear el pedido y el serializador del ERP lo
+lee de ahí.
 
 **El catálogo muestra `price_with_iva` / `price_with_iva_ves`** — el precio
 completo que paga el cliente. El checkout desglosa ese mismo número hacia
@@ -96,28 +95,16 @@ dejaría una fila huérfana sin orden que la referencie.
   `OrdersService.createOrder`). Cuando se implemente hay que decidir si el
   envío entra a la base gravable.
 
-- **Contrato v1 del ERP:** `GET /api/v1/orders/on-hold` emite `line_items[].total` con
-  IVA incluido. La convención WooCommerce, sobre la que está modelada esa
-  respuesta, define ese campo **sin** impuesto y `total_tax` aparte. Está
-  pendiente de confirmar con el equipo del ERP cuál interpretan; si esperan la
-  convención WooCommerce, hoy les llega inflado y hay que corregirlo. **Además:**
-  `getPendingOrders` reimplementa la extracción de IVA a mano usando `.toFixed(2)`
-  en lugar de `round2()`, lo que funciona hoy pero crea riesgo de desincronización
-  si la lógica de redondeo cambia. **Y, más grave que el redondeo:**
-  `getPendingOrders` (`orders.service.ts`, líneas ~1286 en adelante) deriva la
-  alícuota de cada línea de `item.product?.ivaType` — el estado **vivo** del
-  producto — en vez del desglose que quedó persistido en `order_items` al
-  crear la orden. Un `PATCH /products/:uuid { ivaType }` sobre un producto que
-  ya tiene órdenes on-hold reescribe silenciosamente el impuesto de esas
-  órdenes: el ERP recibe `tax_rate` y `total_tax` calculados con la alícuota
-  de HOY, mientras `order.tax` (el agregado de la orden, que si vino de
-  `getPendingOrders` en otro momento pudo mostrar otro número) quedó
-  persistido con la alícuota de cuando se creó la orden. Si el producto se
-  borra, `item.product` es `null` y `?? 0` asume 16% sobre una línea que podía
-  ser exenta. Se arreglará junto con la reimplementación a mano cuando se
-  confirme el contrato con el ERP: ambos hallazgos están en el mismo bloque de
-  código y comparten la misma solución (leer el desglose persistido en la
-  línea, no recalcularlo).
+- **Contrato v1 del ERP: resuelto.** El payload real de OrbisNet confirmó la
+  convención: `line_items[].total` va **sin** IVA y `total_tax` aparte
+  (98,46 × 0,16 = 15,75 en su ejemplo), mientras el `total` de la orden sí lo
+  incluye. Emitíamos el renglón inclusivo, o sea un 13,8% de más. Corregido en
+  `src/api-v1/orders/woo-order.serializer.ts`, que además reemplazó la
+  extracción de IVA a mano con `.toFixed(2)` y dejó de derivar la alícuota de
+  `item.product?.ivaType`: el desglose se persiste en `order_items.base` /
+  `.iva` al crear el pedido. Las órdenes anteriores a esa migración siguen
+  derivándolo al vuelo del `ivaType` vivo — es el comportamiento de siempre,
+  pero conviene saberlo.
 
 - **Carrito y precios antiguos:** las filas de `cart_items` guardadas antes de
   este cambio tienen `price` con la base sin IVA. **No se corrigen al leer el

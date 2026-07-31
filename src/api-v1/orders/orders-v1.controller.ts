@@ -20,6 +20,7 @@ import {
   ApiOkResponse,
   ApiNotFoundResponse,
 } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { OrdersService } from '../../orders/orders.service';
 import { ApiKeyGuard } from '../../api-keys/guards/api-key.guard';
 import { RequireApiKeyPermission } from '../../api-keys/decorators/api-key-permission.decorator';
@@ -28,6 +29,7 @@ import { WebhookInterceptor } from '../common/interceptors/webhook.interceptor';
 import { PaginationLinkInterceptor } from '../common/interceptors/pagination-link.interceptor';
 import { AcknowledgeOrderDto } from '../../orders/dto/acknowledge-order.dto';
 import { UpdateOrderExternalDto } from '../../orders/dto/update-order-external.dto';
+import { toWooOrder } from './woo-order.serializer';
 import {
   ApiSecurityAll,
   ApiPaginatedQuery,
@@ -42,7 +44,10 @@ import {
 @UseGuards(ApiKeyGuard)
 @UseInterceptors(WebhookInterceptor, PaginationLinkInterceptor)
 export class OrdersV1Controller {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Get()
   @RequireApiKeyPermission(ApiKeyPermission.READ)
@@ -121,20 +126,26 @@ export class OrdersV1Controller {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('perPage', new DefaultValuePipe(10), ParseIntPipe) perPage: number,
   ) {
-    return this.ordersService.getPendingOrders(page, perPage);
+    const result = await this.ordersService.getPendingOrders(page, perPage);
+    const timeZone = this.config.get<string>('app.storeTimezone')!;
+
+    return {
+      ...result,
+      data: result.data.map((order) => toWooOrder(order, timeZone)),
+    };
   }
 
-  @Get(':uuid')
+  @Get(':id')
   @RequireApiKeyPermission(ApiKeyPermission.READ)
   @ApiOperation({
-    summary: 'Obtener orden por UUID',
+    summary: 'Obtener orden por ID o UUID',
     description:
-      'Retorna una orden con todos sus detalles incluyendo items, información de pago, dirección de envío y cliente',
+      'Retorna una orden con todos sus detalles incluyendo items, información de pago, dirección de envío y cliente. Acepta el id numérico de la orden o su UUID.',
   })
   @ApiParam({
-    name: 'uuid',
-    description: 'UUID de la orden',
-    example: 'b2c3d4e5-f6a7-8901-bcde-234567890abc',
+    name: 'id',
+    description: 'ID numérico o UUID de la orden',
+    example: '34',
     type: String,
   })
   @ApiOkResponse({
@@ -145,8 +156,11 @@ export class OrdersV1Controller {
     description: 'Orden no encontrada',
   })
   @ApiStandardResponses()
-  async findOne(@Param('uuid') uuid: string) {
-    return this.ordersService.findOneByUuid(uuid);
+  async findOne(@Param('id') id: string) {
+    const order = await this.ordersService.findOneForErp(id);
+    const timeZone = this.config.get<string>('app.storeTimezone')!;
+
+    return toWooOrder(order, timeZone);
   }
 
   @Put(':id/acknowledge')
@@ -223,7 +237,8 @@ export class OrdersV1Controller {
       );
     }
 
-    // cancelled
+    // cancelled — incluye la grafía `canceled` que documenta OrbisNet: esta
+    // rama es el descarte de `pending` y `completed`.
     if (!dto.date_completed) {
       throw new BadRequestException(
         'date_completed is required when status is cancelled',

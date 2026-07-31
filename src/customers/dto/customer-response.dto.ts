@@ -1,5 +1,6 @@
 export class CustomerResponseDto {
-  id: string;
+  /** Uuid del `user` o del `guest_customer` que hay detrás. Es lo que se usa para direccionar al cliente. */
+  uuid: string;
   type: 'registered' | 'guest';
   name: string;
   email: string;
@@ -23,7 +24,7 @@ export class CustomerListResponseDto {
 
 export class CustomerDetailResponseDto {
   customer: {
-    id: string;
+    uuid: string;
     type: 'registered' | 'guest';
     name: string;
     email: string;
@@ -40,7 +41,7 @@ export class CustomerDetailResponseDto {
     lastOrderDate: Date | null;
   };
   recentOrders: Array<{
-    id: number;
+    uuid: string;
     orderNumber: string;
     date: Date;
     total: number;

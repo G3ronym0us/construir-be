@@ -202,9 +202,14 @@
         <div class="order-info">
             <h3>📍 Retiro en Tienda</h3>
             <p><strong>{{store.name}}</strong></p>
-            <p>{{store.address}}<br>{{store.city}}</p>
+            {{#if store.address}}<p>{{store.address}}{{#if store.city}}<br>{{store.city}}{{/if}}</p>
+            {{else}}{{#if store.city}}<p>{{store.city}}</p>{{/if}}{{/if}}
+            {{#if store.phone}}
             <p><span class="phone-highlight">📞 {{store.phone}}</span></p>
+            {{/if}}
+            {{#if store.hours}}
             <p class="hours">🕐 {{store.hours}}</p>
+            {{/if}}
             {{#if store.mapUrl}}
             <p><a href="{{store.mapUrl}}" class="map-link">Ver en el mapa →</a></p>
             {{/if}}

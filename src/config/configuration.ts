@@ -28,8 +28,11 @@ export interface AppConfig {
   storeAddress: string;
   storeCity: string;
   storePhone: string;
+  storeEmail: string;
   storeHours: string;
   storeMapUrl: string;
+  /** Zona IANA en la que el ERP espera las fechas. WooCommerce emite hora local del sitio. */
+  storeTimezone: string;
 }
 
 export interface BcvRatesConfig {
@@ -83,13 +86,19 @@ export const appConfig = registerAs(
     url: process.env.APP_URL || 'http://localhost:3000',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:4000',
     storeName: process.env.STORE_NAME || 'Construir',
-    storeAddress: process.env.STORE_ADDRESS || 'Tu dirección de tienda aquí',
-    storeCity: process.env.STORE_CITY || 'Ciudad',
-    storePhone: process.env.STORE_PHONE || '0212-XXX-XXXX',
-    storeHours:
-      process.env.STORE_HOURS ||
-      'Lunes a Viernes: 8am - 6pm, Sábados: 9am - 2pm',
-    storeMapUrl: process.env.STORE_MAP_URL || '',
+    // Sin valores de relleno a propósito. Antes caían a marcadores tipo
+    // "Tu dirección de tienda aquí" que llegaban al comprador en el paso de
+    // retiro y en los correos. Vacío es honesto: quien lo consume oculta el
+    // bloque. Se usa ?? y no || para respetar un STORE_* definido como "".
+    storeAddress: process.env.STORE_ADDRESS ?? '',
+    storeCity: process.env.STORE_CITY ?? '',
+    storePhone: process.env.STORE_PHONE ?? '',
+    storeEmail: process.env.STORE_EMAIL ?? '',
+    storeHours: process.env.STORE_HOURS ?? '',
+    storeMapUrl: process.env.STORE_MAP_URL ?? '',
+    // Explícita y no heredada del servidor: el contrato del ERP emite fechas
+    // sin marcador de zona, así que un servidor en UTC las corría 4 horas.
+    storeTimezone: process.env.STORE_TIMEZONE || 'America/Caracas',
   }),
 );
 
