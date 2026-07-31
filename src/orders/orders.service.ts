@@ -616,6 +616,45 @@ export class OrdersService {
       guestCustomerId = guestCustomer.id;
     }
 
+    // 5.b Completar la cuenta del cliente autenticado con lo que acaba de
+    //     escribir.
+    //
+    //     El checkout sólo le pide cédula y teléfono a quien tiene sesión
+    //     cuando su cuenta no los tiene, así que recibir `customerInfo` con
+    //     `userId` significa exactamente eso: faltaban. Sin guardarlos, se los
+    //     volvería a pedir en cada pedido y el ERP los seguiría recibiendo
+    //     vacíos.
+    //
+    //     Sólo se rellena lo que falta: el checkout no puede pisar en silencio
+    //     un dato que el cliente ya tenía cargado en su cuenta.
+    if (userId && createOrderDto.customerInfo) {
+      const cuenta = await this.userRepository.findOne({
+        where: { id: userId },
+      });
+
+      if (cuenta) {
+        const faltantes: Partial<User> = {};
+
+        if (
+          !cuenta.identificationNumber &&
+          createOrderDto.customerInfo.identificationNumber
+        ) {
+          faltantes.identificationType =
+            createOrderDto.customerInfo.identificationType;
+          faltantes.identificationNumber =
+            createOrderDto.customerInfo.identificationNumber;
+        }
+
+        if (!cuenta.phone && createOrderDto.customerInfo.phone) {
+          faltantes.phone = createOrderDto.customerInfo.phone;
+        }
+
+        if (Object.keys(faltantes).length > 0) {
+          await this.userRepository.update(userId, faltantes);
+        }
+      }
+    }
+
     // 4. Crear la información de pago
     const paymentInfo = this.paymentInfoRepository.create({
       method: createOrderDto.paymentMethod,

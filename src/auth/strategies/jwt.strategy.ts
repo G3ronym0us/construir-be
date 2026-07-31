@@ -26,6 +26,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException();
     }
 
+    // La identidad sale del token y el perfil de la fila que se acaba de
+    // cargar. El token se firma una vez y dura 24 h, así que un dato que
+    // cambie —o que se complete después, como la cédula— quedaría viejo ahí
+    // dentro hasta el próximo login.
+    //
+    // El checkout necesita saber si la cuenta tiene cédula y teléfono para
+    // pedírselos sólo a quien le falten; sin esto no podía distinguirlo y los
+    // pedidos de clientes con sesión llegaban al ERP sin identificación.
     return {
       userId: payload.sub,
       id: payload.sub,
@@ -34,6 +42,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       firstName: payload.firstName,
       lastName: payload.lastName,
       role: payload.role,
+      phone: user.phone ?? null,
+      identificationType: user.identificationType ?? null,
+      identificationNumber: user.identificationNumber ?? null,
     };
   }
 }
