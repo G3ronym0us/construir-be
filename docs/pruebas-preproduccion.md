@@ -466,5 +466,24 @@ el ERP para la orden 34:
 WooCommerce va a sumar 354,96 + 48,96 = **403,92** por ese renglón: sobrefactura
 del 13,8%.
 
-Hay que confirmar con el equipo del ERP cuál de las dos lecturas aplican
-**antes** de salir a producción. Es una diferencia de dinero, no de formato.
+**Resuelto.** El payload real de OrbisNet citado arriba fue la confirmación:
+la convención WooCommerce es la que espera el ERP. `line_items[].total` ahora
+sale sin impuesto y `total_tax` aparte — ver
+`src/api-v1/orders/woo-order.serializer.ts` y el bullet «Contrato v1 del ERP»
+en `docs/pricing-iva.md` (sección Pendientes).
+
+---
+
+### H-008 — `GET /api/v1/orders/:uuid` respondía 500 con un id numérico
+
+**Severidad:** media. Bloqueaba una consulta natural del ERP.
+**Detectado en:** `api_request_logs`, 2026-04-09 y 2026-04-10.
+
+El integrador consultó `GET /api/v1/orders/13` dos veces y recibió 500 las dos.
+Es razonable que lo intentara: todo el resto del contrato direcciona las órdenes
+por su id numérico, y el `number` que emitimos es ese id. Esa ruta era la única
+que exigía uuid, y Postgres falla al castear `'13'`.
+
+**Arreglo:** `OrdersService.findOneForErp` resuelve por id o por uuid, y valida
+la forma antes de consultar — un valor que no sea ninguno de los dos responde
+404 sin llegar a la base. Sin esa guarda, `abc` habría seguido dando 500.
