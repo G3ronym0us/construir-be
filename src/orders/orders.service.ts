@@ -719,6 +719,7 @@ export class OrdersService {
     order.discountAmount = pricing.discount;
     order.total = pricing.total;
     order.exchangeRate = pricing.exchangeRate;
+    order.exchangeRateDate = pricing.rateDate;
     order.subtotalVes = pricing.subtotalVes;
     order.taxVes = pricing.taxVes;
     order.discountAmountVes = pricing.discountVes;

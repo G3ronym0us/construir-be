@@ -142,6 +142,20 @@ export class Order {
   })
   exchangeRate: number | null;
 
+  /**
+   * Fecha de la tasa con la que se facturó, no la del pedido.
+   *
+   * La tasa publicada del BCV puede ser de días o meses antes: en la base
+   * local la más reciente era del 2026-04-19 mientras los pedidos eran de
+   * julio. Los correos muestran "BCV 481,22 · 19 abr", así que usar
+   * `createdAt` como sustituto le mostraría al cliente una fecha falsa.
+   *
+   * Nula en los pedidos anteriores a la migración: la tasa vigente entonces no
+   * se puede reconstruir con certeza, así que el correo omite la fecha.
+   */
+  @Column({ name: 'exchange_rate_date', type: 'date', nullable: true })
+  exchangeRateDate: string | null;
+
   @Column({
     name: 'subtotal_ves',
     type: 'decimal',
