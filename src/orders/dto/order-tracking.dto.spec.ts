@@ -111,7 +111,7 @@ describe('toOrderTrackingDto', () => {
   // El corazón del arreglo: nada de esto puede viajar en una respuesta que se
   // obtiene con sólo el número de orden.
   it('no filtra datos del cliente, del pago ni internos', () => {
-    const dto = toOrderTrackingDto(makeOrder());
+    const dto = toOrderTrackingDto(makeOrder({ discountCode: 'DESCUENTO10' }));
     const serializado = JSON.stringify(dto);
 
     const prohibidos = [
@@ -123,6 +123,7 @@ describe('toOrderTrackingDto', () => {
       'receipts/abc.jpg', // comprobante en S3
       'OC-ORBIS-88213', // referencia del ERP
       'Cliente pidió factura', // notas internas
+      'DESCUENTO10', // cupón: es funcional, no informativo
     ];
 
     for (const dato of prohibidos) {
@@ -136,6 +137,7 @@ describe('toOrderTrackingDto', () => {
     expect(dto).not.toHaveProperty('guestEmail');
     expect(dto).not.toHaveProperty('userId');
     expect(dto).not.toHaveProperty('id');
+    expect(dto).not.toHaveProperty('discountCode');
   });
 
   it('tolera una orden sin pago y sin renglones cargados', () => {

@@ -15,7 +15,9 @@ import { PaymentMethod, PaymentStatus } from '../payment-info.entity';
  * Acá va únicamente lo que hace falta para responder "¿en qué va mi pedido?":
  * estado, fechas, montos y renglones. Del pago se expone el método y su
  * estado — sirven para explicarle al cliente que su pago sigue por verificar —
- * pero ningún dato que identifique a nadie ni que sirva para suplantarlo.
+ * pero ningún dato que identifique a nadie ni que sirva para suplantarlo. Por
+ * la misma razón tampoco viaja `discountCode`: es un cupón funcional, no un
+ * dato informativo — `discountAmount` ya le explica el descuento al cliente.
  *
  * Los montos se emiten como texto, igual que los emitía la entidad (las
  * columnas `numeric` de TypeORM llegan como string), para no cambiarle el
@@ -47,7 +49,6 @@ export class OrderTrackingDto {
   subtotal: string | null;
   tax: string | null;
   shipping: string | null;
-  discountCode: string | null;
   discountAmount: string | null;
   total: string | null;
 
@@ -77,7 +78,6 @@ export function toOrderTrackingDto(order: Order): OrderTrackingDto {
     subtotal: money(order.subtotal),
     tax: money(order.tax),
     shipping: money(order.shipping),
-    discountCode: order.discountCode ?? null,
     discountAmount: money(order.discountAmount),
     total: money(order.total),
 
