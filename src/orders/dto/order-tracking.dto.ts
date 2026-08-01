@@ -53,6 +53,11 @@ export class OrderTrackingDto {
   total: string | null;
 
   exchangeRate: string | null;
+  /**
+   * Fecha de la tasa publicada, no la del pedido. Nula en los pedidos
+   * anteriores a la migración que agregó la columna.
+   */
+  exchangeRateDate: string | null;
   subtotalVes: string | null;
   taxVes: string | null;
   discountAmountVes: string | null;
@@ -82,6 +87,7 @@ export function toOrderTrackingDto(order: Order): OrderTrackingDto {
     total: money(order.total),
 
     exchangeRate: money(order.exchangeRate),
+    exchangeRateDate: order.exchangeRateDate ?? null,
     subtotalVes: money(order.subtotalVes),
     taxVes: money(order.taxVes),
     discountAmountVes: money(order.discountAmountVes),

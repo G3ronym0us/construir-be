@@ -21,6 +21,14 @@ import { GetUsersDto } from './dto/get-users.dto';
 import * as bcrypt from 'bcrypt';
 import { EmailService } from '../email/email.service';
 
+/** `jose@correo.com` → `jo•••@correo.com`. Deja como mucho dos caracteres. */
+function maskEmail(email: string): string {
+  const at = email.indexOf('@');
+  if (at <= 0) return '•••';
+  const visible = Math.min(2, at - 1) || 1;
+  return `${email.slice(0, visible)}•••${email.slice(at)}`;
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -404,6 +412,31 @@ export class UsersService {
       resetUrl,
       storeName,
     });
+  }
+
+  /**
+   * Datos mínimos del enlace de recuperación, para que la pantalla de nueva
+   * contraseña muestre de quién es y cuánto le queda.
+   *
+   * El correo va enmascarado: el endpoint es público y sin sesión, así que
+   * devolver la dirección completa convertiría un token filtrado en un oráculo
+   * de correos. Con la primera letra basta para que el dueño se reconozca.
+   */
+  async getResetTokenInfo(
+    token: string,
+  ): Promise<{ email: string; expiresAt: string }> {
+    const user = await this.usersRepository.findOne({
+      where: { passwordResetToken: token },
+    });
+
+    const expiresAt = user?.passwordResetExpiresAt;
+    if (!user || !expiresAt || expiresAt.getTime() <= Date.now()) {
+      // Mismo error para inexistente, usado y vencido: la diferencia sólo le
+      // sirve a quien esté probando tokens.
+      throw new NotFoundException('El enlace no es válido o ya venció');
+    }
+
+    return { email: maskEmail(user.email), expiresAt: expiresAt.toISOString() };
   }
 
   async confirmPasswordReset(

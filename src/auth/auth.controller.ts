@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   Get,
+  Param,
   UseGuards,
   Request,
 } from '@nestjs/common';
@@ -38,6 +39,14 @@ export class AuthController {
   async resetPassword(@Body() dto: ResetPasswordTokenDto) {
     await this.usersService.confirmPasswordReset(dto.token, dto.newPassword);
     return { message: 'Contraseña actualizada correctamente.' };
+  }
+
+  /**
+   * Metadata del enlace de recuperación. Público, como el de invitación.
+   */
+  @Get('reset-password/:token')
+  async getResetTokenInfo(@Param('token') token: string) {
+    return this.usersService.getResetTokenInfo(token);
   }
 
   @UseGuards(JwtAuthGuard)
