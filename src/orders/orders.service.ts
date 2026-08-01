@@ -227,6 +227,74 @@ export class OrdersService {
     return [...porProducto.values()];
   }
 
+  /**
+   * Descuenta el inventario comprobando y restando en una sola instrucción.
+   *
+   * El `WHERE ... AND inventory >= :cantidad` es lo que cierra la ventana:
+   * Postgres evalúa la condición y aplica la resta de forma atómica sobre la
+   * fila, así que de dos checkouts simultáneos del mismo producto sólo uno
+   * puede llevarse las últimas unidades. El otro recibe `affected = 0` y se
+   * entera de que no alcanzó.
+   *
+   * Se prefirió esto a `SELECT ... FOR UPDATE` porque un carrito toca varios
+   * productos y los candados habría que tomarlos siempre en el mismo orden
+   * para no trabar dos pedidos entre sí. Acá no hay candados que ordenar.
+   *
+   * Si un producto falla a mitad de camino se devuelve lo ya reservado antes
+   * de lanzar: el pedido no va a existir, así que esas unidades tienen que
+   * volver al stock.
+   */
+  private async reservarInventario(
+    items: Array<{ product: Product; quantity: number }>,
+  ): Promise<void> {
+    const reservados: Array<{ product: Product; quantity: number }> = [];
+
+    for (const item of items) {
+      const resultado = await this.productRepository
+        .createQueryBuilder()
+        .update(Product)
+        .set({ inventory: () => 'inventory - :cantidad' })
+        .where('uuid = :uuid AND inventory >= :cantidad', {
+          uuid: item.product.uuid,
+          cantidad: item.quantity,
+        })
+        .setParameter('cantidad', item.quantity)
+        .execute();
+
+      if (resultado.affected === 0) {
+        await this.devolverInventario(reservados);
+
+        // Se relee para informar lo que queda de verdad: `item.product` trae
+        // el inventario de hace unos milisegundos, justamente el que dejó de
+        // ser cierto.
+        const actual = await this.productRepository.findOne({
+          where: { uuid: item.product.uuid },
+        });
+
+        throw new ConflictException(
+          `Insufficient inventory for ${item.product.name}. Available: ${
+            actual?.inventory ?? 0
+          }`,
+        );
+      }
+
+      reservados.push(item);
+    }
+  }
+
+  /** Devuelve al stock una reserva que ningún pedido llegó a respaldar. */
+  private async devolverInventario(
+    items: Array<{ product: Product; quantity: number }>,
+  ): Promise<void> {
+    for (const item of items) {
+      await this.productRepository.increment(
+        { uuid: item.product.uuid },
+        'inventory',
+        item.quantity,
+      );
+    }
+  }
+
   private async resolveOrderItems(
     userId: number | null,
     items?: Array<{ productUuid: string; quantity: number }>,
@@ -620,254 +688,282 @@ export class OrdersService {
       }
     }
 
-    // 4. Validar y crear la dirección de envío (solo para delivery)
-    let shippingAddress: ShippingAddress | null = null;
-
-    if (createOrderDto.deliveryMethod === DeliveryMethod.DELIVERY) {
-      if (!createOrderDto.shippingAddress) {
-        throw new BadRequestException(
-          'Shipping address is required for delivery orders',
-        );
-      }
-
-      // Combinar customerInfo con shippingAddress
-      shippingAddress = this.shippingAddressRepository.create({
-        // Datos del cliente (desde customerInfo si es guest, sino desde shippingAddress)
-        identificationType: createOrderDto.customerInfo?.identificationType,
-        identificationNumber: createOrderDto.customerInfo?.identificationNumber,
-        firstName: createOrderDto.customerInfo?.firstName,
-        lastName: createOrderDto.customerInfo?.lastName,
-        email: createOrderDto.customerInfo?.email,
-        phone: createOrderDto.customerInfo?.phone,
-        // Datos de dirección
-        ...createOrderDto.shippingAddress,
-        country: createOrderDto.shippingAddress.country || 'Venezuela',
-        latitude: createOrderDto.shippingAddress.latitude || null,
-        longitude: createOrderDto.shippingAddress.longitude || null,
-      });
-      await this.shippingAddressRepository.save(shippingAddress);
-
-      // El costo de envío queda en 0: `pricing.shipping` lo trae del
-      // calculador (ver el TODO real en OrderPricingService.SHIPPING) hasta
-      // que se implemente el cálculo basado en ubicación.
-    }
-
-    // 5. Guardar/actualizar datos de guest customer para futuras compras
-    let guestCustomerId: number | null = null;
-    if (!userId && createOrderDto.customerInfo) {
-      const guestCustomer = await this.guestCustomersService.createOrUpdate(
-        createOrderDto.customerInfo,
-        createOrderDto.shippingAddress,
-      );
-      guestCustomerId = guestCustomer.id;
-    }
-
-    // 5.b Completar la cuenta del cliente autenticado con lo que acaba de
-    //     escribir.
+    // 3.9 Reservar el inventario ANTES de cualquier otra escritura.
     //
-    //     El checkout sólo le pide cédula y teléfono a quien tiene sesión
-    //     cuando su cuenta no los tiene, así que recibir `customerInfo` con
-    //     `userId` significa exactamente eso: faltaban. Sin guardarlos, se los
-    //     volvería a pedir en cada pedido y el ERP los seguiría recibiendo
-    //     vacíos.
+    // La comprobación del paso 2 lee `product.inventory` y no vuelve a
+    // mirarlo: entre esa lectura y el descuento pasaban ~200 líneas sin
+    // candado, así que dos checkouts simultáneos del mismo producto veían
+    // ambos "hay 4, alcanza" y ambos seguían. Cuatro pedidos concurrentes de
+    // 4 unidades sobre un stock de 4 se aceptaban los cuatro y dejaban el
+    // inventario en −12 (reproducido).
     //
-    //     Sólo se rellena lo que falta: el checkout no puede pisar en silencio
-    //     un dato que el cliente ya tenía cargado en su cuenta.
-    if (userId && createOrderDto.customerInfo) {
-      const cuenta = await this.userRepository.findOne({
-        where: { id: userId },
-      });
+    // `reservarInventario` comprueba y descuenta en una sola instrucción, así
+    // que el que llega segundo no encuentra existencias y se rechaza limpio.
+    // Va acá, como PRIMERA escritura y después de todas las validaciones, para
+    // que un rechazo no deje ninguna fila huérfana detrás.
+    await this.reservarInventario(validatedItems);
 
-      if (cuenta) {
-        const faltantes: Partial<User> = {};
+    // A partir de acá el inventario ya está comprometido. Si algo falla antes
+    // de que la orden y sus renglones queden guardados, hay que devolverlo:
+    // ver el `finally` del cierre.
+    let reservaConfirmada = false;
 
-        if (
-          !cuenta.identificationNumber &&
-          createOrderDto.customerInfo.identificationNumber
-        ) {
-          faltantes.identificationType =
-            createOrderDto.customerInfo.identificationType;
-          faltantes.identificationNumber =
-            createOrderDto.customerInfo.identificationNumber;
+    try {
+      // 4. Validar y crear la dirección de envío (solo para delivery)
+      let shippingAddress: ShippingAddress | null = null;
+
+      if (createOrderDto.deliveryMethod === DeliveryMethod.DELIVERY) {
+        if (!createOrderDto.shippingAddress) {
+          throw new BadRequestException(
+            'Shipping address is required for delivery orders',
+          );
         }
 
-        if (!cuenta.phone && createOrderDto.customerInfo.phone) {
-          faltantes.phone = createOrderDto.customerInfo.phone;
-        }
+        // Combinar customerInfo con shippingAddress
+        shippingAddress = this.shippingAddressRepository.create({
+          // Datos del cliente (desde customerInfo si es guest, sino desde shippingAddress)
+          identificationType: createOrderDto.customerInfo?.identificationType,
+          identificationNumber: createOrderDto.customerInfo?.identificationNumber,
+          firstName: createOrderDto.customerInfo?.firstName,
+          lastName: createOrderDto.customerInfo?.lastName,
+          email: createOrderDto.customerInfo?.email,
+          phone: createOrderDto.customerInfo?.phone,
+          // Datos de dirección
+          ...createOrderDto.shippingAddress,
+          country: createOrderDto.shippingAddress.country || 'Venezuela',
+          latitude: createOrderDto.shippingAddress.latitude || null,
+          longitude: createOrderDto.shippingAddress.longitude || null,
+        });
+        await this.shippingAddressRepository.save(shippingAddress);
 
-        if (Object.keys(faltantes).length > 0) {
-          await this.userRepository.update(userId, faltantes);
-        }
+        // El costo de envío queda en 0: `pricing.shipping` lo trae del
+        // calculador (ver el TODO real en OrderPricingService.SHIPPING) hasta
+        // que se implemente el cálculo basado en ubicación.
       }
-    }
 
-    // 4. Crear la información de pago
-    const paymentInfo = this.paymentInfoRepository.create({
-      method: createOrderDto.paymentMethod,
-      status: PaymentStatus.PENDING,
-      senderName: createOrderDto.paymentDetails.senderName,
-      senderBank: createOrderDto.paymentDetails.senderBank,
-      phoneNumber: createOrderDto.paymentDetails.phoneNumber,
-      cedula: createOrderDto.paymentDetails.cedula,
-      referenceCode: createOrderDto.paymentDetails.referenceCode,
-      accountName: createOrderDto.paymentDetails.accountName,
-      referenceNumber: createOrderDto.paymentDetails.referenceNumber,
-      notes: createOrderDto.paymentDetails.notes,
-    });
-
-    // Buscar y asignar banco para PagoMóvil
-    if (createOrderDto.paymentDetails.bankCode) {
-      const bank = await this.banksService.findByCode(
-        createOrderDto.paymentDetails.bankCode,
-      );
-      if (!bank) {
-        throw new BadRequestException(
-          `Bank with code ${createOrderDto.paymentDetails.bankCode} not found`,
+      // 5. Guardar/actualizar datos de guest customer para futuras compras
+      let guestCustomerId: number | null = null;
+      if (!userId && createOrderDto.customerInfo) {
+        const guestCustomer = await this.guestCustomersService.createOrUpdate(
+          createOrderDto.customerInfo,
+          createOrderDto.shippingAddress,
         );
+        guestCustomerId = guestCustomer.id;
       }
-      paymentInfo.bank = bank;
-      paymentInfo.bankId = bank.id;
-    }
 
-    // Buscar y asignar banco para Transferencia
-    if (createOrderDto.paymentDetails.transferBankCode) {
-      const transferBank = await this.banksService.findByCode(
-        createOrderDto.paymentDetails.transferBankCode,
-      );
-      if (!transferBank) {
-        throw new BadRequestException(
-          `Bank with code ${createOrderDto.paymentDetails.transferBankCode} not found`,
+      // 5.b Completar la cuenta del cliente autenticado con lo que acaba de
+      //     escribir.
+      //
+      //     El checkout sólo le pide cédula y teléfono a quien tiene sesión
+      //     cuando su cuenta no los tiene, así que recibir `customerInfo` con
+      //     `userId` significa exactamente eso: faltaban. Sin guardarlos, se los
+      //     volvería a pedir en cada pedido y el ERP los seguiría recibiendo
+      //     vacíos.
+      //
+      //     Sólo se rellena lo que falta: el checkout no puede pisar en silencio
+      //     un dato que el cliente ya tenía cargado en su cuenta.
+      if (userId && createOrderDto.customerInfo) {
+        const cuenta = await this.userRepository.findOne({
+          where: { id: userId },
+        });
+
+        if (cuenta) {
+          const faltantes: Partial<User> = {};
+
+          if (
+            !cuenta.identificationNumber &&
+            createOrderDto.customerInfo.identificationNumber
+          ) {
+            faltantes.identificationType =
+              createOrderDto.customerInfo.identificationType;
+            faltantes.identificationNumber =
+              createOrderDto.customerInfo.identificationNumber;
+          }
+
+          if (!cuenta.phone && createOrderDto.customerInfo.phone) {
+            faltantes.phone = createOrderDto.customerInfo.phone;
+          }
+
+          if (Object.keys(faltantes).length > 0) {
+            await this.userRepository.update(userId, faltantes);
+          }
+        }
+      }
+
+      // 4. Crear la información de pago
+      const paymentInfo = this.paymentInfoRepository.create({
+        method: createOrderDto.paymentMethod,
+        status: PaymentStatus.PENDING,
+        senderName: createOrderDto.paymentDetails.senderName,
+        senderBank: createOrderDto.paymentDetails.senderBank,
+        phoneNumber: createOrderDto.paymentDetails.phoneNumber,
+        cedula: createOrderDto.paymentDetails.cedula,
+        referenceCode: createOrderDto.paymentDetails.referenceCode,
+        accountName: createOrderDto.paymentDetails.accountName,
+        referenceNumber: createOrderDto.paymentDetails.referenceNumber,
+        notes: createOrderDto.paymentDetails.notes,
+      });
+
+      // Buscar y asignar banco para PagoMóvil
+      if (createOrderDto.paymentDetails.bankCode) {
+        const bank = await this.banksService.findByCode(
+          createOrderDto.paymentDetails.bankCode,
         );
+        if (!bank) {
+          throw new BadRequestException(
+            `Bank with code ${createOrderDto.paymentDetails.bankCode} not found`,
+          );
+        }
+        paymentInfo.bank = bank;
+        paymentInfo.bankId = bank.id;
       }
-      paymentInfo.transferBank = transferBank;
-      paymentInfo.transferBankId = transferBank.id;
-    }
 
-    await this.paymentInfoRepository.save(paymentInfo);
-
-    // 6. Crear la orden
-    const order = new Order();
-    order.orderNumber = this.generateOrderNumber();
-    order.userId = userId || null;
-    order.guestEmail = !userId
-      ? createOrderDto.customerInfo?.email || null
-      : null;
-    order.guestCustomerId = guestCustomerId;
-    order.deliveryMethod = createOrderDto.deliveryMethod;
-    order.shippingAddressId = shippingAddress?.id || null;
-    order.paymentInfoId = paymentInfo.id;
-    order.status = OrderStatus.ON_HOLD;
-    order.subtotal = pricing.subtotal;
-    order.tax = pricing.tax;
-    order.shipping = pricing.shipping;
-    order.discountId = pricing.discountId;
-    order.discountCode = pricing.discountCode;
-    order.discountAmount = pricing.discount;
-    order.total = pricing.total;
-    order.exchangeRate = pricing.exchangeRate;
-    order.subtotalVes = pricing.subtotalVes;
-    order.taxVes = pricing.taxVes;
-    order.discountAmountVes = pricing.discountVes;
-    order.totalVes = pricing.totalVes;
-    order.notes = createOrderDto.notes || null;
-
-    await this.orderRepository.save(order);
-
-    // 6. Crear los items de la orden
-    const createdOrderItems: OrderItem[] = [];
-
-    for (const line of pricing.lines) {
-      const orderItem = this.orderItemRepository.create({
-        orderId: order.id,
-        productId: line.product.id,
-        productName: line.product.name,
-        productSku: line.product.sku,
-        quantity: line.quantity,
-        // `price` y `subtotal` son inclusivos de IVA; `subtotal` ya viene neto
-        // de la porción de descuento que le tocó a la línea.
-        price: line.unitPrice,
-        subtotal: line.total,
-        // El desglose que ya calculó `price()`, congelado acá para que el
-        // contrato del ERP no dependa del `ivaType` vivo del producto.
-        base: line.base,
-        iva: line.iva,
-        priceVes:
-          pricing.exchangeRate !== null
-            ? round2(line.unitPrice * pricing.exchangeRate)
-            : null,
-        // Del desglose de la línea, no recalculado, para que los montos VES de
-        // los items sumen exactamente los de la orden.
-        subtotalVes: line.totalVes,
-      });
-
-      createdOrderItems.push(orderItem);
-    }
-
-    await this.orderItemRepository.save(createdOrderItems);
-
-    // 7. Reducir inventario
-    for (const item of validatedItems) {
-      await this.productRepository.decrement(
-        { uuid: item.product.uuid },
-        'inventory',
-        item.quantity,
-      );
-    }
-
-    // 8. Vaciar el carrito (solo si es usuario autenticado)
-    if (userId) {
-      const cart = await this.cartRepository.findOne({
-        where: { userId },
-      });
-      if (cart) {
-        await this.cartRepository.remove(cart);
+      // Buscar y asignar banco para Transferencia
+      if (createOrderDto.paymentDetails.transferBankCode) {
+        const transferBank = await this.banksService.findByCode(
+          createOrderDto.paymentDetails.transferBankCode,
+        );
+        if (!transferBank) {
+          throw new BadRequestException(
+            `Bank with code ${createOrderDto.paymentDetails.transferBankCode} not found`,
+          );
+        }
+        paymentInfo.transferBank = transferBank;
+        paymentInfo.transferBankId = transferBank.id;
       }
-    }
 
-    // 9. Si el usuario invitado quiere crear cuenta
-    if (
-      !userId &&
-      createOrderDto.createAccount &&
-      createOrderDto.password &&
-      createOrderDto.customerInfo
-    ) {
-      // El alta se delega en `UsersService.create()`, la misma que usa el
-      // registro normal. Armarlo a mano acá lo dejaba a medias: sin cédula ni
-      // teléfono, y —lo peor— sin el correo de verificación. Como el login
-      // exige `emailVerified` para el rol `user`, cada cuenta creada desde el
-      // checkout nacía sin poder iniciar sesión nunca: justo lo que el cliente
-      // marcó la casilla para conseguir.
-      const savedUser = await this.usersService.create({
-        firstName: createOrderDto.customerInfo.firstName,
-        lastName: createOrderDto.customerInfo.lastName,
-        email: createOrderDto.customerInfo.email,
-        phone: createOrderDto.customerInfo.phone,
-        identificationType: createOrderDto.customerInfo.identificationType,
-        identificationNumber: createOrderDto.customerInfo.identificationNumber,
-        password: createOrderDto.password,
-      });
+      await this.paymentInfoRepository.save(paymentInfo);
 
-      // Asociar la orden al nuevo usuario
-      order.userId = savedUser.id;
+      // 6. Crear la orden
+      const order = new Order();
+      order.orderNumber = this.generateOrderNumber();
+      order.userId = userId || null;
+      order.guestEmail = !userId
+        ? createOrderDto.customerInfo?.email || null
+        : null;
+      order.guestCustomerId = guestCustomerId;
+      order.deliveryMethod = createOrderDto.deliveryMethod;
+      order.shippingAddressId = shippingAddress?.id || null;
+      order.paymentInfoId = paymentInfo.id;
+      order.status = OrderStatus.ON_HOLD;
+      order.subtotal = pricing.subtotal;
+      order.tax = pricing.tax;
+      order.shipping = pricing.shipping;
+      order.discountId = pricing.discountId;
+      order.discountCode = pricing.discountCode;
+      order.discountAmount = pricing.discount;
+      order.total = pricing.total;
+      order.exchangeRate = pricing.exchangeRate;
+      order.subtotalVes = pricing.subtotalVes;
+      order.taxVes = pricing.taxVes;
+      order.discountAmountVes = pricing.discountVes;
+      order.totalVes = pricing.totalVes;
+      order.notes = createOrderDto.notes || null;
+
       await this.orderRepository.save(order);
+
+      // 6. Crear los items de la orden
+      const createdOrderItems: OrderItem[] = [];
+
+      for (const line of pricing.lines) {
+        const orderItem = this.orderItemRepository.create({
+          orderId: order.id,
+          productId: line.product.id,
+          productName: line.product.name,
+          productSku: line.product.sku,
+          quantity: line.quantity,
+          // `price` y `subtotal` son inclusivos de IVA; `subtotal` ya viene neto
+          // de la porción de descuento que le tocó a la línea.
+          price: line.unitPrice,
+          subtotal: line.total,
+          // El desglose que ya calculó `price()`, congelado acá para que el
+          // contrato del ERP no dependa del `ivaType` vivo del producto.
+          base: line.base,
+          iva: line.iva,
+          priceVes:
+            pricing.exchangeRate !== null
+              ? round2(line.unitPrice * pricing.exchangeRate)
+              : null,
+          // Del desglose de la línea, no recalculado, para que los montos VES de
+          // los items sumen exactamente los de la orden.
+          subtotalVes: line.totalVes,
+        });
+
+        createdOrderItems.push(orderItem);
+      }
+
+      await this.orderItemRepository.save(createdOrderItems);
+
+      // 7. El inventario ya se descontó en el paso 3.9, antes de escribir
+      //    nada. Acá sólo se confirma: la orden y sus renglones ya están
+      //    guardados, así que la reserva pasa a respaldar un pedido real y el
+      //    `finally` no debe devolverla.
+      reservaConfirmada = true;
+
+      // 8. Vaciar el carrito (solo si es usuario autenticado)
+      if (userId) {
+        const cart = await this.cartRepository.findOne({
+          where: { userId },
+        });
+        if (cart) {
+          await this.cartRepository.remove(cart);
+        }
+      }
+
+      // 9. Si el usuario invitado quiere crear cuenta
+      if (
+        !userId &&
+        createOrderDto.createAccount &&
+        createOrderDto.password &&
+        createOrderDto.customerInfo
+      ) {
+        // El alta se delega en `UsersService.create()`, la misma que usa el
+        // registro normal. Armarlo a mano acá lo dejaba a medias: sin cédula ni
+        // teléfono, y —lo peor— sin el correo de verificación. Como el login
+        // exige `emailVerified` para el rol `user`, cada cuenta creada desde el
+        // checkout nacía sin poder iniciar sesión nunca: justo lo que el cliente
+        // marcó la casilla para conseguir.
+        const savedUser = await this.usersService.create({
+          firstName: createOrderDto.customerInfo.firstName,
+          lastName: createOrderDto.customerInfo.lastName,
+          email: createOrderDto.customerInfo.email,
+          phone: createOrderDto.customerInfo.phone,
+          identificationType: createOrderDto.customerInfo.identificationType,
+          identificationNumber: createOrderDto.customerInfo.identificationNumber,
+          password: createOrderDto.password,
+        });
+
+        // Asociar la orden al nuevo usuario
+        order.userId = savedUser.id;
+        await this.orderRepository.save(order);
+      }
+
+      // 10. Incrementar uso del cupón si se aplicó uno
+      // `pricing.discountUuid` ya viene resuelto de `price()`: no hace falta
+      // volver a buscar el cupón por código acá. Buscarlo de nuevo después de
+      // persistir la orden podía devolver 404 si alguien lo borraba en esa
+      // ventana, dejando la orden creada pero la respuesta al cliente rota.
+      if (pricing.discountUuid) {
+        await this.discountsService.incrementUsage(pricing.discountUuid);
+      }
+
+      // 11. Enviar email de confirmación
+      const finalOrder = await this.findOneByUuid(order.uuid);
+      await this.emailService.sendOrderConfirmation(finalOrder);
+      await this.emailService.sendAdminNewOrder(finalOrder);
+
+      // 12. Retornar la orden completa
+      return finalOrder;
+    } finally {
+      // Si se cayó antes de que la orden y sus renglones quedaran guardados,
+      // el inventario reservado no lo respalda ningún pedido: se devuelve.
+      // Después de esa marca ya no, porque las escrituras que siguen (vaciar
+      // el carrito, crear la cuenta, contar el cupón, enviar los correos) no
+      // invalidan un pedido que sí existe.
+      if (!reservaConfirmada) {
+        await this.devolverInventario(validatedItems);
+      }
     }
-
-    // 10. Incrementar uso del cupón si se aplicó uno
-    // `pricing.discountUuid` ya viene resuelto de `price()`: no hace falta
-    // volver a buscar el cupón por código acá. Buscarlo de nuevo después de
-    // persistir la orden podía devolver 404 si alguien lo borraba en esa
-    // ventana, dejando la orden creada pero la respuesta al cliente rota.
-    if (pricing.discountUuid) {
-      await this.discountsService.incrementUsage(pricing.discountUuid);
-    }
-
-    // 11. Enviar email de confirmación
-    const finalOrder = await this.findOneByUuid(order.uuid);
-    await this.emailService.sendOrderConfirmation(finalOrder);
-    await this.emailService.sendAdminNewOrder(finalOrder);
-
-    // 12. Retornar la orden completa
-    return finalOrder;
   }
 
   /**

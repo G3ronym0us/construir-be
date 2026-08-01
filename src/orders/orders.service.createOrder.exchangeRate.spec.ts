@@ -140,6 +140,17 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
           useValue: {
             findOne: jest.fn(() => Promise.resolve(product)),
             decrement: jest.fn(),
+            increment: jest.fn(),
+            // `reservarInventario` comprueba y descuenta en una sola
+            // instrucción; acá se simula que sí había existencias.
+            createQueryBuilder: jest.fn(() => {
+              const qb: Record<string, jest.Mock> = {};
+              for (const m of ['update', 'set', 'where', 'setParameter']) {
+                qb[m] = jest.fn(() => qb);
+              }
+              qb.execute = jest.fn(() => Promise.resolve({ affected: 1 }));
+              return qb;
+            }),
           },
         },
         { provide: getRepositoryToken(User), useValue: {} },
@@ -399,6 +410,17 @@ describe('OrdersService.createOrder — tasa de la orden', () => {
               Promise.resolve(productsByUuid.get(where.uuid) ?? null),
             ),
             decrement: jest.fn(),
+            increment: jest.fn(),
+            // `reservarInventario` comprueba y descuenta en una sola
+            // instrucción; acá se simula que sí había existencias.
+            createQueryBuilder: jest.fn(() => {
+              const qb: Record<string, jest.Mock> = {};
+              for (const m of ['update', 'set', 'where', 'setParameter']) {
+                qb[m] = jest.fn(() => qb);
+              }
+              qb.execute = jest.fn(() => Promise.resolve({ affected: 1 }));
+              return qb;
+            }),
           },
         },
         { provide: getRepositoryToken(User), useValue: {} },
