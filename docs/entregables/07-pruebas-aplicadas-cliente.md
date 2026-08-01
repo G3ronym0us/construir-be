@@ -2,7 +2,7 @@
 
 **Verificación del sistema antes de la puesta en marcha**
 
-**Fecha:** 1 de agosto de 2026
+**Fecha:** 1 de agosto de 2026 · *actualizado con las correcciones aplicadas*
 
 ---
 
@@ -53,6 +53,10 @@ Se ejecutaron **168 verificaciones** repartidas en 14 áreas.
 |---|---|
 | ✅ Se comportaron como debían | 154 |
 | ⚠️ Con observación registrada | 14 |
+
+De las 14 observaciones, **7 ya fueron corregidas y verificadas** en el sitio en
+funcionamiento. Las demás son de menor impacto o dependen de coordinar con el equipo de
+OrbisNet. La sección final detalla qué se corrigió.
 
 ### Lo que quedó demostrado
 
@@ -262,17 +266,17 @@ Se probaron 13 formas de enviar datos inválidos o abusivos.
 | 7.10 | Usar un cupón que no existe | Rechazar | ✅ |
 | 7.11 | Pedir 9.999 unidades de algo que tiene 4 | Bloquear la compra | ✅ |
 | 7.12 | Pedir 999.999.999.999 unidades | No reventar | ✅ |
-| 7.13 | Poner el mismo producto dos veces en el carrito | Sumar y validar el total | ⚠️ |
+| 7.13 | Poner el mismo producto dos veces en el carrito | Sumar y validar el total | ✅ corregido |
 
 **Sobre los puntos 7.8 y 7.9:** el intento de inyección de SQL **no funcionó** — la base de
 datos lo rechaza y nadie logra leer ni modificar nada. Lo que se registró es que el sistema
 responde con un error genérico en vez de un mensaje claro. Es una observación de
 presentación, no de seguridad.
 
-**Sobre el punto 7.13:** se registró una observación en el control de inventario cuando el
-mismo producto se agrega en dos renglones separados del carrito. Está documentada para el
-equipo técnico y es de corrección sencilla. **Conviene atenderla antes de operar con
-volumen**, porque afecta el conteo de existencias.
+**Sobre el punto 7.13:** se detectó que el control de inventario no sumaba las cantidades
+cuando el mismo producto se agregaba en dos renglones separados del carrito, y podía
+venderse más de lo que hay en existencia. **Ya está corregido y funcionando en el sitio.**
+El detalle está en la sección 17.
 
 ---
 
@@ -454,8 +458,8 @@ no se modificó nada y no se envió ningún correo.**
 | 14.2 | El catálogo carga con imágenes | Sí | ✅ |
 | 14.3 | El carrito calcula bien | Sí, cuadra al céntimo | ✅ |
 | 14.4 | El checkout llega hasta los métodos de pago | Sí: Zelle, Pago Móvil y Transferencia activos | ✅ |
-| 14.5 | Los datos de la tienda salen configurados | Observación registrada | ⚠️ |
-| 14.6 | La tasa de cambio está al día | Corregida y verificada | ✅ |
+| 14.5 | Los datos de la tienda salen configurados | ✅ corregido: ya se ven | ✅ |
+| 14.6 | La tasa de cambio está al día | ✅ corregida y verificada | ✅ |
 | 14.7 | Comportamiento ante direcciones mal escritas | Observación registrada | ⚠️ |
 
 ### Comprobación de montos en producción
@@ -475,9 +479,12 @@ La suma cuadra exactamente: 145.033,87 + 23.205,42 = 168.239,29. ✅
 ## 16. Conclusión
 
 De las 168 verificaciones ejecutadas, **154 se comportaron exactamente como debían**. Las 14
-restantes generaron observaciones que quedaron documentadas para el equipo técnico; ninguna
-de ellas impide operar el sistema, y las de mayor prioridad ya están identificadas para
-atenderse.
+restantes generaron observaciones, y **7 de ellas ya fueron corregidas y verificadas** en el
+sitio en funcionamiento — entre ellas la más importante, el control de existencias. Las que
+siguen abiertas son de menor impacto o dependen de coordinar con el equipo de OrbisNet;
+ninguna impide operar el sistema.
+
+El detalle de lo corregido está en la sección 17.
 
 Las áreas críticas de un comercio electrónico quedaron verificadas:
 
@@ -487,9 +494,64 @@ Las áreas críticas de un comercio electrónico quedaron verificadas:
 - **El ERP recibe los pedidos y devuelve su estado** correctamente.
 - **Los ataques más comunes fueron rechazados.**
 - **El panel de administración funciona completo**, sin errores.
+- **El inventario ya no puede venderse de más**, ni con el mismo producto repetido en el
+  carrito ni con varios clientes comprando a la vez.
 
 Los datos creados durante las pruebas fueron eliminados al terminar. Se verificó
 expresamente que el inventario quedara intacto.
+
+---
+
+## 17. Qué se corrigió a partir de estas pruebas
+
+Las pruebas no quedaron en un informe: siete de las observaciones **ya fueron corregidas y
+verificadas** en el sitio en funcionamiento.
+
+### El control de existencias
+
+Era la más importante. Se detectaron dos situaciones en las que el sistema podía aceptar un
+pedido por más unidades de las que hay en inventario:
+
+- Cuando el mismo producto se agregaba **dos veces por separado** en el carrito, las
+  cantidades no se sumaban al revisar las existencias.
+- Cuando **dos clientes compraban el mismo producto al mismo tiempo**, ambos pasaban la
+  revisión antes de que el otro descontara.
+
+Las dos están cerradas. Ahora el sistema comprueba las existencias y las descuenta en una
+sola operación, de modo que de dos clientes que van por las últimas unidades, sólo uno puede
+llevárselas; al otro se le avisa en el momento.
+
+**Comprobado en el servidor:** con 4 unidades en existencia y 10 pedidos entrando a la vez,
+se aceptaron **exactamente 4**. Ni uno de más ni uno de menos. Antes de la corrección, ese
+mismo escenario dejaba el inventario en números negativos.
+
+### Los datos de la tienda
+
+En el sitio no aparecían la dirección, el teléfono ni el horario, porque faltaban en la
+configuración del servidor. Un cliente que elegía "Retiro en tienda" no veía dónde ir.
+
+**Ya se ven**, junto con el enlace al mapa.
+
+### El aviso de pedidos nuevos
+
+No estaba configurado el correo que recibe los avisos, así que entraba un pedido y del lado
+de la tienda no sonaba nada — sin ningún error visible que lo delatara.
+
+**Ya llega el aviso** a la dirección de la tienda cada vez que entra un pedido.
+
+### La tasa de cambio
+
+La tasa llevaba dos días sin actualizarse: la tarea automática corría puntual pero fallaba
+cada vez, por una credencial que faltaba en el servidor.
+
+**Ya sincroniza.** Se comprobó que los montos en bolívares cuadran con la tasa vigente.
+
+### La dirección de envío
+
+Se dejó activa únicamente la opción de **escribir la dirección a mano**. Las opciones de
+ubicación por GPS y por mapa funcionan, pero la dirección escrita es la única que llega
+completa al sistema administrativo, que es quien despacha. Se reactivarán cuando esa parte
+esté resuelta.
 
 ---
 

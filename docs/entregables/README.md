@@ -57,7 +57,7 @@ diferencia de 0,29%. El proyecto `bcv-rates-service` ya tenía anotada esta disc
 *«el bug de +1 día hábil de construir-be»* en `scripts/parallel-compare/compare.spec.ts`.
 Es preexistente y conviene decidir cuál de las dos fechas debe regir.
 
-### 2. 🟠 Cargar los datos de la tienda en el servidor
+### 2. ✅ Los datos de la tienda — RESUELTO el 1 de agosto
 
 En producción, la consulta de datos de la tienda devuelve todo vacío. Verificado: un cliente
 que elija "Retiro en tienda" **no ve la dirección, ni el teléfono, ni el horario**.
@@ -67,7 +67,9 @@ Es solo configuración. En el servidor, agregar al `.env` las variables `STORE_A
 `STORE_WHATSAPP_URL` y `STORE_RIF` — los valores correctos ya están en el `.env` local — y
 reiniciar el contenedor. Cinco minutos.
 
-**No lo apliqué** porque toca producción en vivo y usted pidió solo reportar.
+**Aplicado y verificado.** En el sitio real ya se ven la dirección, el teléfono, el horario y
+el enlace al mapa. Se cargaron además `ADMIN_NOTIFICATION_EMAIL` —sin él no salía ningún aviso
+de pedido nuevo—, `STORE_RIF` y `STORE_WHATSAPP_URL`.
 
 ### 3. 🟠 Conversar con OrbisNet el punto de la reconfirmación
 
@@ -129,18 +131,20 @@ cd ../construir-fe && git worktree remove --force ../construir-fe-test
 
 | # | Hallazgo | Gravedad | Estado |
 |---|----------|----------|--------|
-| 1 | Sobreventa por producto repetido en el carrito (una sola petición) | 🔴 Alta | Pendiente |
-| 1b | Sobreventa por compras simultáneas (reproducido: 4 → −12) | 🔴 Alta | Pendiente |
+| 1 | Sobreventa por producto repetido en el carrito (una sola petición) | 🔴 Alta | ✅ Corregido y desplegado |
+| 1b | Sobreventa por compras simultáneas (reproducido: 4 → −12) | 🔴 Alta | ✅ Corregido y desplegado |
 | 2 | Error 500 ante paginación o identificadores mal escritos | 🟠 Media | Pendiente |
 | 3 | Producto inexistente devuelve renglón fantasma en la cotización | 🟠 Media-baja | Pendiente |
 | 4 | Reconfirmar pedido facturado responde "todo bien" | 🟠 Media | Conversar con OrbisNet |
 | 5 | Los correos muestran el correo del cliente en vez de su nombre | 🟡 Baja | Pendiente |
 | 6 | Las 10 plantillas de correo dicen "Caracas" | 🟡 Baja | Pendiente |
-| 7 | Faltan los datos de la tienda en producción | 🟠 Media | Pendiente (configuración) |
+| 7 | Faltaban los datos de la tienda en producción | 🟠 Media | ✅ Corregido y verificado |
 | 8 | La tasa de cambio tenía 2 días de atraso (faltaban 3 variables en el `.env`) | 🟠 Media | ✅ Corregido y verificado |
 | 8b | El sistema toma la tasa con fecha efectiva del siguiente día hábil | 🟡 Baja | Preexistente, ya anotado en `bcv-rates-service` |
 | 9 | El backend no arrancaba en la rama actual | 🔴 Bloqueante | ✅ Corregido |
 | 10 | Las imágenes locales no se servían | 🟡 Baja | ✅ Corregido |
+| 11 | No se avisaba al administrador de los pedidos nuevos | 🟠 Media | ✅ Corregido y verificado |
+| 12 | La referencia del domicilio no viaja al ERP | 🟡 Baja | Conversar con OrbisNet |
 
 **Lo que quedó demostrado que funciona bien:** los 42 controles de permisos, las cuentas de
 IVA y bolívares al céntimo, la compra completa de punta a punta, el ciclo entero con el ERP,

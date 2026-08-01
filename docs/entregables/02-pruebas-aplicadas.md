@@ -38,6 +38,10 @@ Se ejecutaron **168 verificaciones** repartidas en 12 áreas.
 | ⚠️ Pasan con observación | 6 |
 | ❌ Fallaron (defectos encontrados) | 8 |
 
+**Actualización del 1 de agosto:** de los 8 defectos, **5 ya están corregidos y desplegados**
+—incluidos los dos de sobreventa, que eran los de mayor gravedad—. Quedan 3 pendientes, todos
+de gravedad media o baja, más 2 puntos a conversar con OrbisNet.
+
 ### Lo que quedó demostrado que funciona bien
 
 - **La seguridad de accesos es sólida.** 42 intentos de entrar sin permiso o de hacer cosas
@@ -51,13 +55,13 @@ Se ejecutaron **168 verificaciones** repartidas en 12 áreas.
 
 ### Lo que hay que arreglar antes de seguir creciendo
 
-| # | Problema | Gravedad |
-|---|----------|----------|
-| 1 | Se puede vender más mercancía de la que hay en inventario (dos formas distintas) | 🔴 Alta |
-| 2 | El servidor devuelve "error interno" en vez de un mensaje claro ante datos mal escritos | 🟠 Media |
-| 3 | Los datos de la tienda no salen en producción: falta configuración en el servidor | 🟠 Media |
-| 4 | Los correos muestran el correo electrónico del cliente en vez de su nombre | 🟡 Baja |
-| 5 | Los correos dicen que la tienda está en Caracas, cuando está en Ciudad Bolívar | 🟡 Baja |
+| # | Problema | Gravedad | Estado |
+|---|----------|----------|--------|
+| 1 | Se podía vender más mercancía de la que hay (dos formas distintas) | 🔴 Alta | ✅ Corregido |
+| 2 | El servidor devuelve "error interno" ante datos mal escritos | 🟠 Media | Pendiente |
+| 3 | Los datos de la tienda no salían en producción | 🟠 Media | ✅ Corregido |
+| 4 | Los correos muestran el correo del cliente en vez de su nombre | 🟡 Baja | Pendiente |
+| 5 | Los correos dicen que la tienda está en Caracas | 🟡 Baja | Pendiente |
 
 ---
 
@@ -258,15 +262,17 @@ datos inválidos o abusivos.
 | 7.10 | Usar un cupón que no existe | Rechazar | ✅ |
 | 7.11 | Pedir 9.999 unidades de algo que tiene 4 | Bloquear la compra | ✅ |
 | 7.12 | Pedir 999.999.999.999 unidades | No reventar | ✅ |
-| 7.13 | **Poner el mismo producto dos veces en el carrito** | Sumar y validar el total | ❌ **Hallazgo 1** |
+| 7.13 | **Poner el mismo producto dos veces en el carrito** | Sumar y validar el total | ✅ tras **Hallazgo 1** |
 
 ---
 
-# 🔴 Hallazgo 1 — Se puede vender más mercancía de la que hay
+# ✅ Hallazgo 1 — Se podía vender más mercancía de la que hay (CORREGIDO)
 
-**Gravedad: alta.** Es el hallazgo más importante de todas las pruebas.
+**Gravedad original: alta.** Fue el hallazgo más importante de todas las pruebas.
+**Corregido y desplegado a producción el 1 de agosto.**
 
-Hay **dos formas distintas** de lograr que el sistema venda inventario que no existe.
+Había **dos formas distintas** de lograr que el sistema vendiera inventario que no existe.
+Las dos están cerradas y verificadas contra el servidor.
 
 ## Forma A: repetir el mismo producto en el carrito
 
@@ -278,16 +284,17 @@ Hay **dos formas distintas** de lograr que el sistema venda inventario que no ex
 3. El sistema **aceptó el pedido**.
 4. El inventario quedó en **−1**.
 
-**Por qué pasa.** El sistema revisa cada renglón por separado contra el inventario. Ve
-"2 unidades ≤ 4, está bien" y luego "3 unidades ≤ 4, está bien". Nunca suma los dos
-renglones para darse cuenta de que juntos piden 5.
+**Por qué pasaba.** El sistema revisaba cada renglón por separado contra el inventario. Veía
+"2 unidades ≤ 4, está bien" y luego "3 unidades ≤ 4, está bien". Nunca sumaba los dos
+renglones para darse cuenta de que juntos pedían 5.
 
-**Dónde está:** `src/orders/orders.service.ts`, líneas 457 a 479.
+**Cómo se arregló.** Se suman las cantidades por producto antes de validar. El arreglo se
+hizo en el único punto por donde pasan los dos caminos —la cotización y la creación del
+pedido—, así que el carrito también dejó de mentir: antes mostraba dos renglones
+"disponible" sobre un stock que sólo alcanzaba para uno.
 
-**Cómo se arregla:** antes de validar, sumar las cantidades por producto y comparar el
-total contra el inventario. Es un cambio contenido, de pocas líneas.
-
-**Nota:** este caso es nuevo, no estaba documentado antes.
+**Bastaba una sola petición**, sin necesidad de que dos clientes coincidieran. Por eso se
+atacó primero.
 
 ## Forma B: dos clientes comprando al mismo tiempo
 
@@ -298,33 +305,42 @@ total contra el inventario. Es un cambio contenido, de pocas líneas.
 3. El sistema **aceptó los 4 pedidos** (16 unidades en total).
 4. El inventario quedó en **−12**.
 
-**Por qué pasa.** Cuando dos pedidos entran al mismo tiempo, ambos leen el inventario antes
-de que el otro lo descuente. Los dos ven "hay 4" y los dos siguen adelante. El sistema no
-bloquea el registro mientras hace la operación, y las escrituras del pedido no se agrupan
-en una sola transacción.
+**Por qué pasaba.** El sistema comprobaba el inventario y lo descontaba en dos momentos
+separados, con unas 200 líneas de código entre medio. Cuando dos pedidos entraban a la vez,
+ambos leían "hay 4, alcanza" antes de que el otro descontara, y los dos seguían adelante.
 
-**Este riesgo ya estaba anotado** en `docs/pricing-iva.md`, líneas 118 a 125, donde se
-explica que `createOrder` hace unas ocho escrituras sin transacción y lee el inventario sin
-bloqueo. Lo que aporta esta prueba es que **deja de ser un riesgo teórico**: está
-reproducido con números concretos.
+Este riesgo **ya estaba anotado** en la documentación técnica del proyecto como algo
+teórico. Lo que aportaron estas pruebas fue reproducirlo con números concretos.
 
-**Cómo se arregla:** envolver la creación del pedido en una transacción y bloquear la fila
-del producto mientras se descuenta (`SELECT ... FOR UPDATE`), o hacer el descuento de forma
-atómica y rechazar el pedido si el inventario queda negativo.
+**Cómo se arregló.** Ahora la comprobación y el descuento son **una sola operación**: la base
+de datos verifica que haya existencias y las resta en la misma instrucción. De dos pedidos
+que van por las últimas unidades, sólo uno puede llevárselas; al otro se le avisa que ya no
+hay.
 
-## Qué significa esto en la práctica
+Además, la reserva del inventario pasó a ser **lo primero que se escribe**, después de todas
+las validaciones. Así, un pedido rechazado por falta de stock no deja nada a medias. Y si
+algo falla después de reservar pero antes de que el pedido quede guardado, las unidades se
+devuelven solas al inventario.
 
-En el volumen de hoy es poco probable que ocurra por accidente. Pero:
+## Verificación contra el servidor
 
-- Se le puede vender a un cliente algo que no se le puede entregar.
-- El ERP recibe una orden que no se puede despachar.
-- El inventario del sistema deja de coincidir con el inventario real de la tienda.
+| Prueba | Antes | Ahora |
+|--------|-------|-------|
+| 4 pedidos simultáneos de 4 unidades, con 4 en stock | Los 4 aceptados, inventario **−12** | 1 aceptado, 3 rechazados, inventario **0** |
+| 10 pedidos simultáneos de 1 unidad, con 4 en stock | Sobreventa | **Exactamente 4** aceptados, inventario **0** |
+| 2 + 3 del mismo producto, con 4 en stock | Aceptado, inventario **−1** | Rechazado, inventario **intacto** |
+| 2 + 2 = 4 exactos, con 4 en stock | Aceptado | Aceptado, inventario **0** |
+| Dos productos, el segundo sin stock | — | Rechazado y **el primero se devuelve** |
 
-**Recomendación: corregir la Forma A antes de la prueba con el cliente** (es el arreglo más
-sencillo y el único que se puede provocar desde una sola petición). La Forma B se puede
-planificar para la siguiente ronda de trabajo.
+El caso de los 10 pedidos simultáneos es el más contundente: no se vendió ni una unidad de
+más ni una de menos.
 
----
+Se agregaron **11 pruebas automatizadas** que cubren los dos casos, para que el problema no
+pueda volver sin que alguien se entere. Se comprobó que esas pruebas fallan si se quita el
+arreglo.
+
+**Estado en producción:** desplegado y verificado. Cero productos con inventario negativo.
+
 
 # 🟠 Hallazgo 2 — "Error interno" en vez de un mensaje claro
 
@@ -878,18 +894,20 @@ completo. Dado que ya se detectó que en producción faltan las variables `STORE
 
 | # | Hallazgo | Gravedad | Estado | Dónde |
 |---|----------|----------|--------|-------|
-| 1 | Sobreventa por producto repetido en el carrito | 🔴 Alta | Pendiente | `orders.service.ts:457-479` |
-| 1b | Sobreventa por compras simultáneas | 🔴 Alta | Pendiente (ya documentado) | `orders.service.ts` |
+| 1 | Sobreventa por producto repetido en el carrito | 🔴 Alta | ✅ **Corregido y desplegado** | `orders.service.ts` |
+| 1b | Sobreventa por compras simultáneas | 🔴 Alta | ✅ **Corregido y desplegado** | `orders.service.ts` |
 | 2 | Error interno 500 ante datos mal escritos | 🟠 Media | Pendiente | Paginación e identificadores |
 | 3 | Producto inexistente en la cotización | 🟠 Media-baja | Pendiente | `orders.service.ts` |
 | 4 | Reconfirmar pedido facturado responde "todo bien" | 🟠 Media | Conversar con OrbisNet | API v1 |
 | 5 | Los correos muestran el correo en vez del nombre | 🟡 Baja | Pendiente | `email.service.ts:342-344` |
 | 6 | Los correos dicen "Caracas" | 🟡 Baja | Pendiente | 10 plantillas |
-| 7 | Faltan los datos de la tienda en producción | 🟠 Media | Pendiente (solo configuración) | `.env` del servidor |
+| 7 | Faltaban los datos de la tienda en producción | 🟠 Media | ✅ **Corregido y verificado** | `.env` del servidor |
 | 8 | La tasa de cambio tenía 2 días de atraso (faltaban 3 variables en el `.env`) | 🟠 Media | ✅ **Corregido y verificado** | `.env` del servidor |
 | 8b | Toma la tasa del siguiente día hábil (0,29% de diferencia) | 🟡 Baja | Preexistente, decisión de negocio | `bcv-rates-service` |
 | 9 | El backend no arrancaba en la rama actual | 🔴 Bloqueante | ✅ **Corregido** | `orders.module.ts` |
 | 10 | Las imágenes locales no se servían | 🟡 Baja | ✅ **Corregido** | `main.ts` |
+| 11 | No se avisaba al administrador de los pedidos nuevos | 🟠 Media | ✅ **Corregido y verificado** | `.env` del servidor |
+| 12 | La referencia del domicilio no viaja al ERP | 🟡 Baja | Conversar con OrbisNet | API v1 |
 
 ## Qué se recomienda hacer antes de la prueba con el cliente
 
@@ -897,23 +915,29 @@ completo. Dado que ya se detectó que en producción faltan las variables `STORE
 
 1. ✅ ~~Revisar por qué la tasa de cambio no se está actualizando~~ — **hecho el 1 de agosto**.
    Faltaban tres variables en el `.env`; se corrigió y se verificó (Hallazgo 8).
-2. Cargar las variables `STORE_*` en el servidor (Hallazgo 7). Son cinco minutos y mejora
-   mucho lo que ve el cliente en el paso de retiro en tienda. **Aprovechar que ya hay que
-   editar ese mismo archivo.**
+2. ✅ ~~Cargar las variables `STORE_*` en el servidor~~ — **hecho el 1 de agosto**. En el
+   sitio real ya se ven la dirección, el teléfono, el horario y el enlace al mapa en el paso
+   de retiro en tienda (Hallazgo 7).
+3. ✅ ~~Configurar el aviso de pedido nuevo al administrador~~ — **hecho**. Antes entraba un
+   pedido y no sonaba nada del lado de la tienda; faltaba `ADMIN_NOTIFICATION_EMAIL`
+   (Hallazgo 11).
 
 **Prioridad 2 — esta semana:**
 
-3. Corregir la sobreventa por producto repetido (Hallazgo 1). Es el arreglo más sencillo de
-   los dos y cierra la vía que se puede provocar desde una sola petición.
+3. ✅ ~~Corregir la sobreventa por producto repetido~~ — **hecho el 1 de agosto**, junto con la
+   de compras simultáneas. Las dos verificadas contra el servidor (Hallazgo 1).
 4. Validar los parámetros de paginación para eliminar los errores 500 (Hallazgo 2).
 
 **Prioridad 3 — cuando haya espacio:**
 
 5. Arreglar el nombre y la ciudad en los correos (Hallazgos 5 y 6). Son cambios pequeños y
    se ven bien de cara al cliente.
-6. Planificar la transacción y el bloqueo de inventario para las compras simultáneas
-   (Hallazgo 1b).
+6. ✅ ~~Planificar el bloqueo de inventario para las compras simultáneas~~ — **hecho**. Se
+   resolvió comprobando y descontando en una sola operación (Hallazgo 1b).
 7. Conversar el punto de la reconfirmación con el equipo de OrbisNet (Hallazgo 4).
+8. Conversar con OrbisNet que la **referencia del domicilio** no viaja en el pedido: el ERP
+   recibe la dirección y la ciudad, pero no la referencia que escribe el cliente
+   ("casa de rejas verdes, frente a la panadería"), que es lo más útil para el repartidor.
 
 ---
 
