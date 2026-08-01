@@ -185,7 +185,48 @@ export class OrdersService {
    * y `item.product` llega en `null`. Devolver esos renglones aparte, en vez
    * de leer `item.product.uuid` sin guarda, es lo que evita el 500: cada
    * llamador decide qué hacer con ellos (ver `quoteOrder` y `createOrder`).
+   *
+   * Los renglones salen de acá ya sumados por producto: ver
+   * `agruparPorProducto`.
    */
+  /**
+   * Suma en un solo renglón las cantidades del mismo producto.
+   *
+   * La validación de inventario recorre los renglones de a uno y compara cada
+   * cantidad contra el MISMO `product.inventory`, sin acumular lo ya
+   * comprometido por los renglones anteriores. Un carrito con dos renglones
+   * del mismo producto —2 y 3 unidades, sobre un inventario de 4— pasaba dos
+   * veces la comprobación («2 ≤ 4» y «3 ≤ 4») y terminaba vendiendo 5 de 4,
+   * dejando el inventario en −1. Basta una sola petición: no hace falta
+   * concurrencia para provocarlo.
+   *
+   * Agrupar acá arregla los dos caminos de una vez, porque `quoteOrder` y
+   * `createOrder` resuelven sus ítems por esta misma función. El carrito del
+   * servidor también puede traer el producto repetido en dos filas.
+   *
+   * Se conserva el orden de aparición para no alterar cómo se listan los
+   * renglones en la cotización.
+   */
+  private static agruparPorProducto(
+    items: Array<{ productUuid: string; quantity: number }>,
+  ): Array<{ productUuid: string; quantity: number }> {
+    const porProducto = new Map<
+      string,
+      { productUuid: string; quantity: number }
+    >();
+
+    for (const item of items) {
+      const acumulado = porProducto.get(item.productUuid);
+      if (acumulado) {
+        acumulado.quantity += item.quantity;
+      } else {
+        porProducto.set(item.productUuid, { ...item });
+      }
+    }
+
+    return [...porProducto.values()];
+  }
+
   private async resolveOrderItems(
     userId: number | null,
     items?: Array<{ productUuid: string; quantity: number }>,
@@ -225,7 +266,10 @@ export class OrdersService {
         });
       }
 
-      return { items: resolved, missingItems };
+      return {
+        items: OrdersService.agruparPorProducto(resolved),
+        missingItems,
+      };
     }
 
     if (!items || items.length === 0) {
@@ -233,10 +277,12 @@ export class OrdersService {
     }
 
     return {
-      items: items.map((item) => ({
-        productUuid: item.productUuid,
-        quantity: item.quantity,
-      })),
+      items: OrdersService.agruparPorProducto(
+        items.map((item) => ({
+          productUuid: item.productUuid,
+          quantity: item.quantity,
+        })),
+      ),
       missingItems: [],
     };
   }

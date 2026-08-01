@@ -185,14 +185,24 @@ describe('OrdersService.quoteOrder', () => {
     expect(quote.items[0].total).toBe(23.2);
   });
 
-  // Regresión: un `Map` por UUID de producto colapsa cuando el mismo
-  // producto aparece dos veces en `items[]` (carrito con el mismo ítem
-  // agregado en dos momentos sin fusionar cantidades). `price()` sí genera
-  // una línea distinta por cada entrada, en el mismo orden que `priceable`;
-  // la asociación tiene que respetar ese orden en vez de agrupar por UUID.
-  it('cotiza cada aparición del mismo producto con su propia línea', async () => {
+  // Regresión: un `Map` por UUID de producto colapsaba las líneas y cada
+  // renglón terminaba mostrando el monto del otro, con la suma sin cuadrar
+  // contra `totals.total`. `price()` genera una línea por entrada, en el
+  // mismo orden que `priceable`; la asociación tiene que respetar ese orden.
+  //
+  // El caso original usaba el MISMO producto dos veces. Eso ya no puede
+  // llegar acá: `resolveOrderItems` suma por producto antes de validar (ver
+  // `agruparPorProducto`), porque comparar cada renglón por separado contra
+  // el mismo inventario vendía más de lo que hay. La garantía sigue
+  // haciendo falta igual, así que se cubre con dos productos distintos y
+  // cantidades distintas, que es donde la asociación por posición todavía
+  // decide.
+  it('cotiza cada producto con el monto de su propia línea', async () => {
     const p = producto();
-    productRepository.findOne.mockResolvedValue(p);
+    const otro = producto({ id: 2, uuid: 'uuid-2', name: 'Cemento gris' });
+    productRepository.findOne.mockImplementation(({ where }) =>
+      Promise.resolve(where.uuid === 'uuid-1' ? p : otro),
+    );
     pricingService.price.mockResolvedValue({
       lines: [
         {
@@ -209,7 +219,7 @@ describe('OrdersService.quoteOrder', () => {
           totalVes: 2847.8,
         },
         {
-          product: p,
+          product: otro,
           quantity: 5,
           unitPrice: 11.6,
           lineTotal: 58,
@@ -241,7 +251,7 @@ describe('OrdersService.quoteOrder', () => {
     const quote = await service.quoteOrder({
       items: [
         { productUuid: 'uuid-1', quantity: 1 },
-        { productUuid: 'uuid-1', quantity: 5 },
+        { productUuid: 'uuid-2', quantity: 5 },
       ],
     });
 
