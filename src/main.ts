@@ -25,8 +25,10 @@ async function bootstrap() {
   // Apply ClassSerializerInterceptor globally to respect @Exclude() decorators
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
-  // Serve static files from public directory
-  app.useStaticAssets(join(__dirname, '..', 'public'));
+  // Serve static files from public directory.
+  // `main.js` queda en `dist/src/`, así que subir un solo nivel apunta a
+  // `dist/public` — que no existe. `public/` vive en la raíz del repo.
+  app.useStaticAssets(join(process.cwd(), 'public'));
 
   // Setup Swagger documentation
   const document = SwaggerModule.createDocument(app, v1SwaggerConfig);
