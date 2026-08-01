@@ -659,7 +659,7 @@ no se modificó nada y no se envió ningún correo.**
 | 14.3 | El carrito calcula bien | Sí, cuadra al céntimo | ✅ |
 | 14.4 | El checkout llega hasta los métodos de pago | Sí: Zelle, Pago Móvil y Transferencia activos | ✅ |
 | 14.5 | Los datos de la tienda salen configurados | **No** | ❌ **Hallazgo 7** |
-| 14.6 | La tasa de cambio está al día | Del 30 de julio (2 días de atraso) | ⚠️ **Hallazgo 8** |
+| 14.6 | La tasa de cambio está al día | Estaba 2 días atrasada → ✅ corregida | ✅ **Hallazgo 8** |
 | 14.7 | El error de paginación también ocurre en producción | Sí, ocurre | ❌ Hallazgo 2 |
 
 **Verificación de los montos en producción** (producto real del catálogo):
@@ -699,20 +699,111 @@ proyecto) y reiniciar el contenedor.
 **No se aplicó este arreglo** porque toca el servidor en vivo y usted pidió solo reportarlo.
 Queda listo para aplicarse mañana en unos minutos.
 
-## ⚠️ Hallazgo 8 — La tasa de cambio tiene 2 días de atraso
+## ✅ Hallazgo 8 — La tasa de cambio tenía 2 días de atraso (CORREGIDO)
 
-En producción la tasa vigente es del **30 de julio** (Bs. 745,64) y hoy es **1 de agosto**.
+En producción la tasa vigente era del **30 de julio** (Bs. 745,64) estando a **1 de agosto**.
 
-El sistema tiene dos tareas programadas para actualizarla (una diaria a la 1:00 AM y otra
-cada 20 minutos en horario hábil). Que la tasa tenga dos días implica que **esas tareas no
-se están ejecutando o están fallando en silencio**.
+### Corrección a lo que se reportó primero
 
-**Impacto:** los precios en bolívares se calculan con una tasa vieja. Si la tasa oficial
-subió en estos dos días, se está vendiendo por debajo del valor real.
+La primera versión de este documento decía que las tareas programadas «no se estaban
+ejecutando». **Eso era incorrecto.** Al revisar los registros del contenedor se ve que
+corrían puntuales cada 20 minutos, y que **fallaban todas las veces**:
 
-**Recomendación: revisarlo antes de la prueba con el cliente.** Conviene mirar los registros
-del servidor para ver si la tarea está fallando, y verificar que la llave de acceso al
-servicio de tasas (`BCV_RATES_API_KEY`) esté configurada en producción.
+```
+[ExchangeRateTasksService] Checking for a newly published BCV rate...
+[BCVService] Fetching published BCV rate from https://rates.cambiosloscriollitos.com/...
+[BCVService] ERROR: Error fetching BCV rate
+[ExchangeRateTasksService] WARN: No se pudo obtener la tasa publicada; se conserva la tasa guardada
+```
+
+### La causa raíz
+
+Faltaban **tres variables** en el `.env` del servidor:
+
+```
+BCV_RATES_URL          FALTABA
+BCV_RATES_API_KEY      FALTABA
+BCV_RATES_TIMEOUT_MS   FALTABA
+```
+
+El `.env.example` del propio servidor las documenta como *«REQUERIDO para sincronizar la
+tasa»*, pero nunca se cargaron al archivo real. El contenedor lo avisaba desde el arranque:
+`BCV_RATES_API_KEY no está configurada: no se podrá sincronizar la tasa`.
+
+**La línea de tiempo cuadra exacta:**
+
+| Momento | Qué pasó |
+|---------|----------|
+| 29-jul 14:20 | El commit `211f30f` cambia el servicio para consumir el servicio centralizado de tasas |
+| **30-jul 05:00 UTC** | **Última sincronización exitosa** (código anterior) → 745,64 |
+| 30-jul 05:27 UTC | Se despliega ese cambio con el **PR #1** |
+| Desde entonces | Todas las sincronizaciones fallan. ~2 días, más de 100 intentos |
+
+### El servicio de tasas estaba sano
+
+Se consultó su base directamente: tenía las tasas al día, incluida la del lunes siguiente.
+El problema era exclusivamente la falta de credenciales del lado de Construir.
+
+### Impacto real medido
+
+Menor de lo que se temía: la tasa apenas se había movido.
+
+| Comparación | Diferencia |
+|-------------|-----------:|
+| Producción (745,64) vs. tasa del viernes (746,63) | 0,13% |
+| Producción (745,64) vs. tasa del lunes (748,79) | 0,42% |
+
+En una venta de $225 eran unos **Bs. 223 de menos**. Poco, pero la deriva histórica es de
+~0,15% diario: congelada un mes habría quedado ~4,5% por debajo.
+
+### Qué se hizo (aplicado y verificado el 1 de agosto)
+
+1. Se respaldó el `.env` del servidor.
+2. Se **rotó** la llave `construir` del servicio de tasas. El texto plano anterior estaba
+   perdido: ese servicio guarda solo el hash SHA-256 y la clave se muestra una sola vez.
+   Se rotó el registro existente en vez de crear uno nuevo, para no duplicar.
+3. Se probó la llave nueva contra el servicio **antes** de tocar nada más.
+4. Se cargaron las tres variables al `.env` y se recreó el contenedor.
+5. Se corrió la sincronización y el recálculo de precios de los 1.267 productos.
+
+**Verificación final en producción:**
+
+```
+tasa declarada : 748,78
+tasa implícita : 748,79   (cuadra)
+
+base  Bs 145.645,20
+IVA   Bs  23.302,03
+total Bs 168.947,23      (base + IVA = total, cuadra)
+```
+
+### Dos apuntes de lo que se aprendió aplicando el arreglo
+
+**`docker-compose restart` no relee el `.env`.** Reinicia el contenedor con las variables
+que ya tenía. Para que tome cambios del `env_file` hay que recrear el contenedor.
+
+**Mezclar docker-compose v1 y v2 rompe.** La v1 nombra la imagen `construir-be_app` y la v2
+busca `construir-be-app`; al no encontrarla, la v2 intenta reconstruir, y la reconstrucción
+falló por falta de espacio en disco, dejando el sitio caído unos minutos. Se restauró
+levantando el contenedor existente, se liberaron 800 MB de caché de Docker y se etiquetó la
+imagen con ambos nombres. **El despliegue normal por GitHub Actions no se ve afectado**
+porque hace `down` + `build` + `up` con la v1, que es un camino distinto.
+
+## ⚠️ Hallazgo 8b — El sistema toma la tasa del siguiente día hábil
+
+Al quedar sincronizado, el sistema tomó la tasa con **fecha efectiva del lunes 3 de agosto**
+(748,78) estando a sábado 1 de agosto, en vez de la del viernes 31 de julio (746,63). El BCV
+publica el viernes por la tarde la tasa que rige el lunes.
+
+La diferencia es de **0,29%**: hoy se está cobrando un poco por encima de la tasa del último
+día hábil transcurrido.
+
+**No es nuevo y ya estaba detectado.** El proyecto `bcv-rates-service` tiene una prueba que
+lo nombra explícitamente: *«reporta divergencia de fecha: el bug de +1 día hábil de
+construir-be»* (`scripts/parallel-compare/compare.spec.ts`).
+
+**Recomendación:** es una decisión de negocio más que un error técnico. Hay que definir cuál
+de las dos fechas debe regir el precio que se le cobra al cliente, y dejarlo escrito.
 
 ---
 
@@ -795,7 +886,8 @@ completo. Dado que ya se detectó que en producción faltan las variables `STORE
 | 5 | Los correos muestran el correo en vez del nombre | 🟡 Baja | Pendiente | `email.service.ts:342-344` |
 | 6 | Los correos dicen "Caracas" | 🟡 Baja | Pendiente | 10 plantillas |
 | 7 | Faltan los datos de la tienda en producción | 🟠 Media | Pendiente (solo configuración) | `.env` del servidor |
-| 8 | La tasa de cambio tiene 2 días de atraso | 🟠 Media | **Revisar antes de la prueba** | Tarea programada |
+| 8 | La tasa de cambio tenía 2 días de atraso (faltaban 3 variables en el `.env`) | 🟠 Media | ✅ **Corregido y verificado** | `.env` del servidor |
+| 8b | Toma la tasa del siguiente día hábil (0,29% de diferencia) | 🟡 Baja | Preexistente, decisión de negocio | `bcv-rates-service` |
 | 9 | El backend no arrancaba en la rama actual | 🔴 Bloqueante | ✅ **Corregido** | `orders.module.ts` |
 | 10 | Las imágenes locales no se servían | 🟡 Baja | ✅ **Corregido** | `main.ts` |
 
@@ -803,10 +895,11 @@ completo. Dado que ya se detectó que en producción faltan las variables `STORE
 
 **Prioridad 1 — antes de la reunión:**
 
-1. Revisar por qué la tasa de cambio no se está actualizando (Hallazgo 8). Es lo único que
-   puede afectar los montos que se le muestren al cliente mañana.
+1. ✅ ~~Revisar por qué la tasa de cambio no se está actualizando~~ — **hecho el 1 de agosto**.
+   Faltaban tres variables en el `.env`; se corrigió y se verificó (Hallazgo 8).
 2. Cargar las variables `STORE_*` en el servidor (Hallazgo 7). Son cinco minutos y mejora
-   mucho lo que ve el cliente en el paso de retiro en tienda.
+   mucho lo que ve el cliente en el paso de retiro en tienda. **Aprovechar que ya hay que
+   editar ese mismo archivo.**
 
 **Prioridad 2 — esta semana:**
 

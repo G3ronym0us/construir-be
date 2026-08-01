@@ -23,16 +23,32 @@ Las capturas están en `manual/cliente/` (21 imágenes) y `manual/admin/` (17 im
 
 Tres cosas, en orden de importancia:
 
-### 1. 🔴 Revisar la tasa de cambio en producción
+### 1. ✅ La tasa de cambio — RESUELTO el 1 de agosto
 
-La tasa vigente en producción es del **30 de julio** y hoy es **1 de agosto**. Las tareas
-programadas que la actualizan (diaria a la 1:00 AM y cada 20 minutos en horario hábil) no
-parecen estar corriendo.
+**Diagnóstico corregido.** Los crons **sí estaban corriendo**, cada 20 minutos y puntuales.
+Lo que pasaba es que **fallaban todas las veces**: faltaban tres variables en el `.env` del
+servidor (`BCV_RATES_URL`, `BCV_RATES_API_KEY`, `BCV_RATES_TIMEOUT_MS`), que el
+`.env.example` documenta como requeridas pero nunca se cargaron.
 
-**Por qué importa mañana:** los montos que se le muestren al cliente se calculan con esa
-tasa. Si está vieja, los precios en bolívares están por debajo del valor real.
+El cambio entró con el commit `211f30f` (29-jul) y se desplegó con el **PR #1** el 30-jul a
+las 05:27 UTC. La última sincronización buena fue ese mismo día a las 05:00 UTC, 27 minutos
+antes. Desde entonces, ~2 días y más de 100 intentos fallidos.
 
-Qué revisar: los registros del servidor y que `BCV_RATES_API_KEY` esté configurada en producción.
+**Aplicado:** se rotó la llave `construir` del servicio de tasas (el texto plano anterior se
+había perdido: solo se guarda el hash), se cargaron las tres variables, se recreó el
+contenedor y se corrió la sincronización más el recálculo de precios.
+
+**Verificado:** la tasa pasó de 745,64 a **748,78** (fecha efectiva 03-ago) y la cotización
+en producción cuadra — tasa declarada 748,78, tasa implícita 748,79, y base + IVA = total.
+
+⚠️ **La llave nueva hay que guardarla** en el gestor de contraseñas. Está en el `.env` del
+servidor y se entregó por separado. Si se pierde, hay que rotarla otra vez.
+
+⚠️ **Observación aparte:** hoy (sábado 1-ago) el sistema quedó usando la tasa con fecha
+efectiva del **lunes 3-ago** (748,78) en vez de la del viernes 31-jul (746,63) — una
+diferencia de 0,29%. El proyecto `bcv-rates-service` ya tenía anotada esta discrepancia como
+*«el bug de +1 día hábil de construir-be»* en `scripts/parallel-compare/compare.spec.ts`.
+Es preexistente y conviene decidir cuál de las dos fechas debe regir.
 
 ### 2. 🟠 Cargar los datos de la tienda en el servidor
 
@@ -114,7 +130,8 @@ cd ../construir-fe && git worktree remove --force ../construir-fe-test
 | 5 | Los correos muestran el correo del cliente en vez de su nombre | 🟡 Baja | Pendiente |
 | 6 | Las 10 plantillas de correo dicen "Caracas" | 🟡 Baja | Pendiente |
 | 7 | Faltan los datos de la tienda en producción | 🟠 Media | Pendiente (configuración) |
-| 8 | La tasa de cambio tiene 2 días de atraso | 🟠 Media | **Revisar antes de la reunión** |
+| 8 | La tasa de cambio tenía 2 días de atraso (faltaban 3 variables en el `.env`) | 🟠 Media | ✅ Corregido y verificado |
+| 8b | El sistema toma la tasa con fecha efectiva del siguiente día hábil | 🟡 Baja | Preexistente, ya anotado en `bcv-rates-service` |
 | 9 | El backend no arrancaba en la rama actual | 🔴 Bloqueante | ✅ Corregido |
 | 10 | Las imágenes locales no se servían | 🟡 Baja | ✅ Corregido |
 
