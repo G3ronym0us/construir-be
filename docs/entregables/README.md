@@ -10,7 +10,8 @@ Documentos preparados la noche del **1 de agosto de 2026**.
 |---|-----------|-----------|----------|
 | 1 | [Alcance y costos](01-alcance-y-costos.md) | **Uso interno** | Qué se construyó, cuánto vale y qué se cobra |
 | 1b | [**Alcance del proyecto (PDF)**](Construir-Alcance-del-proyecto.pdf) | **El cliente** | Solo qué se construyó. Sin costos, sin hallazgos, sin pendientes. Listo para entregar |
-| 2 | [Pruebas aplicadas](02-pruebas-aplicadas.md) | Usted y el cliente | Las 168 pruebas que se hicieron y los 10 hallazgos |
+| 2 | [Pruebas aplicadas](02-pruebas-aplicadas.md) | **Uso interno** | Las 168 pruebas y los 10 hallazgos con causa raíz y ubicación |
+| 2b | [**Informe de pruebas (PDF)**](Construir-Informe-de-pruebas.pdf) | **El cliente** | Las mismas 168 pruebas, sin detalle interno de los hallazgos. Listo para entregar |
 | 3 | [Casos de prueba ERP](03-casos-prueba-erp.xlsx) | **La reunión de mañana** | 27 casos y 135 pasos para marcar con el cliente |
 | 3b | [Casos de prueba ERP (texto)](03-casos-prueba-erp.md) | Referencia | Lo mismo del Excel, en formato de lectura |
 | 4 | [Manual del cliente](04-manual-cliente-movil.md) | Clientes finales | Cómo comprar desde el celular, con capturas |
