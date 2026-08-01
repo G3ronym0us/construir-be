@@ -14,10 +14,15 @@ Documentos preparados la noche del **1 de agosto de 2026**.
 | 2b | [**Informe de pruebas (PDF)**](Construir-Informe-de-pruebas.pdf) | **El cliente** | Las mismas 168 pruebas, sin detalle interno de los hallazgos. Listo para entregar |
 | 3 | [Casos de prueba ERP](03-casos-prueba-erp.xlsx) | **La reunión de mañana** | 27 casos y 135 pasos para marcar con el cliente |
 | 3b | [Casos de prueba ERP (texto)](03-casos-prueba-erp.md) | Referencia | Lo mismo del Excel, en formato de lectura |
-| 4 | [Manual del cliente](04-manual-cliente-movil.md) | Clientes finales | Cómo comprar desde el celular, con capturas |
-| 5 | [Manual del administrador](05-manual-admin-escritorio.md) | Personal de la tienda | Cómo usar el panel, con capturas |
+| 4 | [**Manual del cliente (PDF)**](Construir-Manual-del-cliente.pdf) | **Clientes finales** | Cómo comprar desde el celular, con 20 capturas. 16 páginas |
+| 5 | [**Manual del administrador (PDF)**](Construir-Manual-del-administrador.pdf) | **Personal de la tienda** | Cómo usar el panel, con 17 capturas. 18 páginas |
+| 4b · 5b | [Manual del cliente](04-manual-cliente-movil.md) · [del administrador](05-manual-admin-escritorio.md) | Fuente | Los mismos manuales en Markdown, para editarlos |
 
 Las capturas están en `manual/cliente/` (21 imágenes) y `manual/admin/` (17 imágenes).
+
+**Los cuatro PDF listos para entregar:** alcance del proyecto, informe de pruebas, manual del
+cliente y manual del administrador. Los `.md` son la fuente: si edita uno, hay que volver a
+generar su PDF.
 
 ---
 
