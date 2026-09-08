@@ -54,6 +54,11 @@ export interface EmailConfig {
   adminNotificationEmail: string;
 }
 
+export interface AnalyticsConfig {
+  /** Días que se conservan las filas de `page_views` antes de purgarlas. */
+  pageViewRetentionDays: number;
+}
+
 export const databaseConfig = registerAs(
   'database',
   (): DatabaseConfig => ({
@@ -131,5 +136,21 @@ export const emailConfig = registerAs(
     password: process.env.EMAIL_PASSWORD || '',
     from: process.env.EMAIL_FROM || '"Construir" <noreply@construir.com>',
     adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL || '',
+  }),
+);
+
+/**
+ * El plazo de retención de las visitas es una decisión del dueño de la tienda,
+ * no del código, así que vive en el entorno. El defecto de 180 días cubre de
+ * sobra el único uso real (totales del día, del mes y páginas más visitadas)
+ * sin acumular historial a perpetuidad.
+ */
+export const analyticsConfig = registerAs(
+  'analytics',
+  (): AnalyticsConfig => ({
+    pageViewRetentionDays: parseInt(
+      process.env.ANALYTICS_PAGE_VIEW_RETENTION_DAYS || '180',
+      10,
+    ),
   }),
 );

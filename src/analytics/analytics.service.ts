@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThanOrEqual } from 'typeorm';
+import { Repository, MoreThanOrEqual, LessThan } from 'typeorm';
 import { PageView } from './page-view.entity';
 import { CreatePageViewDto } from './dto/create-page-view.dto';
 
@@ -11,16 +11,29 @@ export class AnalyticsService {
     private pageViewRepository: Repository<PageView>,
   ) {}
 
-  async trackPageView(
-    createPageViewDto: CreatePageViewDto,
-    ipAddress?: string,
-  ): Promise<PageView> {
-    const pageView = this.pageViewRepository.create({
-      ...createPageViewDto,
-      ipAddress,
-    });
+  async trackPageView(createPageViewDto: CreatePageViewDto): Promise<PageView> {
+    const pageView = this.pageViewRepository.create(createPageViewDto);
 
     return await this.pageViewRepository.save(pageView);
+  }
+
+  /**
+   * Borra las visitas anteriores a `retentionDays` días.
+   *
+   * La tabla no tenía ninguna política de retención: crecía sin techo desde el
+   * primer día, y las dos únicas lecturas son "total" y "más visitadas", que no
+   * necesitan el historial completo para nada. Guardar menos tiempo también
+   * reduce lo que hay que entregar o proteger si algo pasa.
+   */
+  async purgeOldPageViews(retentionDays: number): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+
+    const result = await this.pageViewRepository.delete({
+      createdAt: LessThan(cutoff),
+    });
+
+    return result.affected ?? 0;
   }
 
   async getPageViewStats(): Promise<{
