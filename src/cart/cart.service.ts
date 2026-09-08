@@ -22,7 +22,35 @@ export class CartService {
     private readonly productRepository: Repository<Product>,
   ) {}
 
+  /**
+   * El carrito tal como se le responde al cliente.
+   *
+   * `Product` tiene `@DeleteDateColumn`, asi que cuando un admin borra un
+   * producto que estaba en el carrito de alguien, TypeORM lo excluye del join
+   * y el renglon queda con `product` en `null`. Ese `null` viajaba en el JSON
+   * y reventaba al frontend: la ficha de producto consulta el carrito para
+   * saber cuanto lleva de cada articulo, leia `item.product.uuid` de un
+   * renglon huerfano y se caia el render de TODO el catalogo. El sintoma para
+   * el cliente era que, con la sesion iniciada, los botones de "Agregar"
+   * desaparecian y no podia meter nada al carrito -- sin ningun error visible
+   * y sin relacion aparente con el producto que si habia sido borrado.
+   *
+   * Un renglon sin producto ademas no se puede comprar ni quitar: el frontend
+   * identifica los renglones por el uuid del producto, que ya no existe. Se
+   * filtra de la respuesta, no se borra: si el admin restaura el producto
+   * (`deleted_at` a null), el renglon vuelve a aparecer con su cantidad
+   * intacta. Las mutaciones internas siguen viendo el carrito completo via
+   * `loadCart()`, para que vaciarlo lo vacie de verdad y para no duplicar un
+   * renglon al re-agregar un producto restaurado.
+   */
   async getCart(userId: number): Promise<Cart> {
+    const cart = await this.loadCart(userId);
+    cart.items = (cart.items ?? []).filter((item) => item.product);
+    return cart;
+  }
+
+  /** El carrito completo, huerfanos incluidos. Solo para uso interno. */
+  private async loadCart(userId: number): Promise<Cart> {
     let cart = await this.cartRepository.findOne({
       where: { userId },
       relations: ['items', 'items.product', 'items.product.images'],
@@ -57,8 +85,11 @@ export class CartService {
       );
     }
 
-    // Obtener o crear el carrito
-    const cart = await this.getCart(userId);
+    // Obtener o crear el carrito. `loadCart` y no `getCart`: hace falta ver
+    // tambien los renglones huerfanos, porque si el producto que se esta
+    // agregando es uno que fue borrado y despues restaurado, su renglon
+    // existe y hay que sumarle la cantidad en vez de crear uno duplicado.
+    const cart = await this.loadCart(userId);
 
     // Verificar si el producto ya está en el carrito.
     //
@@ -111,7 +142,10 @@ export class CartService {
     itemId: string,
     updateCartItemDto: UpdateCartItemDto,
   ): Promise<Cart> {
-    const cart = await this.getCart(userId);
+    // `loadCart`: el carrito completo, para poder responderle al frontend con
+    // el mensaje especifico de abajo si el renglon que quiere cambiar es uno
+    // huerfano, en vez de un "no existe" a secas.
+    const cart = await this.loadCart(userId);
 
     const cartItem = cart.items?.find((item) => item.uuid === itemId);
 
@@ -156,7 +190,9 @@ export class CartService {
   }
 
   async removeItem(userId: number, itemId: string): Promise<Cart> {
-    const cart = await this.getCart(userId);
+    // `loadCart`: quitar un renglon huerfano tiene que seguir funcionando
+    // aunque `getCart` ya no se lo muestre al cliente.
+    const cart = await this.loadCart(userId);
 
     const cartItem = cart.items?.find((item) => item.uuid === itemId);
 
@@ -170,7 +206,9 @@ export class CartService {
   }
 
   async clearCart(userId: number): Promise<Cart> {
-    const cart = await this.getCart(userId);
+    // `loadCart`: vaciar el carrito tiene que vaciarlo entero, huerfanos
+    // incluidos, y no dejar filas invisibles atras.
+    const cart = await this.loadCart(userId);
 
     if (cart.items?.length > 0) {
       await this.cartItemRepository.remove(cart.items);
@@ -185,7 +223,7 @@ export class CartService {
   }
 
   async syncCartPrices(userId: number): Promise<Cart> {
-    const cart = await this.getCart(userId);
+    const cart = await this.loadCart(userId);
 
     if (cart.items?.length > 0) {
       for (const item of cart.items) {
