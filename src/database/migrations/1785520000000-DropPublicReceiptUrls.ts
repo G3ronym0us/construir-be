@@ -18,9 +18,15 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * La fila sin `receipt_key` (si aparece alguna de una versión anterior) se deja
  * intacta a propósito: borrarle la URL dejaría el comprobante inalcanzable.
+ *
+ * OJO al probar en local: `app.module.ts` levanta con `migrationsRun: true`, así
+ * que esto se aplica solo al arrancar el backend contra la base de desarrollo,
+ * que es compartida. Para deshacerlo hay que reponer la URL desde la key
+ * (`'https://<bucket>.s3.<region>.amazonaws.com/' || receipt_key`) y borrar la
+ * fila de la tabla `migrations`.
  */
-export class DropPublicReceiptUrls1785500000000 implements MigrationInterface {
-  name = 'DropPublicReceiptUrls1785500000000';
+export class DropPublicReceiptUrls1785520000000 implements MigrationInterface {
+  name = 'DropPublicReceiptUrls1785520000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
