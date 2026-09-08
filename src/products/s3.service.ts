@@ -6,7 +6,10 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { v4 as uuidv4 } from 'uuid';
+// `randomUUID` del propio Node en vez del paquete `uuid`: `uuid` v11 sólo se
+// publica como ESM y jest, que compila a CommonJS, no puede cargarlo — así que
+// ninguna prueba podía llegar a importar este servicio.
+import { randomUUID } from 'crypto';
 import { ConfigType } from '@nestjs/config';
 import { awsConfig } from '../config/configuration';
 
@@ -169,12 +172,12 @@ export class S3Service {
     if (Buffer.isBuffer(file)) {
       buffer = file;
       mimeType = contentType || 'application/octet-stream';
-      key = customKey || `${folder}/${uuidv4()}`;
+      key = customKey || `${folder}/${randomUUID()}`;
     } else {
       buffer = file.buffer;
       mimeType = contentType || file.mimetype;
       const fileExtension = file.originalname.split('.').pop();
-      key = customKey || `${folder}/${uuidv4()}.${fileExtension}`;
+      key = customKey || `${folder}/${randomUUID()}.${fileExtension}`;
     }
 
     const command = new PutObjectCommand({

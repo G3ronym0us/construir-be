@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { instanceToPlain } from 'class-transformer';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
@@ -160,17 +160,15 @@ describe('Comprobantes de pago privados', () => {
         s3BucketName: 'congress-marketing',
       } as any);
       enviados = [];
-      (s3 as any).s3Client = {
-        send: jest.fn(async (cmd: any) => {
+      // Se le pisa sólo el `send` al cliente real: nada sale a la red, pero el
+      // cliente sigue siendo un S3Client de verdad, que es lo que el firmador
+      // de URL necesita para poder firmar sin conexión.
+      jest
+        .spyOn((s3 as any).s3Client, 'send')
+        .mockImplementation(async (cmd: any) => {
           enviados.push(cmd.input);
           return {};
-        }),
-        config: {
-          region: async () => 'us-east-2',
-          credentials: async () => ({ accessKeyId: 'k', secretAccessKey: 's' }),
-          sha256: undefined,
-        },
-      };
+        });
     });
 
     it('las imágenes de producto siguen siendo públicas y con URL directa', async () => {
@@ -261,6 +259,9 @@ describe('Comprobantes de pago privados', () => {
 
       const noop = {};
       const modulo: TestingModule = await Test.createTestingModule({
+        // El ThrottlerGuard del endpoint de subida se instancia con el módulo,
+        // así que sin esto el controlador no se puede construir.
+        imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }])],
         controllers: [OrdersController],
         providers: [
           OrdersService,

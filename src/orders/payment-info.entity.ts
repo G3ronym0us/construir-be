@@ -91,12 +91,15 @@ export class PaymentInfo {
    * `receiptUrl` queda para leer los comprobantes viejos que todavía la tienen
    * guardada; en las subidas nuevas no se escribe nunca.
    */
+  // `type: 'varchar'` explícito: al admitir `null` en el tipo de TypeScript,
+  // TypeORM ya no puede inferir la columna del metadato y falla al arrancar con
+  // «Data type "Object" ... is not supported by "postgres"».
   @Exclude()
-  @Column({ name: 'receipt_url', nullable: true })
+  @Column({ type: 'varchar', name: 'receipt_url', nullable: true })
   receiptUrl: string | null;
 
   @Exclude()
-  @Column({ name: 'receipt_key', nullable: true })
+  @Column({ type: 'varchar', name: 'receipt_key', nullable: true })
   receiptKey: string | null;
 
   /** Lo único que la orden cuenta del comprobante sin autorizar a nadie. */
