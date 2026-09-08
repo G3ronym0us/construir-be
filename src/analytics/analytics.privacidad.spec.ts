@@ -1,4 +1,6 @@
 import { Test } from '@nestjs/testing';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import * as request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { validate } from 'class-validator';
@@ -8,6 +10,7 @@ import { AnalyticsService } from './analytics.service';
 import { AnalyticsTasksService } from './analytics-tasks.service';
 import { CreatePageViewDto } from './dto/create-page-view.dto';
 import { PageView } from './page-view.entity';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 /**
  * `POST /analytics/page-view` es público y se dispara en cada navegación de la
@@ -46,9 +49,9 @@ describe('Analítica de visitas — no se recoge la IP del visitante', () => {
         { provide: ConfigService, useValue: config },
       ],
     })
-      .overrideGuard(require('@nestjs/throttler').ThrottlerGuard)
+      .overrideGuard(ThrottlerGuard)
       .useValue({ canActivate: () => true })
-      .overrideGuard(require('../auth/guards/jwt-auth.guard').JwtAuthGuard)
+      .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
       .compile();
 
@@ -119,27 +122,49 @@ describe('Analítica de visitas — no se recoge la IP del visitante', () => {
   });
 
   describe('límite de tasa del endpoint público', () => {
-    it('declara ThrottlerGuard y un @Throttle acotado', () => {
-      const guards =
-        Reflect.getMetadata('__guards__', AnalyticsController.prototype.trackPageView) ?? [];
-      const nombres = guards.map((g: { name?: string }) => g?.name);
-      expect(nombres).toContain('ThrottlerGuard');
+    /**
+     * Se levanta una app de verdad con el ThrottlerGuard real: comprobar sólo
+     * el metadato del decorador no distinguiría un `@Throttle` bien puesto de
+     * uno colgado de un método al que nadie aplica el guard.
+     */
+    it('corta a partir de la petición 31 en el mismo minuto', async () => {
+      const modulo = await Test.createTestingModule({
+        imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 1000 }])],
+        controllers: [AnalyticsController],
+        providers: [
+          AnalyticsService,
+          AnalyticsTasksService,
+          { provide: getRepositoryToken(PageView), useValue: repositorio },
+          { provide: ConfigService, useValue: config },
+        ],
+      })
+        .overrideGuard(JwtAuthGuard)
+        .useValue({ canActivate: () => true })
+        .compile();
 
-      // La clave del metadato de @Throttle es interna de @nestjs/throttler;
-      // se busca por sufijo para no atarse a su nombre exacto.
-      const claves = Reflect.getMetadataKeys(
-        AnalyticsController.prototype.trackPageView,
-      ) as string[];
-      const claveThrottle = claves.find((k) => String(k).includes('throttler'));
-      expect(claveThrottle).toBeDefined();
+      const app = modulo.createNestApplication();
+      await app.init();
 
-      const limites = Reflect.getMetadata(
-        claveThrottle as string,
-        AnalyticsController.prototype.trackPageView,
-      );
-      const limite = limites?.default?.limit ?? limites?.limit;
-      expect(typeof limite === 'function' ? limite() : limite).toBe(30);
-    });
+      const enviar = () =>
+        request(app.getHttpServer())
+          .post('/analytics/page-view')
+          // Content-Type explícito y sin charset: supertest lo manda como
+          // "application/json; charset=UTF-8" y el body-parser de Express 5
+          // rechaza ese charset en mayúsculas con un 415.
+          .set('Content-Type', 'application/json')
+          .send(JSON.stringify({ path: '/' }));
+
+      // El límite global del módulo es 1000: si algo corta a las 30 es el
+      // @Throttle propio de la ruta, no la configuración de fondo.
+      for (let i = 0; i < 30; i++) {
+        await enviar().expect(201);
+      }
+      await enviar().expect(429);
+
+      await app.close();
+      // 31 peticiones HTTP reales no caben en los 5 s por defecto de jest
+      // cuando la suite entera corre en paralelo.
+    }, 60000);
   });
 
   describe('purga por retención: la tabla no tenía caducidad y crecía sin techo', () => {
