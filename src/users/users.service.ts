@@ -20,6 +20,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GetUsersDto } from './dto/get-users.dto';
 import * as bcrypt from 'bcrypt';
 import { EmailService } from '../email/email.service';
+import { RegisterErrorCode } from './register-error-code.enum';
 
 /** `jose@correo.com` → `jo•••@correo.com`. Deja como mucho dos caracteres. */
 function maskEmail(email: string): string {
@@ -44,7 +45,16 @@ export class UsersService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email already exists');
+      // El `code` es lo que el frontend traduce: pintar el `message` tal cual
+      // le mostraba "Email already exists" a un cliente que tiene la tienda en
+      // español. El `message` se conserva igual para no romper a nadie que lo
+      // estuviera leyendo.
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'Email already exists',
+        code: RegisterErrorCode.EMAIL_ALREADY_REGISTERED,
+      });
     }
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
@@ -165,7 +175,16 @@ export class UsersService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email already exists');
+      // El `code` es lo que el frontend traduce: pintar el `message` tal cual
+      // le mostraba "Email already exists" a un cliente que tiene la tienda en
+      // español. El `message` se conserva igual para no romper a nadie que lo
+      // estuviera leyendo.
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'Email already exists',
+        code: RegisterErrorCode.EMAIL_ALREADY_REGISTERED,
+      });
     }
 
     const hashedPassword = await bcrypt.hash(createUserAdminDto.password, 10);
