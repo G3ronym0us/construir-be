@@ -289,7 +289,7 @@ export class ProductsService {
   ): Promise<ProductImage> {
     const product = await this.findOne(productUuid);
 
-    const { url, key } = await this.s3Service.uploadFile(file, 'products');
+    const { url, key } = await this.s3Service.uploadPublicFile(file, 'products');
 
     // If this is primary, unset all other images as primary
     if (isPrimary) {
@@ -532,7 +532,7 @@ export class ProductsService {
     );
 
     // Upload new file to S3
-    const { url, key } = await this.s3Service.uploadFile(file, 'products');
+    const { url, key } = await this.s3Service.uploadPublicFile(file, 'products');
 
     if (existingImage) {
       // Delete old file from S3

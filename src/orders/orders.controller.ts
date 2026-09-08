@@ -17,7 +17,13 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { randomUUID } from 'crypto';
 import { Response } from 'express';
+import {
+  detectReceiptFileType,
+  MAX_RECEIPT_BYTES,
+} from './receipt-file';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { OrderAdminGuard } from '../auth/guards/order-admin.guard';
@@ -72,10 +78,35 @@ export class OrdersController {
   }
 
   /**
-   * Subir comprobante de pago
+   * Subir el comprobante de pago de una orden.
+   *
+   * Sigue sin pedir sesión y tiene que seguir así: el checkout de invitado es
+   * el caso normal, y quien paga sin cuenta no tiene con qué autenticarse. Pero
+   * antes eso era barra libre — cualquiera que acertara un uuid escribía en el
+   * bucket de producción sin límite de tasa, sin límite de tamaño y con el tipo
+   * de archivo validado por el `Content-Type` que él mismo mandaba. Lo que
+   * ahora lo acota:
+   *
+   * - `ThrottlerGuard` con 5 subidas por minuto y por IP;
+   * - la orden tiene que existir, no estar cancelada y no tener el pago ya
+   *   verificado (`assertReceiptUploadAllowed`), y eso se comprueba ANTES de
+   *   escribir en S3, para no dejar basura en el bucket de un intento inválido;
+   * - 5 MB de tope en multer, que antes no había ninguno;
+   * - el tipo sale de los bytes del fichero, no de lo que diga el cliente, y la
+   *   extensión de la clave sale de ahí y no de `originalname` — con el que se
+   *   podía dejar un `.html` servido desde el dominio del bucket.
+   *
+   * El comprobante va por `uploadPrivateFile`, así que no queda ninguna URL
+   * pública ni en S3 ni en la respuesta.
    */
   @Post(':uuid/receipt')
-  @UseInterceptors(FileInterceptor('receipt'))
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @UseInterceptors(
+    FileInterceptor('receipt', {
+      limits: { fileSize: MAX_RECEIPT_BYTES, files: 1 },
+    }),
+  )
   async uploadReceipt(
     @Param('uuid') uuid: string,
     @UploadedFile() file: Express.Multer.File,
@@ -84,30 +115,74 @@ export class OrdersController {
       throw new BadRequestException('Receipt file is required');
     }
 
-    // Validar tipo de archivo
-    const allowedMimeTypes = [
-      'image/jpeg',
-      'image/jpg',
-      'image/png',
-      'image/webp',
-      'application/pdf',
-    ];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
+    const fileType = detectReceiptFileType(file.buffer);
+    if (!fileType) {
       throw new BadRequestException(
-        'Only image files (JPEG, PNG, WebP) and PDF are allowed',
+        'El comprobante debe ser una imagen JPEG, PNG o WebP, o un PDF',
       );
     }
 
-    // Subir a S3
-    const folder = 'receipts';
-    const result = await this.s3Service.uploadFile(file, folder);
+    await this.ordersService.assertReceiptUploadAllowed(uuid);
 
-    // Actualizar la orden con el comprobante
-    return this.ordersService.uploadPaymentReceipt(
-      uuid,
-      result.url,
-      result.key,
+    const { key } = await this.s3Service.uploadPrivateFile(
+      file,
+      'receipts',
+      `receipts/${randomUUID()}.${fileType.extension}`,
+      fileType.mimeType,
     );
+
+    const { order, previousKey } = await this.ordersService.uploadPaymentReceipt(
+      uuid,
+      key,
+    );
+
+    // Al reemplazar un comprobante rechazado, el anterior no tiene por qué
+    // quedarse en el bucket: son datos personales que ya no hacen falta.
+    if (previousKey && previousKey !== key) {
+      await this.s3Service.deleteFile(previousKey).catch(() => undefined);
+    }
+
+    return order;
+  }
+
+  /**
+   * Enlace temporal para ver o descargar el comprobante de una orden.
+   *
+   * Reemplaza a la URL pública del bucket que antes viajaba dentro de la orden.
+   * Quién puede pedirlo lo decide `getReceiptKeyForViewer`: admin, order_admin
+   * o el cliente registrado dueño de la orden.
+   */
+  @Get(':uuid/receipt')
+  @UseGuards(JwtAuthGuard)
+  async getReceipt(
+    @Request() req,
+    @Param('uuid') uuid: string,
+    @Query('download') download?: string,
+  ) {
+    const isAdmin =
+      req.user?.role === UserRole.ADMIN ||
+      req.user?.role === UserRole.ORDER_ADMIN;
+
+    const { order, receiptKey } =
+      await this.ordersService.getReceiptKeyForViewer(uuid, {
+        userId: req.user?.userId,
+        isAdmin,
+      });
+
+    const wantsDownload = download === '1' || download === 'true';
+    const extension = receiptKey.split('.').pop() ?? 'jpg';
+
+    const { url, expiresIn } = await this.s3Service.getSignedDownloadUrl(
+      receiptKey,
+      {
+        disposition: wantsDownload ? 'attachment' : 'inline',
+        filename: wantsDownload
+          ? `comprobante-${order.orderNumber}.${extension}`
+          : undefined,
+      },
+    );
+
+    return { url, expiresIn };
   }
 
   /**

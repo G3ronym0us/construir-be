@@ -358,7 +358,7 @@ export class BannersService {
       .webp({ quality: 85 })
       .toBuffer();
 
-    const webpResult = await this.s3Service.uploadFile(
+    const webpResult = await this.s3Service.uploadPublicFile(
       webpBuffer,
       'banners',
       `banners/${baseFileName}.webp`,
@@ -371,7 +371,7 @@ export class BannersService {
       .jpeg({ quality: 85, progressive: true })
       .toBuffer();
 
-    const jpegResult = await this.s3Service.uploadFile(
+    const jpegResult = await this.s3Service.uploadPublicFile(
       jpegBuffer,
       'banners',
       `banners/${baseFileName}.jpg`,
@@ -390,14 +390,14 @@ export class BannersService {
   ): Promise<{ webp: string; jpeg: string }> {
     const baseFileName = `${uuidv4()}-${device}`;
 
-    const webpResult = await this.s3Service.uploadFile(
+    const webpResult = await this.s3Service.uploadPublicFile(
       processedVariant.webp,
       'banners',
       `banners/${baseFileName}.webp`,
       'image/webp',
     );
 
-    const jpegResult = await this.s3Service.uploadFile(
+    const jpegResult = await this.s3Service.uploadPublicFile(
       processedVariant.jpeg,
       'banners',
       `banners/${baseFileName}.jpg`,
