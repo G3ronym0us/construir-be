@@ -197,6 +197,12 @@ export class UsersService {
       role: createUserAdminDto.role,
       isActive: createUserAdminDto.isActive ?? true,
       emailVerified: true,
+      // Se guardan si el administrador los aportó. Antes el DTO ni los
+      // aceptaba, así que un usuario creado desde el panel nacía sin teléfono
+      // aunque quien lo dio de alta lo tuviera delante.
+      phone: createUserAdminDto.phone ?? null,
+      identificationType: createUserAdminDto.identificationType ?? null,
+      identificationNumber: createUserAdminDto.identificationNumber ?? null,
     });
 
     return await this.usersRepository.save(user);

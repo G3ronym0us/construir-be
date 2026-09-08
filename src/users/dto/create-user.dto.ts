@@ -2,7 +2,6 @@ import {
   IsEmail,
   IsEnum,
   IsNotEmpty,
-  IsOptional,
   IsString,
   MaxLength,
   MinLength,
@@ -26,10 +25,16 @@ const codigo = (code: RegisterErrorCode) => ({ context: { code } });
 export class CreateUserDto {
   @IsNotEmpty(codigo(RegisterErrorCode.MISSING_FIELDS))
   @IsString(codigo(RegisterErrorCode.MISSING_FIELDS))
+  // Ni la entidad ni la columna acotan el nombre —es un `varchar` sin tope—,
+  // así que un nombre de 2000 caracteres entraba entero y salía después en los
+  // correos y en el panel. 100 es lo que ya usa `guest_customers` para el mismo
+  // dato: sin el tope las dos tablas guardaban con criterios distintos.
+  @MaxLength(100, codigo(RegisterErrorCode.MISSING_FIELDS))
   firstName: string;
 
   @IsNotEmpty(codigo(RegisterErrorCode.MISSING_FIELDS))
   @IsString(codigo(RegisterErrorCode.MISSING_FIELDS))
+  @MaxLength(100, codigo(RegisterErrorCode.MISSING_FIELDS))
   lastName: string;
 
   @IsNotEmpty(codigo(RegisterErrorCode.MISSING_FIELDS))
@@ -45,15 +50,21 @@ export class CreateUserDto {
    * Sólo móviles: es el número por el que el despachador coordina la entrega y
    * por el que se confirma un pago móvil. Un fijo ahí no sirve para ninguna de
    * las dos cosas.
+   *
+   * Obligatorio, y no sólo en el formulario: mientras fuera `@IsOptional()`,
+   * cualquiera que le hablara a esta API sin pasar por la pantalla podía crear
+   * una cuenta sin teléfono ni identificación, y esa cuenta llegaba al panel
+   * sin forma de contactar a quien compró. No hace falta `@IsNotEmpty`: al no
+   * ser opcional, un campo ausente ya cae en la regla de formato, y así el
+   * cliente recibe siempre el aviso que le explica qué se espera en vez de un
+   * "falta un campo" a secas.
    */
-  @IsOptional()
   @EsTelefonoMovilVE(codigo(RegisterErrorCode.INVALID_PHONE))
   @NormalizaTelefonoMovilVE()
-  phone?: string;
+  phone: string;
 
-  @IsOptional()
   @IsEnum(IdentificationType, codigo(RegisterErrorCode.INVALID_IDENTIFICATION))
-  identificationType?: IdentificationType;
+  identificationType: IdentificationType;
 
   /**
    * El `@IsString()` no es decorativo: `EsNumeroCedulaVE` da por buena la
@@ -62,7 +73,6 @@ export class CreateUserDto {
    * con 201 y se guardaban como basura. `@MaxLength(50)` es el ancho real de
    * la columna: pasarse devolvía un 500 en vez de un 400.
    */
-  @IsOptional()
   @EsNumeroCedulaVE(
     'identificationType',
     codigo(RegisterErrorCode.INVALID_IDENTIFICATION),
@@ -70,5 +80,5 @@ export class CreateUserDto {
   @IsString(codigo(RegisterErrorCode.INVALID_IDENTIFICATION))
   @MaxLength(50, codigo(RegisterErrorCode.INVALID_IDENTIFICATION))
   @NormalizaNumeroCedulaVE()
-  identificationNumber?: string;
+  identificationNumber: string;
 }

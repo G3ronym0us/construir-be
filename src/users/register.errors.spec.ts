@@ -3,6 +3,11 @@ import { UsersService } from './users.service';
 import { RegisterValidationPipe } from './register-validation.pipe';
 import { RegisterErrorCode } from './register-error-code.enum';
 import { CreateUserDto } from './dto/create-user.dto';
+import { CreateUserAdminDto } from './dto/create-user-admin.dto';
+import { CompleteInvitationDto } from './dto/complete-invitation.dto';
+import { IdentificationType } from '../orders/guest-customer.entity';
+import { ClassConstructor, plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 
 /**
  * La pantalla de registro pintaba tal cual el `message` de esta API: al
@@ -106,6 +111,44 @@ describe('POST /users/register — validación y código del motivo de rechazo',
         );
       }
     });
+  });
+
+  it('exige cédula y teléfono, no sólo el formulario', async () => {
+    // Mientras fueron opcionales, cualquiera que le hablara a esta API sin
+    // pasar por la pantalla podía crear una cuenta sin forma de contactarlo:
+    // llegaba al panel un pedido de alguien a quien no se puede llamar.
+    // Se llama al pipe con el cuerpo recortado, no con `codigoDe`: ése parte de
+    // un cuerpo completo y volvería a rellenar el campo que se quiere quitar.
+    const sinElCampo = async (falta: string): Promise<string | null> => {
+      const cuerpo = datos();
+      delete (cuerpo as Record<string, unknown>)[falta];
+      try {
+        await pipe.transform(cuerpo);
+        return null;
+      } catch (e) {
+        return ((e as BadRequestException).getResponse() as { code: string })
+          .code;
+      }
+    };
+
+    expect(await sinElCampo('phone')).toBe(RegisterErrorCode.INVALID_PHONE);
+    expect(await sinElCampo('identificationType')).toBe(
+      RegisterErrorCode.INVALID_IDENTIFICATION,
+    );
+    expect(await sinElCampo('identificationNumber')).toBe(
+      RegisterErrorCode.INVALID_IDENTIFICATION,
+    );
+  });
+
+  it('no deja que un nombre desmedido entre entero', async () => {
+    // `first_name` es un `varchar` sin tope en la base, así que 2000 caracteres
+    // se guardaban y salían después en los correos y en el panel.
+    expect(await codigoDe({ firstName: 'A'.repeat(2000) })).toBe(
+      RegisterErrorCode.MISSING_FIELDS,
+    );
+    expect(await codigoDe({ lastName: 'A'.repeat(2000) })).toBe(
+      RegisterErrorCode.MISSING_FIELDS,
+    );
   });
 
   it('no deja que el registro se conceda a sí mismo rol ni cuenta activa', async () => {
@@ -214,6 +257,9 @@ describe('UsersService.create — correo ya registrado', () => {
         lastName: 'Pérez',
         email: 'ana@correo.com',
         password: 'secreta',
+        phone: '04141234567',
+        identificationType: IdentificationType.V,
+        identificationNumber: '12345678',
       });
     } catch (e) {
       error = e;
@@ -228,4 +274,163 @@ describe('UsersService.create — correo ya registrado', () => {
     // El texto se conserva para no romper a clientes que lo leían.
     expect(cuerpo.message).toBe('Email already exists');
   });
+});
+
+/**
+ * Las tres puertas por las que se crea un usuario —el registro público, el alta
+ * por invitación y el alta desde el panel— llenan la MISMA tabla. Cada una
+ * tenía su propio criterio: sólo el registro miraba el teléfono y la cédula, y
+ * las otras dos ni siquiera aceptaban esos campos. El resultado era una tabla
+ * con el mismo dato guardado de varias formas según por dónde hubiera entrado
+ * cada quien.
+ *
+ * Esta prueba es la que evita que vuelvan a divergir: las tres comparten los
+ * mismos decoradores, así que las tres tienen que aceptar y rechazar lo mismo.
+ * Lo que sí difiere a propósito es la obligatoriedad —a un empleado invitado no
+ * se le exige la cédula—, y eso también queda fijado abajo.
+ */
+describe('las tres puertas de alta aplican la misma regla', () => {
+  const puertas = [
+    {
+      nombre: 'registro público',
+      dto: CreateUserDto as ClassConstructor<object>,
+      base: {
+        firstName: 'Ana',
+        lastName: 'Pérez',
+        email: 'ana@correo.com',
+        password: 'secreta',
+        phone: '04141234567',
+        identificationType: 'V',
+        identificationNumber: '12345678',
+      },
+      exigeIdentificacion: true,
+    },
+    {
+      nombre: 'alta desde el panel',
+      dto: CreateUserAdminDto as ClassConstructor<object>,
+      base: {
+        firstName: 'Ana',
+        lastName: 'Pérez',
+        email: 'ana@correo.com',
+        password: 'secreta',
+        role: 'customer',
+      },
+      exigeIdentificacion: false,
+    },
+    {
+      nombre: 'alta por invitación',
+      dto: CompleteInvitationDto as ClassConstructor<object>,
+      base: {
+        token: 'un-token',
+        firstName: 'Ana',
+        lastName: 'Pérez',
+        password: 'secreta',
+      },
+      exigeIdentificacion: false,
+    },
+  ];
+
+  /** Propiedades que fallaron la validación de esa puerta con ese cuerpo. */
+  const fallan = async (
+    puerta: (typeof puertas)[number],
+    over: Record<string, unknown>,
+  ): Promise<string[]> => {
+    const instancia = plainToInstance(puerta.dto, { ...puerta.base, ...over });
+    const errores = await validate(instancia);
+    return errores.map((e) => e.property);
+  };
+
+  for (const puerta of puertas) {
+    describe(puerta.nombre, () => {
+      it('acepta el mismo teléfono escrito de cualquier forma y lo normaliza igual', async () => {
+        for (const escrito of [
+          '04141234567',
+          '0414-1234567',
+          '+58 (0414) 1234567',
+          '5804141234567',
+        ]) {
+          expect(await fallan(puerta, { phone: escrito })).toEqual([]);
+        }
+
+        const instancia = plainToInstance(puerta.dto, {
+          ...puerta.base,
+          phone: '+58 414-123.45.67',
+        }) as { phone?: string };
+        expect(instancia.phone).toBe('04141234567');
+      });
+
+      it('rechaza el mismo teléfono malo', async () => {
+        for (const malo of ['02121234567', '04151234567', 'asdf']) {
+          expect(await fallan(puerta, { phone: malo })).toContain('phone');
+        }
+      });
+
+      it('acepta la misma cédula escrita de cualquier forma y la normaliza igual', async () => {
+        for (const escrito of ['12345678', 'V-12345678', 'v12.345.678']) {
+          expect(
+            await fallan(puerta, {
+              identificationType: 'V',
+              identificationNumber: escrito,
+            }),
+          ).toEqual([]);
+        }
+
+        const instancia = plainToInstance(puerta.dto, {
+          ...puerta.base,
+          identificationType: 'V',
+          identificationNumber: 'v-12.345.678',
+        }) as { identificationNumber?: string };
+        expect(instancia.identificationNumber).toBe('12345678');
+      });
+
+      it('rechaza la misma cédula mala', async () => {
+        for (const malo of ['123', '123456789', 'ABC12345']) {
+          expect(
+            await fallan(puerta, {
+              identificationType: 'V',
+              identificationNumber: malo,
+            }),
+          ).toContain('identificationNumber');
+        }
+      });
+
+      it('deja en paz al RIF y al pasaporte, igual que las demás', async () => {
+        // La decisión de no ponerle regla propia a J, G y P vale para las tres
+        // puertas: si una empezara a exigirla, bloquearía a las empresas sólo
+        // según por dónde entraran.
+        expect(
+          await fallan(puerta, {
+            identificationType: 'J',
+            identificationNumber: '409876543',
+          }),
+        ).toEqual([]);
+      });
+
+      it('corta los nombres desmedidos', async () => {
+        expect(await fallan(puerta, { firstName: 'A'.repeat(2000) })).toContain(
+          'firstName',
+        );
+      });
+
+      it(
+        puerta.exigeIdentificacion
+          ? 'exige teléfono y cédula'
+          : 'no exige teléfono ni cédula: por aquí entra personal interno',
+        async () => {
+          const sinDatos = await fallan(puerta, {
+            phone: undefined,
+            identificationType: undefined,
+            identificationNumber: undefined,
+          });
+
+          if (puerta.exigeIdentificacion) {
+            expect(sinDatos).toContain('phone');
+            expect(sinDatos).toContain('identificationNumber');
+          } else {
+            expect(sinDatos).toEqual([]);
+          }
+        },
+      );
+    });
+  }
 });
