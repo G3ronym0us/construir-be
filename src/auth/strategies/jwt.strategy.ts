@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigType } from '@nestjs/config';
 import { AuthService } from '../auth.service';
 import { jwtConfig } from '../../config/configuration';
+import { extraerTokenDeCookie } from './jwt-cookie.extractor';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -13,7 +14,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private jwt: ConfigType<typeof jwtConfig>,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // La cookie `httpOnly` va PRIMERO: es la sesión del navegador, la que se
+      // introdujo para que el JavaScript de la página no pueda leer el token.
+      //
+      // La cabecera `Authorization` se conserva como fuente secundaria a
+      // propósito. La vulnerabilidad que se está cerrando es guardar el token
+      // donde el JS lo alcanza (`localStorage`, `document.cookie`), no la
+      // cabecera en sí: quien manda un `Bearer` ya tiene el token en la mano.
+      // Quitarla rompería la colección de Postman, los scripts de
+      // mantenimiento y las pruebas sin cerrar ningún hueco.
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        extraerTokenDeCookie,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       ignoreExpiration: false,
       secretOrKey: jwt.secret,
     });

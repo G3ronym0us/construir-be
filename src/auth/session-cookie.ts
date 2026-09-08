@@ -1,0 +1,91 @@
+import type { CookieOptions } from 'express';
+
+/**
+ * Nombre de la cookie de sesión.
+ *
+ * Es el mismo `token` que el frontend escribía antes con `document.cookie`,
+ * y a propósito: el `middleware.ts` de Next lee `request.cookies.get('token')`
+ * para proteger el panel. Cambiarle el nombre acá dejaba el panel abierto de
+ * par en par —el middleware no encontraría cookie y, según la rama, redirigía
+ * a login en bucle— sin ningún beneficio.
+ */
+export const SESSION_COOKIE_NAME = 'token';
+
+/**
+ * Convierte la duración del JWT (`JWT_EXPIRES_IN`, tipo "24h", "7d", "900s")
+ * a milisegundos.
+ *
+ * La cookie tiene que morir cuando muere el token. Si viviera más, el
+ * navegador seguiría mandando un token vencido y el usuario vería 401 en cada
+ * pantalla sin entender por qué "sigue con sesión"; si viviera menos, lo
+ * sacaría antes de tiempo.
+ */
+export function duracionEnMs(expiresIn: string): number {
+  const DIA = 24 * 60 * 60 * 1000;
+  const m = /^(\d+)\s*([smhd])?$/.exec((expiresIn ?? '').trim());
+
+  // Un valor que no se entiende no puede caer a "sin caducidad": se prefiere
+  // el mismo 24h que trae el `jwtConfig` por defecto.
+  if (!m) return DIA;
+
+  const cantidad = parseInt(m[1], 10);
+  const unidad = m[2] ?? 's'; // jsonwebtoken interpreta un número pelado como segundos
+  const factor = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[unidad]!;
+  return cantidad * factor;
+}
+
+export interface OpcionesSesion {
+  /** `JWT_EXPIRES_IN`. */
+  expiresIn: string;
+  /** `true` en producción. */
+  produccion: boolean;
+  /** `COOKIE_SAMESITE`: 'lax' | 'strict' | 'none'. */
+  sameSite?: string;
+  /** `COOKIE_DOMAIN`, para compartir la cookie entre `www` y `api`. */
+  domain?: string;
+}
+
+/**
+ * Atributos con los que el backend emite —y borra— la cookie de sesión.
+ *
+ * `httpOnly` es el punto de todo el cambio: antes el token vivía en
+ * `localStorage` y en una cookie escrita con `document.cookie`, así que
+ * cualquier script de la página (un XSS, una dependencia comprometida, una
+ * extensión) se llevaba la sesión de un cliente o de un administrador. Una
+ * cookie `httpOnly` no la puede leer el JavaScript del navegador.
+ *
+ * `sameSite` es lo que reemplaza a la protección que daba gratis la cabecera
+ * `Authorization`: una cookie sí la manda el navegador sola en peticiones que
+ * origina otro sitio. Con `lax` el navegador no la adjunta en peticiones
+ * cruzadas que no sean navegaciones GET de nivel superior, lo que cubre el CSRF
+ * clásico por formulario o imagen.
+ */
+export function opcionesCookieSesion(op: OpcionesSesion): CookieOptions {
+  const sameSite = (op.sameSite ?? 'lax').toLowerCase() as
+    | 'lax'
+    | 'strict'
+    | 'none';
+
+  return {
+    httpOnly: true,
+    // `SameSite=None` sólo es válido junto con `Secure`; el navegador descarta
+    // la cookie en silencio si falta, y la sesión simplemente no se guardaba.
+    secure: op.produccion || sameSite === 'none',
+    sameSite,
+    path: '/',
+    maxAge: duracionEnMs(op.expiresIn),
+    ...(op.domain ? { domain: op.domain } : {}),
+  };
+}
+
+/**
+ * Atributos para borrarla. `res.clearCookie` sólo la borra si coinciden
+ * `path`, `domain`, `secure` y `sameSite` con los que se usaron al ponerla;
+ * si no coinciden el navegador ignora el borrado y la sesión sobrevivía al
+ * "cerrar sesión".
+ */
+export function opcionesBorradoSesion(op: OpcionesSesion): CookieOptions {
+  const { maxAge, ...resto } = opcionesCookieSesion(op);
+  void maxAge;
+  return resto;
+}
