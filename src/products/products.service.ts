@@ -13,6 +13,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { S3Service } from './s3.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { applyVesPrices } from './pricing.util';
+import { aplicarBusquedaDeProductos } from './search.util';
 
 @Injectable()
 export class ProductsService {
@@ -86,12 +87,8 @@ export class ProductsService {
       .andWhere('product.inventory > 0')
       .andWhere('product.published = true');
 
-    if (search) {
-      idsBuilder.andWhere(
-        '(product.name ILIKE :search OR product.custom_name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
-        { search: `%${search}%` },
-      );
-    }
+    // Cada palabra se exige por separado: ver `aplicarBusquedaDeProductos`.
+    aplicarBusquedaDeProductos(idsBuilder, search);
 
     if (categoryUuid) {
       idsBuilder
@@ -365,12 +362,8 @@ export class ProductsService {
       .select('product.id')
       .addSelect(`product.${sortBy}`);
 
-    if (search) {
-      idsBuilder.andWhere(
-        '(product.name ILIKE :search OR product.custom_name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
-        { search: `%${search}%` },
-      );
-    }
+    // Cada palabra se exige por separado: ver `aplicarBusquedaDeProductos`.
+    aplicarBusquedaDeProductos(idsBuilder, search);
 
     if (categoryUuid) {
       idsBuilder
@@ -442,15 +435,17 @@ export class ProductsService {
   }
 
   async search(query: string): Promise<Product[]> {
-    return await this.productsRepository
+    const builder = this.productsRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.images', 'images')
-      .where('product.inventory > 0')
-      .andWhere(
-        '(product.name ILIKE :query OR product.custom_name ILIKE :query OR product.sku ILIKE :query OR product.barcode ILIKE :query)',
-        { query: `%${query}%` },
-      )
-      .take(20)
+      .where('product.inventory > 0');
+
+    // El buscador rápido del navbar comparte las reglas del listado: si en
+    // /productos "pint azul" encuentra 24 productos, en el desplegable de
+    // sugerencias tiene que encontrar los mismos.
+    aplicarBusquedaDeProductos(builder, query);
+
+    return await builder.take(20)
       .getMany();
   }
 
