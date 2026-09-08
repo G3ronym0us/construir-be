@@ -14,6 +14,7 @@ import { S3Service } from './s3.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { applyVesPrices } from './pricing.util';
 import { aplicarBusquedaDeProductos } from './search.util';
+import { columnaOrdenableSegura, sentidoOrdenSeguro } from './sort.util';
 
 @Injectable()
 export class ProductsService {
@@ -77,13 +78,18 @@ export class ProductsService {
     page: number;
     lastPage: number;
   }> {
+    // El nombre de la columna se interpola en el SQL (un ORDER BY no admite
+    // parámetros), así que sólo pueden pasar las de la lista blanca.
+    const columnaOrden = columnaOrdenableSegura(sortBy);
+    const sentidoOrden = sentidoOrdenSeguro(sortOrder);
+
     // Step 1: paginate IDs only (no joins) — avoids TypeORM leftJoinAndSelect + skip/take bug
     // where LIMIT is applied to joined rows instead of root entities.
     // sortBy must also be in SELECT so the DISTINCT wrapper can reference it when a JOIN is added.
     const idsBuilder = this.productsRepository
       .createQueryBuilder('product')
       .select('product.id')
-      .addSelect(`product.${sortBy}`)
+      .addSelect(`product.${columnaOrden}`)
       .andWhere('product.inventory > 0')
       .andWhere('product.published = true');
 
@@ -100,7 +106,7 @@ export class ProductsService {
       idsBuilder.andWhere('product.featured = :featured', { featured });
     }
 
-    idsBuilder.orderBy(`product.${sortBy}`, sortOrder);
+    idsBuilder.orderBy(`product.${columnaOrden}`, sentidoOrden);
 
     const skip = (page - 1) * limit;
     const total = await idsBuilder.getCount();
@@ -120,7 +126,7 @@ export class ProductsService {
       .leftJoinAndSelect('product.images', 'images')
       .leftJoinAndSelect('product.categories', 'categories')
       .where('product.id IN (:...ids)', { ids: productIds })
-      .orderBy(`product.${sortBy}`, sortOrder)
+      .orderBy(`product.${columnaOrden}`, sentidoOrden)
       .getMany();
 
     return {
@@ -355,12 +361,17 @@ export class ProductsService {
     page: number;
     lastPage: number;
   }> {
+    // El nombre de la columna se interpola en el SQL (un ORDER BY no admite
+    // parámetros), así que sólo pueden pasar las de la lista blanca.
+    const columnaOrden = columnaOrdenableSegura(sortBy);
+    const sentidoOrden = sentidoOrdenSeguro(sortOrder);
+
     // Step 1: paginate IDs only (no joins) — avoids TypeORM leftJoinAndSelect + skip/take bug.
     // sortBy must also be in SELECT so the DISTINCT wrapper can reference it when a JOIN is added.
     const idsBuilder = this.productsRepository
       .createQueryBuilder('product')
       .select('product.id')
-      .addSelect(`product.${sortBy}`);
+      .addSelect(`product.${columnaOrden}`);
 
     // Cada palabra se exige por separado: ver `aplicarBusquedaDeProductos`.
     aplicarBusquedaDeProductos(idsBuilder, search);
@@ -379,7 +390,7 @@ export class ProductsService {
       idsBuilder.andWhere('product.featured = :featured', { featured });
     }
 
-    idsBuilder.orderBy(`product.${sortBy}`, sortOrder);
+    idsBuilder.orderBy(`product.${columnaOrden}`, sentidoOrden);
 
     const skip = (page - 1) * limit;
     const total = await idsBuilder.getCount();
@@ -399,7 +410,7 @@ export class ProductsService {
       .leftJoinAndSelect('product.images', 'images')
       .leftJoinAndSelect('product.categories', 'categories')
       .where('product.id IN (:...ids)', { ids: productIds })
-      .orderBy(`product.${sortBy}`, sortOrder)
+      .orderBy(`product.${columnaOrden}`, sentidoOrden)
       .getMany();
 
     return {

@@ -1,6 +1,7 @@
 import { Brackets, WhereExpressionBuilder } from 'typeorm';
 import {
   aplicarBusquedaDeProductos,
+  escaparComodinesLike,
   normalizarTermino,
   separarTerminos,
 } from './search.util';
@@ -106,6 +107,55 @@ describe('búsqueda del catálogo de productos', () => {
       expect(normalizarTermino('Válvula')).toBe('valvula');
       expect(normalizarTermino('CASTAÑO')).toBe('castano');
       expect(normalizarTermino('Señal')).toBe('senal');
+    });
+  });
+
+  /**
+   * Regresión aparte, encontrada en la revisión: el patrón se armaba como
+   * `%${termino}%` sin escapar, así que `%` y `_` seguían siendo comodines de
+   * LIKE dentro de lo que el usuario escribía.
+   *
+   * Medido contra la API antes de escapar:
+   *   search=%     -> 1089 productos (el catálogo entero)
+   *   search=_     -> 1089 productos
+   *   search=p_nt  ->  208 productos, casando "pint", "pant" y "pnt"
+   *
+   * No era inyección — el término sí viaja parametrizado — pero quien pegara
+   * un SKU o un código de barras con "_" obtenía resultados de más.
+   */
+  describe('escaparComodinesLike', () => {
+    it('el % del usuario se busca como un % literal, no como comodín', () => {
+      expect(escaparComodinesLike('50%')).toBe('50\\%');
+    });
+
+    it('el _ del usuario se busca como un _ literal', () => {
+      expect(escaparComodinesLike('SKU_123')).toBe('SKU\\_123');
+    });
+
+    it('escapa la barra invertida ANTES que los comodines', () => {
+      // Si se escapara al revés, la barra que añade el escapado de `%` se
+      // volvería a escapar y el comodín quedaría suelto otra vez.
+      expect(escaparComodinesLike('a\\%b')).toBe('a\\\\\\%b');
+    });
+
+    it('deja en paz lo que no lleva comodines', () => {
+      expect(escaparComodinesLike('pint')).toBe('pint');
+      expect(escaparComodinesLike('tubo 1/2"')).toBe('tubo 1/2"');
+    });
+
+    it('el patrón que llega al SQL lleva los comodines escapados', () => {
+      expect(patronesExigidos('p_nt')).toEqual(['%p\\_nt%']);
+      expect(patronesExigidos('%')).toEqual(['%\\%%']);
+    });
+
+    it('la condición declara ESCAPE para que Postgres lo respete', () => {
+      const { builder, condiciones } = crearBuilderFalso();
+      aplicarBusquedaDeProductos(
+        builder as unknown as WhereExpressionBuilder,
+        'pint',
+      );
+
+      expect(condiciones[0].sql).toContain("ESCAPE '\\'");
     });
   });
 

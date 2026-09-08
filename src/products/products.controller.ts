@@ -16,6 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { validarCatalogQuery } from './dto/catalog-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -34,22 +35,22 @@ export class ProductsController {
 
   @Get()
   findCatalog(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
-    @Query('categoryUuid') categoryUuid?: string,
-    @Query('featured') featured?: string,
-    @Query('sortBy') sortBy?: string,
-    @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
+    // Se recibe sin tipar y se valida a mano: si el parámetro se declarara como
+    // `CatalogQueryDto`, el `ValidationPipe` global (con
+    // `forbidNonWhitelisted: true`) devolvería 400 ante un `?utm_source=...`
+    // pegado en un enlace compartido y dejaría el catálogo en blanco.
+    @Query() queryCruda: Record<string, unknown>,
   ) {
+    const query = validarCatalogQuery(queryCruda);
+
     return this.productsService.findCatalog(
-      page ? parseInt(page) : 1,
-      limit ? parseInt(limit) : 10,
-      search,
-      categoryUuid,
-      featured !== undefined ? featured === 'true' : undefined,
-      sortBy || 'createdAt',
-      sortOrder || 'DESC',
+      query.page ?? 1,
+      query.limit ?? 10,
+      query.search,
+      query.categoryUuid,
+      query.featured !== undefined ? query.featured === 'true' : undefined,
+      query.sortBy || 'createdAt',
+      query.sortOrder || 'DESC',
     );
   }
 

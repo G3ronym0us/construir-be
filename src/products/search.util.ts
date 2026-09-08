@@ -47,6 +47,25 @@ export function normalizarTermino(termino: string): string {
 }
 
 /**
+ * Escapa los comodines de LIKE para que se busquen como caracteres normales.
+ *
+ * Sin esto, `%` y `_` seguían siendo comodines dentro del patrón: buscar "%"
+ * devolvía los 1089 productos del catálogo, "_" también, y "p_nt" daba 208
+ * casando "pint", "pant" y "pnt". No era inyección — el término sí viaja
+ * parametrizado — pero quien pegara un SKU o un código de barras con "_"
+ * obtenía resultados de más sin entender por qué.
+ *
+ * La barra invertida va primero: si no, escaparía las que añaden las líneas
+ * siguientes y volvería a dejar el comodín suelto.
+ */
+export function escaparComodinesLike(termino: string): string {
+  return termino
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
+}
+
+/**
  * Parte lo que el usuario escribió en términos independientes.
  *
  * Devuelve `[]` cuando no hay nada buscable, para que quien llame sepa que no
@@ -94,10 +113,15 @@ export function aplicarBusquedaDeProductos(
     builder.andWhere(
       new Brackets((qb) => {
         COLUMNAS_BUSCABLES.forEach((columna) => {
-          qb.orWhere(`${normalizar(columna)} LIKE :${parametro}`);
+          // `ESCAPE '\'` es explícito: es el valor por defecto en Postgres,
+          // pero dejarlo escrito evita que un cambio de motor o de
+          // `standard_conforming_strings` reviva el bug en silencio.
+          qb.orWhere(
+            `${normalizar(columna)} LIKE :${parametro} ESCAPE '\\'`,
+          );
         });
       }),
-      { [parametro]: `%${termino}%` },
+      { [parametro]: `%${escaparComodinesLike(termino)}%` },
     );
   });
 }
