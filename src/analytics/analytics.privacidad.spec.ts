@@ -1,4 +1,6 @@
 import { Test } from '@nestjs/testing';
+import { ValidationPipe, BadRequestException } from '@nestjs/common';
+import { getMetadataArgsStorage } from 'typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import * as request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -30,8 +32,26 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
  * retención sigue existiendo.
  */
 describe('Analítica de visitas — no se recogen datos que identifiquen al visitante', () => {
+  /**
+   * Las columnas que la entidad declara de verdad, leídas del registro de
+   * TypeORM. Se usa `getMetadataArgsStorage` y no `Reflect.getMetadata` porque
+   * aquélla está siempre poblada: una lectura vacía haría que estas pruebas
+   * pasaran sin comprobar nada.
+   */
+  const columnasDeLaEntidad = (): string[] =>
+    getMetadataArgsStorage()
+      .columns.filter((c) => c.target === PageView)
+      .map((c) => c.propertyName);
+
   const repositorio = {
-    create: jest.fn((datos) => datos),
+    // Imita a TypeORM: `create` sólo conserva lo que la entidad declara. Sin
+    // esto el mock se tragaría cualquier campo y las pruebas de "no persiste X"
+    // estarían comprobando el mock, no la entidad.
+    create: jest.fn((datos: Record<string, unknown>) =>
+      Object.fromEntries(
+        Object.entries(datos).filter(([k]) => columnasDeLaEntidad().includes(k)),
+      ),
+    ),
     save: jest.fn((fila) => Promise.resolve({ id: 1, ...fila })),
     count: jest.fn(),
     delete: jest.fn(),
@@ -92,19 +112,13 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
     );
   });
 
-  it('la entidad PageView ya no declara la columna userAgent', () => {
-    const columnas: Array<{ propertyName: string }> =
-      Reflect.getMetadata('typeorm:columns', PageView) ?? [];
-    expect(columnas.map((c) => c.propertyName)).not.toContain('userAgent');
-  });
-
-  it('la entidad PageView ya no declara la columna ip_address', () => {
-    // Instanciarla y listar sus claves no sirve (TypeScript borra los tipos),
-    // así que se mira el metadato que TypeORM sí guarda del decorador.
-    const columnas: Array<{ propertyName: string }> =
-      Reflect.getMetadata('typeorm:columns', PageView) ?? [];
-    const nombres = columnas.map((c) => c.propertyName);
-    expect(nombres).not.toContain('ipAddress');
+  it('la entidad PageView sólo declara lo que hace falta', () => {
+    // El `path` se comprueba a propósito: si la lectura de metadatos devolviera
+    // una lista vacía, las dos aserciones siguientes pasarían sin mirar nada.
+    const columnas = columnasDeLaEntidad();
+    expect(columnas).toContain('path');
+    expect(columnas).not.toContain('userAgent');
+    expect(columnas).not.toContain('ipAddress');
   });
 
   it('el controlador no recibe la petición cruda, así que no puede leer la IP', () => {
@@ -197,15 +211,37 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
       expect(errores).toHaveLength(0);
     });
 
-    it('el DTO ya no declara userAgent, que es lo que hace que se rechace', async () => {
-      // Con `forbidNonWhitelisted` (ver main.ts) un campo no declarado es un
-      // 400. Aquí se fija la causa: la propiedad no existe en el DTO, así que
-      // `plainToInstance` la descarta. Si alguien la reintroduce, esto avisa.
-      const instancia = plainToInstance(CreatePageViewDto, {
-        path: '/',
-        userAgent: 'Mozilla/5.0',
+    it('rechaza el cuerpo si trae userAgent, con la misma tubería que main.ts', async () => {
+      // Se monta el ValidationPipe con la configuración real (ver main.ts) en
+      // lugar de mirar metadatos: lo que importa es que la petición se rechace,
+      // no cómo. Si alguien reintroduce el campo en el DTO, esto avisa.
+      const tuberia = new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
       });
-      expect(Object.keys(instancia)).not.toContain('userAgent');
+      const metadatos = {
+        type: 'body' as const,
+        metatype: CreatePageViewDto,
+      };
+
+      // El `message` de la excepción de Nest es genérico ("Bad Request
+      // Exception"); el detalle que interesa está en el cuerpo de la respuesta,
+      // que es lo que ve el cliente.
+      const error = await tuberia
+        .transform({ path: '/', userAgent: 'Mozilla/5.0' }, metadatos)
+        .then(
+          () => null,
+          (e: BadRequestException) => e,
+        );
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect(JSON.stringify(error?.getResponse())).toContain('userAgent');
+
+      // Y el mismo cuerpo sin ese campo pasa sin problemas.
+      await expect(
+        tuberia.transform({ path: '/', title: 'Inicio' }, metadatos),
+      ).resolves.toBeDefined();
     });
 
     it('rechaza un path más largo que su columna', async () => {

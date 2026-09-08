@@ -38,9 +38,15 @@ export class PageView {
   @Column({ type: 'varchar', length: 500, nullable: true })
   title: string;
 
-  /** Sólo el origen (`https://google.com`), nunca la ruta. Ver `aOrigenDeReferrer`. */
+  /**
+   * Sólo el origen (`https://google.com`), nunca la ruta. Ver `aOrigenDeReferrer`.
+   *
+   * El tipo dice `| null` porque la columna es nullable de verdad: la navegación
+   * directa y cualquier referrer que no sea una URL http(s) utilizable se
+   * guardan como null.
+   */
   @Column({ type: 'varchar', length: 500, nullable: true })
-  referrer: string;
+  referrer: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   @Index()
