@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 import { IdentificationType } from '../../orders/guest-customer.entity';
@@ -54,11 +55,20 @@ export class CreateUserDto {
   @IsEnum(IdentificationType, codigo(RegisterErrorCode.INVALID_IDENTIFICATION))
   identificationType?: IdentificationType;
 
+  /**
+   * El `@IsString()` no es decorativo: `EsNumeroCedulaVE` da por buena la
+   * identificación cuando el tipo no es V ni E —un RIF o un pasaporte tienen
+   * otras reglas—, así que sin él un `{"a":1}`, un array o un número entraban
+   * con 201 y se guardaban como basura. `@MaxLength(50)` es el ancho real de
+   * la columna: pasarse devolvía un 500 en vez de un 400.
+   */
   @IsOptional()
   @EsNumeroCedulaVE(
     'identificationType',
     codigo(RegisterErrorCode.INVALID_IDENTIFICATION),
   )
+  @IsString(codigo(RegisterErrorCode.INVALID_IDENTIFICATION))
+  @MaxLength(50, codigo(RegisterErrorCode.INVALID_IDENTIFICATION))
   @NormalizaNumeroCedulaVE()
   identificationNumber?: string;
 }

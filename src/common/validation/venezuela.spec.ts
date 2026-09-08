@@ -27,9 +27,24 @@ describe('normalizarTelefonoMovilVE', () => {
       '+58 414 1234567',
       '584141234567',
       '4141234567',
+      // Código de país y encima el 0 de la numeración local: es como lo copia
+      // la gente de su propio contacto de WhatsApp. Se rechazaba porque al
+      // quitar el `58` quedaba `004141234567`.
+      '+58 (0414) 1234567',
+      '+58 0414 123 45 67',
+      '5804141234567',
+      // La raya larga que pega Word o el teclado del móvil.
+      '0414\u20131234567',
     ]) {
       expect(normalizarTelefonoMovilVE(escrito)).toBe('04141234567');
     }
+  });
+
+  it('deja fuera el prefijo internacional escrito con 00', () => {
+    // `0058...` no lo escribe nadie y aceptarlo abriría la puerta a cualquier
+    // cosa que empiece por ceros.
+    expect(normalizarTelefonoMovilVE('0058 414 1234567')).toBeNull();
+    expect(normalizarTelefonoMovilVE('004141234567')).toBeNull();
   });
 
   it('acepta las cinco operadoras móviles', () => {
@@ -66,6 +81,10 @@ describe('normalizarCedulaVE', () => {
       'V 12.345.678',
       '12345678',
       ' v-12345678 ',
+      // La misma raya larga que el teléfono ya aceptaba. Que una la tragara y
+      // la otra no era una asimetría sin motivo.
+      'V\u201312345678',
+      'V\u201412345678',
     ]) {
       expect(normalizarCedulaVE(escrito)).toBe('V-12345678');
     }

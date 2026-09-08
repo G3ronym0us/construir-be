@@ -26,6 +26,15 @@ export const PREFIJOS_MOVILES_VE = [
 /** Formato en el que se guarda un teléfono: `04141234567`. */
 export const TELEFONO_MOVIL_VE_CANONICO = /^0(412|414|416|424|426)\d{7}$/;
 
+/**
+ * Guiones y rayas que la gente pega desde Word, un PDF o el teclado del móvil:
+ * el corto de toda la vida y los largos (‑ ‒ – — ―). El teléfono ya los tragaba
+ * porque filtra por dígitos; la cédula sólo limpiaba el corto, así que
+ * `0414–1234567` se aceptaba y `V–12345678` se rechazaba — la misma raya, dos
+ * respuestas distintas.
+ */
+const SEPARADORES_CEDULA = /[\s.\u2010-\u2015-]/g;
+
 /** Formato en el que se guarda una cédula: `V-12345678`. */
 export const CEDULA_VE_CANONICA = /^[VE]-\d{7,8}$/;
 
@@ -42,9 +51,16 @@ export function normalizarTelefonoMovilVE(valor: unknown): string | null {
   // paréntesis. Sólo interesan los dígitos y un posible "+" del prefijo país.
   let digitos = valor.replace(/[^\d+]/g, '');
 
-  // `+58412...` y `58412...` son el mismo número con el prefijo del país. Se le
-  // devuelve el 0 inicial que usa la numeración local.
-  digitos = digitos.replace(/^\+?58/, '0');
+  // El prefijo del país se escribe de tres formas y las tres son el mismo
+  // número: `+58 412 1234567`, `58412...` y —muy común— `+58 (0414) 1234567`,
+  // con el código de país y encima el 0 de la numeración local. Quitar el `58`
+  // y meter un `0` fijo dejaba ese último caso en `004141234567` y lo
+  // rechazaba. Se quita el prefijo y ya; el 0 lo repone la regla de abajo si
+  // hace falta.
+  if (digitos.startsWith('+')) digitos = digitos.slice(1);
+  // Un móvil local nunca empieza por 58, así que no hay ambigüedad. `0058...`
+  // se queda fuera a propósito: eso no lo escribe nadie.
+  if (digitos.startsWith('58')) digitos = digitos.slice(2);
 
   // Alguien que escribe "4121234567" se está saltando el 0; es interpretable.
   if (/^4(12|14|16|24|26)\d{7}$/.test(digitos)) {
@@ -63,10 +79,7 @@ export function normalizarTelefonoMovilVE(valor: unknown): string | null {
 export function normalizarCedulaVE(valor: unknown): string | null {
   if (typeof valor !== 'string') return null;
 
-  const limpio = valor
-    .trim()
-    .toUpperCase()
-    .replace(/[\s.-]/g, '');
+  const limpio = valor.trim().toUpperCase().replace(SEPARADORES_CEDULA, '');
   const match = /^([VE]?)(\d{7,8})$/.exec(limpio);
   if (!match) return null;
 
@@ -90,7 +103,7 @@ export function normalizarCedulaVEDesdePartes(
   const soloNumero = numero
     .trim()
     .toUpperCase()
-    .replace(/^[VE][\s.-]*/, '');
+    .replace(/^[VE][\s.\u2010-\u2015-]*/, '');
   return normalizarCedulaVE(`${tipo}${soloNumero}`);
 }
 

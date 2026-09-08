@@ -12,6 +12,7 @@ import {
   IsPositive,
   Min,
   IsNumber,
+  MaxLength,
   ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -41,6 +42,8 @@ export class CustomerInfoDto {
    */
   @IsString()
   @IsNotEmpty()
+  // El ancho real de la columna: pasarse devolvía un 500 en vez de un 400.
+  @MaxLength(50)
   @EsNumeroCedulaVE('identificationType')
   @NormalizaNumeroCedulaVE()
   identificationNumber: string;

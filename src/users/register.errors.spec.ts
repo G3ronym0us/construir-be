@@ -108,6 +108,25 @@ describe('POST /users/register — validación y código del motivo de rechazo',
     });
   });
 
+  it('no deja que el registro se conceda a sí mismo rol ni cuenta activa', async () => {
+    // `POST /users/register` es público: lo único que impide que alguien se
+    // registre como `admin`, con la cuenta ya verificada o con otro `id`, es
+    // que el validador rechace toda propiedad que el DTO no declara.
+    //
+    // Este pipe reemplazó al `ValidationPipe` global para esta ruta. Si alguien
+    // lo simplifica mañana y se lleva por delante `whitelist` /
+    // `forbidNonWhitelisted`, ninguna otra prueba se quejaría y el agujero se
+    // abriría en silencio.
+    for (const colado of [
+      { role: 'admin' },
+      { isActive: true },
+      { emailVerified: true, id: 999 },
+      { password: 'secreta', deletedAt: null },
+    ]) {
+      expect(await codigoDe(colado)).toBe(RegisterErrorCode.INVALID_DATA);
+    }
+  });
+
   describe('cédula', () => {
     it('acepta 7 y 8 dígitos, con guion, sin guion y en minúscula', async () => {
       for (const escrito of [
@@ -134,6 +153,31 @@ describe('POST /users/register — validación y código del motivo de rechazo',
           RegisterErrorCode.INVALID_IDENTIFICATION,
         );
       }
+    });
+
+    it('exige que sea texto aunque el tipo no sea V ni E', async () => {
+      // `EsNumeroCedulaVE` da por buena la identificación de un RIF o un
+      // pasaporte —tienen otras reglas—, así que sin `@IsString()` un objeto,
+      // un array o un número entraban con 201 y se guardaban como basura.
+      for (const malo of [{ a: 1 }, [1, 2, 3], 12345678, true]) {
+        expect(
+          await codigoDe({
+            identificationType: 'J',
+            identificationNumber: malo,
+          }),
+        ).toBe(RegisterErrorCode.INVALID_IDENTIFICATION);
+      }
+    });
+
+    it('no deja pasar una identificación más larga que su columna', async () => {
+      // `varchar(50)`: sin el tope, el cliente recibía un 500 del motor de base
+      // de datos en vez de un aviso de que su dato está mal.
+      expect(
+        await codigoDe({
+          identificationType: 'J',
+          identificationNumber: '4'.repeat(2000),
+        }),
+      ).toBe(RegisterErrorCode.INVALID_IDENTIFICATION);
     });
 
     it('no le aplica la regla de la cédula a un RIF o a un pasaporte', async () => {
