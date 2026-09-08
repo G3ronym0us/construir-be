@@ -114,3 +114,31 @@ export function esTelefonoMovilVE(valor: unknown): boolean {
 export function esCedulaVE(valor: unknown): boolean {
   return normalizarCedulaVE(valor) !== null;
 }
+
+/**
+ * Deja un teléfono en una forma comparable con otro escrito de otra manera.
+ *
+ * Es la normalización de arriba con una salida de emergencia: en
+ * `guest_customers` hay teléfonos guardados desde antes de que se validara
+ * nada, y varios no son móviles venezolanos (`+1 (406) 729-6503`). Si el único
+ * criterio fuera `normalizarTelefonoMovilVE`, esos clientes nunca volverían a
+ * reconocerse a sí mismos, porque su número normaliza a `null` en los dos
+ * lados y `null === null` no puede valer como coincidencia.
+ *
+ * Para esos casos se comparan los dígitos pelados, que es lo único que tienen
+ * en común "+1 (406) 729-6503" y "14067296503". Devuelve `null` cuando no
+ * queda nada comparable, y ese `null` NUNCA debe tratarse como igual a otro.
+ */
+export function normalizarTelefonoParaComparar(
+  valor: unknown,
+): string | null {
+  if (typeof valor !== 'string') return null;
+
+  const movil = normalizarTelefonoMovilVE(valor);
+  if (movil) return movil;
+
+  const digitos = valor.replace(/\D/g, '');
+  // Menos de siete dígitos no identifica a nadie: un "123" no puede servir de
+  // segundo factor.
+  return digitos.length >= 7 ? digitos : null;
+}

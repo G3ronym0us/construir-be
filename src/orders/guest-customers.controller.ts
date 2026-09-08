@@ -4,6 +4,7 @@ import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrderAdminGuard } from '../auth/guards/order-admin.guard';
+import { GuestCustomerAutocomplete } from './guest-customer-autocomplete';
 
 @Controller('guest-customers')
 export class GuestCustomersController {
@@ -12,20 +13,27 @@ export class GuestCustomersController {
   /**
    * Autocompleta el formulario de checkout de un invitado que ya compró antes.
    *
-   * Basta la identificación. Es público porque el checkout de invitados no
-   * tiene sesión, y se decidió que pedir un segundo dato estorbaba más de lo
-   * que protegía: el comprador no tiene por qué recordar con qué correo o
-   * teléfono compró la vez pasada.
+   * Sigue siendo público —el checkout de invitados no tiene sesión— pero ya no
+   * basta la identificación. Antes sí, y era un agujero: las cédulas
+   * venezolanas son secuenciales, así que quien recorriera números en orden
+   * iba sacando nombre, correo, teléfono y domicilio de cada cliente que
+   * hubiera comprado alguna vez. El límite de tasa sólo encarecía el barrido
+   * desde una IP; desde muchas no impedía nada.
    *
-   * El riesgo asumido es real y conviene tenerlo presente: las cédulas
-   * venezolanas son secuenciales, así que quien recorra números en orden va
-   * obteniendo nombre, correo, teléfono y domicilio de cada cliente que haya
-   * comprado alguna vez.
+   * El segundo dato es el **teléfono**, y hay dos razones para que sea ese y
+   * no el correo: el cliente que vuelve se lo sabe de memoria, y lo iba a
+   * escribir igual en el paso siguiente del checkout, así que el
+   * autocompletado no pierde nada a cambio. Se piden juntos en la primera
+   * pantalla del paso de contacto.
    *
-   * **El límite de tasa es la única contención que queda, no lo quites.** A 5
-   * consultas por minuto, barrer un rango de millones de cédulas desde una IP
-   * pasa a tomar años. Si algún día hace falta más, el siguiente paso natural
-   * es exigir el correo o el teléfono como segundo dato.
+   * **Los tres casos negativos devuelven exactamente lo mismo** —cuerpo vacío,
+   * 200— y por el mismo camino: que falten parámetros, que no exista la cédula
+   * o que no coincida el teléfono. Distinguirlos volvería a permitir enumerar
+   * cédulas, sólo que cosechando un sí/no en vez de la ficha completa.
+   *
+   * **El límite de tasa se queda, no lo quites.** Ya no es la única contención,
+   * pero es lo que evita que alguien que sí conoce un teléfono lo pruebe
+   * contra un rango de cédulas.
    */
   @Get('search')
   @UseGuards(ThrottlerGuard)
@@ -33,14 +41,16 @@ export class GuestCustomersController {
   async searchByIdentification(
     @Query('identificationType') identificationType: IdentificationType,
     @Query('identificationNumber') identificationNumber: string,
-  ): Promise<GuestCustomer | null> {
-    if (!identificationType || !identificationNumber) {
+    @Query('phone') phone: string,
+  ): Promise<GuestCustomerAutocomplete | null> {
+    if (!identificationType || !identificationNumber || !phone) {
       return null;
     }
 
     return this.guestCustomersService.findForAutocomplete(
       identificationType,
       identificationNumber,
+      phone,
     );
   }
 

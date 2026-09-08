@@ -1,8 +1,44 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
 import { CustomerInfoDto, ShippingAddressDto } from './dto/create-order.dto';
+import { normalizarTelefonoParaComparar } from '../common/validation/venezuela';
+import {
+  GuestCustomerAutocomplete,
+  aAutocompletado,
+} from './guest-customer-autocomplete';
+
+/**
+ * Resume un teléfono ya normalizado en 32 bytes, siempre los mismos 32.
+ *
+ * Se compara el resumen y no la cadena para que el cotejo cueste lo mismo
+ * pase lo que pase: dos teléfonos de largo distinto o que difieren en el
+ * primer dígito tardarían tiempos distintos en compararse tal cual, y ese
+ * tiempo es información.
+ *
+ * Un teléfono ausente o inservible se sustituye por bytes al azar, distintos
+ * en cada llamada. Así el trabajo es idéntico al del caso con registro y,
+ * sobre todo, dos ausencias nunca pueden empatar entre sí: sin esto, consultar
+ * una cédula inexistente con un teléfono basura daría "coincide".
+ */
+function huellaTelefono(valor: unknown): Buffer {
+  const normalizado = normalizarTelefonoParaComparar(valor);
+  return createHash('sha256')
+    .update(normalizado ?? randomBytes(32))
+    .digest();
+}
+
+/**
+ * ¿Son el mismo teléfono, aunque estén escritos distinto?
+ *
+ * Quien una vez escribió "0414-1234567" y otra "04141234567" tiene que
+ * reconocerse a sí mismo: se compara la forma normalizada, nunca la cruda.
+ */
+function mismoTelefono(guardado: unknown, recibido: unknown): boolean {
+  return timingSafeEqual(huellaTelefono(guardado), huellaTelefono(recibido));
+}
 
 @Injectable()
 export class GuestCustomersService {
@@ -29,22 +65,41 @@ export class GuestCustomersService {
   /**
    * Busca un cliente guest para autocompletar el formulario de checkout.
    *
-   * Basta la identificación: el comprador escribe su cédula y recupera sus
-   * datos sin tener que recordar con qué correo o teléfono compró la vez
-   * anterior. Es una decisión de producto deliberada.
+   * Antes bastaba la identificación, y eso era un agujero: las cédulas
+   * venezolanas son secuenciales, así que quien recorriera números en orden
+   * iba sacando nombre, correo, teléfono y domicilio de todos los clientes de
+   * la tienda. El límite de tasa sólo encarecía el barrido desde una IP; desde
+   * muchas no impedía nada.
    *
-   * El riesgo que acepta es que las cédulas venezolanas son secuenciales, así
-   * que quien recorra números en orden va obteniendo los datos de contacto de
-   * cada cliente que haya comprado. La contención es el límite de tasa del
-   * controlador, no esta consulta: mantenlo puesto.
+   * Ahora hace falta un segundo dato que el atacante no puede adivinar: el
+   * teléfono. Es lo que un cliente que vuelve sabe de memoria y lo que iba a
+   * escribir de todos modos en el paso siguiente, así que a él no le cuesta
+   * nada; al que enumera cédulas le cuesta todo.
    *
-   * Devuelve `null` cuando la identificación no existe.
+   * Devuelve `null` en los DOS casos —identificación desconocida y teléfono
+   * que no coincide— y a propósito hace el mismo trabajo en ambos: si la
+   * respuesta o el tiempo distinguieran "esta cédula no existe" de "existe
+   * pero el teléfono está mal", el barrido seguiría siendo posible, sólo que
+   * devolviendo un sí/no en vez de la ficha.
    */
   async findForAutocomplete(
     identificationType: IdentificationType,
     identificationNumber: string,
-  ): Promise<GuestCustomer | null> {
-    return this.findByIdentification(identificationType, identificationNumber);
+    telefono: unknown,
+  ): Promise<GuestCustomerAutocomplete | null> {
+    const cliente = await this.findByIdentification(
+      identificationType,
+      identificationNumber,
+    );
+
+    // La comparación se hace SIEMPRE, haya registro o no. Salir antes con un
+    // `return null` cuando la cédula no existe es justo lo que le daría al
+    // atacante la diferencia de tiempo que necesita para enumerarlas.
+    const coincide = mismoTelefono(cliente?.phone, telefono);
+
+    if (!cliente || !coincide) return null;
+
+    return aAutocompletado(cliente);
   }
 
   /**
