@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/login.dto';
+import { AuthErrorCode } from './auth-error-code.enum';
 
 @Injectable()
 export class AuthService {
@@ -15,12 +16,18 @@ export class AuthService {
     const user = await this.usersService.findByEmail(loginDto.email);
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw this.rechazo(
+        AuthErrorCode.INVALID_CREDENTIALS,
+        'Invalid credentials',
+      );
     }
 
     // Check if account is deactivated
     if (!user.isActive) {
-      throw new UnauthorizedException('Account is deactivated');
+      throw this.rechazo(
+        AuthErrorCode.ACCOUNT_DEACTIVATED,
+        'Account is deactivated',
+      );
     }
 
     // Check if email is verified (only required for customer/user roles)
@@ -28,12 +35,18 @@ export class AuthService {
       !user.emailVerified &&
       (user.role === 'customer' || user.role === 'user')
     ) {
-      throw new UnauthorizedException('Email not verified');
+      throw this.rechazo(
+        AuthErrorCode.EMAIL_NOT_VERIFIED,
+        'Email not verified',
+      );
     }
 
     // Check if account is soft deleted
     if (user.deletedAt) {
-      throw new UnauthorizedException('Account not found');
+      throw this.rechazo(
+        AuthErrorCode.ACCOUNT_NOT_FOUND,
+        'Account not found',
+      );
     }
 
     const isPasswordValid = await bcrypt.compare(
@@ -42,7 +55,10 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw this.rechazo(
+        AuthErrorCode.INVALID_CREDENTIALS,
+        'Invalid credentials',
+      );
     }
 
     const payload = {
@@ -65,6 +81,21 @@ export class AuthService {
         role: user.role,
       },
     };
+  }
+
+  /**
+   * 401 con `code` además del `message`.
+   *
+   * El `code` es lo que el frontend traduce; el `message` se conserva tal cual
+   * estaba para no romper a ningún cliente que lo estuviera leyendo.
+   */
+  private rechazo(code: AuthErrorCode, message: string) {
+    return new UnauthorizedException({
+      statusCode: 401,
+      error: 'Unauthorized',
+      message,
+      code,
+    });
   }
 
   async validateUser(userId: number) {
