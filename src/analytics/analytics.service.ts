@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual, LessThan } from 'typeorm';
 import { PageView } from './page-view.entity';
 import { CreatePageViewDto } from './dto/create-page-view.dto';
+import { aOrigenDeReferrer } from './referrer.util';
 
 @Injectable()
 export class AnalyticsService {
@@ -11,8 +12,16 @@ export class AnalyticsService {
     private pageViewRepository: Repository<PageView>,
   ) {}
 
+  /**
+   * El recorte del referrer se hace aquí y no en el DTO a propósito: así se
+   * aplica a todo el que llame al servicio, no sólo a lo que entra por HTTP, y
+   * la regla queda en un único sitio (`aOrigenDeReferrer`).
+   */
   async trackPageView(createPageViewDto: CreatePageViewDto): Promise<PageView> {
-    const pageView = this.pageViewRepository.create(createPageViewDto);
+    const pageView = this.pageViewRepository.create({
+      ...createPageViewDto,
+      referrer: aOrigenDeReferrer(createPageViewDto.referrer),
+    });
 
     return await this.pageViewRepository.save(pageView);
   }

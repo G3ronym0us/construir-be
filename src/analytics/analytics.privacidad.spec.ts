@@ -10,6 +10,7 @@ import { AnalyticsService } from './analytics.service';
 import { AnalyticsTasksService } from './analytics-tasks.service';
 import { CreatePageViewDto } from './dto/create-page-view.dto';
 import { PageView } from './page-view.entity';
+import { aOrigenDeReferrer } from './referrer.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 /**
@@ -18,12 +19,17 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
  * consulta la leía nunca: sólo se cuentan filas por fecha y se agrupa por
  * `path`. Era un dato personal retenido a perpetuidad a cambio de nada.
  *
- * Estas pruebas fijan que no vuelva a colarse: que la visita se persiste sin
- * IP, que el cuerpo que llega del navegador está acotado en longitud, y que la
- * purga por retención sigue existiendo. Si alguien reintroduce el `@Req()` que
- * extraía la IP, o quita el `@MaxLength`, o borra la purga, esto se rompe.
+ * Por lo mismo se fue después el `userAgent` —media huella de navegador, que
+ * cruzada con `path` y `created_at` reidentifica sesiones aunque la IP ya no
+ * esté— y el `referrer` pasó a guardarse recortado a su origen: guardarlo entero
+ * llegó a meter en esta tabla el `?token=` de una invitación de registro.
+ *
+ * Estas pruebas fijan que nada de eso vuelva a colarse: que la visita se
+ * persiste sin IP y sin navegador, que el referrer se guarda recortado también
+ * en los casos raros, que el cuerpo está acotado en longitud, y que la purga por
+ * retención sigue existiendo.
  */
-describe('Analítica de visitas — no se recoge la IP del visitante', () => {
+describe('Analítica de visitas — no se recogen datos que identifiquen al visitante', () => {
   const repositorio = {
     create: jest.fn((datos) => datos),
     save: jest.fn((fila) => Promise.resolve({ id: 1, ...fila })),
@@ -65,13 +71,31 @@ describe('Analítica de visitas — no se recoge la IP del visitante', () => {
       path: '/productos',
       title: 'Productos',
       referrer: 'https://google.com',
-      userAgent: 'Mozilla/5.0',
     });
 
     const guardado = repositorio.save.mock.calls[0][0];
     expect(guardado).not.toHaveProperty('ipAddress');
     expect(JSON.stringify(guardado)).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
     expect(guardado.path).toBe('/productos');
+  });
+
+  it('no persiste el navegador aunque alguien lo cuele en el cuerpo', async () => {
+    // El DTO ya no lo declara, pero se fuerza para comprobar que la entidad
+    // tampoco tiene dónde guardarlo si la validación se relajara algún día.
+    await controlador.trackPageView({
+      path: '/productos',
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/147',
+    } as never);
+
+    expect(JSON.stringify(repositorio.save.mock.calls[0][0])).not.toContain(
+      'Mozilla',
+    );
+  });
+
+  it('la entidad PageView ya no declara la columna userAgent', () => {
+    const columnas: Array<{ propertyName: string }> =
+      Reflect.getMetadata('typeorm:columns', PageView) ?? [];
+    expect(columnas.map((c) => c.propertyName)).not.toContain('userAgent');
   });
 
   it('la entidad PageView ya no declara la columna ip_address', () => {
@@ -89,6 +113,77 @@ describe('Analítica de visitas — no se recoge la IP del visitante', () => {
     expect(controlador.trackPageView.length).toBe(1);
   });
 
+  describe('el referrer se guarda recortado a su origen', () => {
+    /**
+     * Guardar la URL completa metía en la tabla los términos de búsqueda del
+     * visitante y, comprobado en la base real, el `?token=` de una invitación de
+     * registro: un secreto de un solo uso copiado a un almacén de analítica que
+     * nadie vigila. Del referrer sólo se consulta de dónde llega la gente.
+     */
+    const origenGuardado = async (referrer: unknown) => {
+      repositorio.save.mockClear();
+      await controlador.trackPageView({ path: '/', referrer } as never);
+      return repositorio.save.mock.calls[0][0].referrer;
+    };
+
+    it('se queda con el origen y tira la ruta y la query', async () => {
+      expect(await origenGuardado('https://google.com/search?q=cemento')).toBe(
+        'https://google.com',
+      );
+    });
+
+    it('no guarda el token de una invitación que venga en el referrer', async () => {
+      const guardado = await origenGuardado(
+        'http://localhost:3001/register/invitation?token=fe3fe3c54d98480aa6edab613fb24c2b',
+      );
+      expect(guardado).toBe('http://localhost:3001');
+      expect(guardado).not.toContain('token');
+    });
+
+    it('conserva el puerto cuando no es el estándar del esquema', async () => {
+      expect(await origenGuardado('http://localhost:3001/productos')).toBe(
+        'http://localhost:3001',
+      );
+      expect(await origenGuardado('https://tienda.com:8443/a')).toBe(
+        'https://tienda.com:8443',
+      );
+    });
+
+    it('trata el referrer interno de la propia tienda como cualquier otro', async () => {
+      expect(await origenGuardado('https://construir.com/carrito?paso=2')).toBe(
+        'https://construir.com',
+      );
+    });
+
+    describe('entradas raras: ninguna debe perder la visita', () => {
+      const casos: Array<[string, unknown]> = [
+        ['cadena vacía (navegación directa)', ''],
+        ['sólo espacios', '   '],
+        ['about:blank', 'about:blank'],
+        ['una URL mal formada', 'no-es-una-url'],
+        ['un esquema que no es web', 'android-app://com.google.android.gm'],
+        ['data:', 'data:text/html,<p>hola</p>'],
+        ['undefined', undefined],
+        ['null', null],
+        ['un número, por si el cliente se equivoca de tipo', 42],
+      ];
+
+      it.each(casos)(
+        '%s se guarda como null y la visita se registra igual',
+        async (_, entrada) => {
+          expect(await origenGuardado(entrada)).toBeNull();
+          expect(repositorio.save).toHaveBeenCalledTimes(1);
+        },
+      );
+    });
+
+    it('aOrigenDeReferrer nunca lanza, pase lo que pase', () => {
+      ['', '   ', 'http://', '://x', 'https://[', 'about:blank', '\u0000'].forEach(
+        (v) => expect(() => aOrigenDeReferrer(v)).not.toThrow(),
+      );
+    });
+  });
+
   describe('validación del cuerpo, que llega del navegador sin sesión', () => {
     const validar = (datos: Record<string, unknown>) =>
       validate(plainToInstance(CreatePageViewDto, datos));
@@ -98,19 +193,23 @@ describe('Analítica de visitas — no se recoge la IP del visitante', () => {
         path: '/carrito',
         title: 'Carrito',
         referrer: 'https://construir.com',
-        userAgent: 'Mozilla/5.0',
       });
       expect(errores).toHaveLength(0);
     });
 
-    it('rechaza un path más largo que su columna', async () => {
-      const errores = await validar({ path: 'a'.repeat(501) });
-      expect(errores).toHaveLength(1);
-      expect(errores[0].constraints).toHaveProperty('maxLength');
+    it('el DTO ya no declara userAgent, que es lo que hace que se rechace', async () => {
+      // Con `forbidNonWhitelisted` (ver main.ts) un campo no declarado es un
+      // 400. Aquí se fija la causa: la propiedad no existe en el DTO, así que
+      // `plainToInstance` la descarta. Si alguien la reintroduce, esto avisa.
+      const instancia = plainToInstance(CreatePageViewDto, {
+        path: '/',
+        userAgent: 'Mozilla/5.0',
+      });
+      expect(Object.keys(instancia)).not.toContain('userAgent');
     });
 
-    it('rechaza un userAgent desmesurado: la columna es text y no tenía tope', async () => {
-      const errores = await validar({ userAgent: 'a'.repeat(5000) });
+    it('rechaza un path más largo que su columna', async () => {
+      const errores = await validar({ path: 'a'.repeat(501) });
       expect(errores).toHaveLength(1);
       expect(errores[0].constraints).toHaveProperty('maxLength');
     });
