@@ -696,7 +696,7 @@ export class CategoriesService {
       .webp({ quality: 80 })
       .toBuffer();
 
-    const webpResult = await this.s3Service.uploadFile(
+    const webpResult = await this.s3Service.uploadPublicFile(
       webpBuffer,
       'categories',
       `categories/${baseFileName}.webp`,

@@ -826,28 +826,107 @@ export class OrdersService {
   }
 
   /**
-   * Sube el comprobante de pago
+   * Comprueba que una orden admite que le suban un comprobante, antes de
+   * aceptar el fichero.
+   *
+   * La subida no lleva sesión —el checkout de invitado no la tiene— y el uuid
+   * del pedido es todo el secreto que hay, así que el resto de condiciones
+   * hacen de filtro: sin ellas, cualquiera que acertara un uuid podía escribir
+   * en el bucket de producción, y podía además tapar un comprobante ya
+   * verificado con el de otro pago.
+   *
+   * Se deja pasar `REJECTED` a propósito: el flujo normal cuando el admin
+   * rechaza un pago es que el cliente mande otra captura.
+   */
+  async assertReceiptUploadAllowed(orderUuid: string): Promise<Order> {
+    const order = await this.orderRepository.findOne({
+      where: { uuid: orderUuid },
+      relations: ['paymentInfo'],
+    });
+
+    if (!order || !order.paymentInfo) {
+      throw new NotFoundException(`Order with ID ${orderUuid} not found`);
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException(
+        'No se puede adjuntar un comprobante a una orden cancelada',
+      );
+    }
+
+    if (order.paymentInfo.status === PaymentStatus.VERIFIED) {
+      throw new BadRequestException(
+        'El pago de esta orden ya fue verificado; el comprobante no se puede sustituir',
+      );
+    }
+
+    return order;
+  }
+
+  /**
+   * Guarda el comprobante de pago recién subido.
+   *
+   * Sólo se guarda la `key`: la URL directa ya no se escribe nunca más, porque
+   * era pública y quedaba en la base para siempre. `receiptUrl` se pone a null
+   * también al reemplazar, para no dejar viva la de un comprobante anterior.
    */
   async uploadPaymentReceipt(
     orderUuid: string,
-    receiptUrl: string,
     receiptKey: string,
-  ): Promise<Order> {
+  ): Promise<{ order: Order; previousKey: string | null }> {
+    const order = await this.assertReceiptUploadAllowed(orderUuid);
+
+    const previousKey = order.paymentInfo.receiptKey ?? null;
+
+    order.paymentInfo.receiptUrl = null;
+    order.paymentInfo.receiptKey = receiptKey;
+    order.paymentInfo.status = PaymentStatus.PENDING;
+
+    await this.paymentInfoRepository.save(order.paymentInfo);
+    const saved = await this.orderRepository.save(order);
+
+    return { order: saved, previousKey };
+  }
+
+  /**
+   * Devuelve la orden y la clave de su comprobante a quien tiene derecho a
+   * verlo.
+   *
+   * Lo ven los administradores y los `order_admin` —son quienes verifican el
+   * pago— y el cliente registrado dueño de la orden. Al invitado no: no tiene
+   * sesión, y lo único que podría presentar es el número de orden, que va en un
+   * correo, se reenvía por WhatsApp y es correlativo. Por eso mismo
+   * `trackByOrderNumber` ya recorta los datos del pago, y devolver el
+   * comprobante por ese camino reabriría lo que aquel cierre tapó. El invitado
+   * tampoco lo necesita: la captura la mandó él y la tiene en su teléfono.
+   */
+  async getReceiptKeyForViewer(
+    orderUuid: string,
+    viewer: { userId?: number; isAdmin: boolean },
+  ): Promise<{ order: Order; receiptKey: string }> {
     const order = await this.orderRepository.findOne({
       where: { uuid: orderUuid },
       relations: ['paymentInfo'],
     });
 
     if (!order) {
-      throw new NotFoundException(`Order with ID ${orderUuid} not found`);
+      throw new NotFoundException(`Order with UUID ${orderUuid} not found`);
     }
 
-    order.paymentInfo.receiptUrl = receiptUrl;
-    order.paymentInfo.receiptKey = receiptKey;
-    order.paymentInfo.status = PaymentStatus.PENDING;
+    // 401 y no 403, que es lo que semánticamente correspondería: es el mismo
+    // error que ya devuelven `findOneByUuid` y `cancelOrder` para «esta orden no
+    // es tuya». Cambiarlo sólo aquí dejaría al frontend distinguiendo dos
+    // códigos para el mismo rechazo. Si se corrige, hay que corregir los tres.
+    if (!viewer.isAdmin && order.userId !== viewer.userId) {
+      throw new UnauthorizedException('Access denied to this order');
+    }
 
-    await this.paymentInfoRepository.save(order.paymentInfo);
-    return this.orderRepository.save(order);
+    const receiptKey = order.paymentInfo?.receiptKey;
+    if (!receiptKey) {
+      throw new NotFoundException('Esta orden no tiene comprobante de pago');
+    }
+
+    return { order, receiptKey };
   }
 
   /**
@@ -1504,7 +1583,9 @@ export class OrdersService {
         order.paymentInfo?.referenceCode ??
         order.paymentInfo?.referenceNumber ??
         null,
-      hasReceipt: Boolean(order.paymentInfo?.receiptUrl),
+      hasReceipt: Boolean(
+        order.paymentInfo?.receiptKey || order.paymentInfo?.receiptUrl,
+      ),
       customerName:
         fullName(guest?.firstName, guest?.lastName) ??
         fullName(user?.firstName, user?.lastName) ??
