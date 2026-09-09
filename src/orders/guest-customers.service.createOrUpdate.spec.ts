@@ -81,13 +81,18 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
       // retiro en tienda para no mandar dirección.
       const guardado = await service.createOrUpdate(pedidoDe('04149998877'));
 
-      expect(guardado.address).toBeUndefined();
-      expect(guardado.city).toBeUndefined();
-      expect(guardado.state).toBeUndefined();
-      expect(guardado.zipCode).toBeUndefined();
-      expect(guardado.additionalInfo).toBeUndefined();
-      expect(guardado.latitude).toBeUndefined();
-      expect(guardado.longitude).toBeUndefined();
+      // `toBeNull` y no `toBeUndefined`, y la diferencia no es cosmética: para
+      // TypeORM `undefined` significa "no toques esta columna". La primera
+      // versión de este arreglo asignaba `undefined`, estas pruebas pasaban, y
+      // contra la base de verdad la dirección de la víctima seguía ahí porque
+      // el UPDATE ni mencionaba esas columnas.
+      expect(guardado.address).toBeNull();
+      expect(guardado.city).toBeNull();
+      expect(guardado.state).toBeNull();
+      expect(guardado.zipCode).toBeNull();
+      expect(guardado.additionalInfo).toBeNull();
+      expect(guardado.latitude).toBeNull();
+      expect(guardado.longitude).toBeNull();
     });
 
     it('no le regala al atacante el historial de la víctima', async () => {
@@ -109,9 +114,9 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
       );
 
       expect(ficha).not.toBeNull();
-      expect(ficha!.address).toBeUndefined();
-      expect(ficha!.city).toBeUndefined();
-      expect(ficha!.state).toBeUndefined();
+      expect(ficha!.address).toBeNull();
+      expect(ficha!.city).toBeNull();
+      expect(ficha!.state).toBeNull();
       // Y lo que sí sale es lo que el propio atacante escribió, no de la víctima.
       expect(ficha!.firstName).toBe('Atacante');
       expect(JSON.stringify(ficha)).not.toContain('Calle Victima 123');
@@ -121,8 +126,8 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
     it('tampoco cuela con la dirección escrita en otra puntuación del teléfono ajeno', async () => {
       // No basta con parecerse: 0414-123.99.98 no es 04141239999.
       const guardado = await service.createOrUpdate(pedidoDe('0414-123.99.98'));
-      expect(guardado.address).toBeUndefined();
-      expect(guardado.latitude).toBeUndefined();
+      expect(guardado.address).toBeNull();
+      expect(guardado.latitude).toBeNull();
     });
   });
 
@@ -168,6 +173,7 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
       expect(guardado.additionalInfo).toBeUndefined();
       expect(guardado.latitude).toBeUndefined();
       expect(guardado.longitude).toBeUndefined();
+      expect(guardado.address).not.toBe('Calle Victima 123');
     });
   });
 

@@ -40,6 +40,21 @@ function mismoTelefono(guardado: unknown, recibido: unknown): boolean {
   return timingSafeEqual(huellaTelefono(guardado), huellaTelefono(recibido));
 }
 
+/**
+ * Lo que hay que asignarle a una columna para vaciarla de verdad.
+ *
+ * Para TypeORM `undefined` significa "no toques esta columna" y `null`
+ * significa "ponla a NULL". Poniendo `undefined` el borrado no llegaba a la
+ * base —el UPDATE ni mencionaba esas columnas— y la dirección de la víctima
+ * sobrevivía al rodeo pese a que el código parecía estar borrándola. Las
+ * pruebas con el repositorio simulado no lo veían, porque un doble de prueba
+ * no reproduce esa semántica: se descubrió mandando el ataque contra la base
+ * de verdad.
+ *
+ * La entidad declara estos campos opcionales y no nulables, de ahí el cast.
+ */
+const BORRA_LA_COLUMNA = null as unknown as undefined;
+
 @Injectable()
 export class GuestCustomersService {
   constructor(
@@ -160,14 +175,14 @@ export class GuestCustomersService {
         // Sin dirección en el pedido y sin probar el teléfono: se borra la que
         // había. Éste es exactamente el hueco por el que entraba el rodeo:
         // `pickup` no manda dirección, así que la de la víctima sobrevivía.
-        guestCustomer.address = undefined;
-        guestCustomer.city = undefined;
-        guestCustomer.state = undefined;
-        guestCustomer.zipCode = undefined;
+        guestCustomer.address = BORRA_LA_COLUMNA;
+        guestCustomer.city = BORRA_LA_COLUMNA;
+        guestCustomer.state = BORRA_LA_COLUMNA;
+        guestCustomer.zipCode = BORRA_LA_COLUMNA;
         guestCustomer.country = 'Venezuela';
-        guestCustomer.additionalInfo = undefined;
-        guestCustomer.latitude = undefined;
-        guestCustomer.longitude = undefined;
+        guestCustomer.additionalInfo = BORRA_LA_COLUMNA;
+        guestCustomer.latitude = BORRA_LA_COLUMNA;
+        guestCustomer.longitude = BORRA_LA_COLUMNA;
       }
 
       // El historial tampoco se hereda: "3 pedidos anteriores" es de quien los
