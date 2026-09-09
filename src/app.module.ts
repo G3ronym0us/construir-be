@@ -33,6 +33,7 @@ import {
   emailConfig,
   bcvRatesConfig,
   analyticsConfig,
+  ordersConfig,
 } from './config/configuration';
 
 @Module({
@@ -47,6 +48,7 @@ import {
         emailConfig,
         bcvRatesConfig,
         analyticsConfig,
+        ordersConfig,
       ],
     }),
     ScheduleModule.forRoot(),

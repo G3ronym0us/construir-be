@@ -19,6 +19,7 @@ import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
 import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomersController } from './guest-customers.controller';
 import { OrderPricingService } from './order-pricing.service';
+import { OrdersTasksService } from './orders-tasks.service';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { OrderPricingService } from './order-pricing.service';
   controllers: [OrdersController, GuestCustomersController],
   providers: [
     OrdersService,
+    OrdersTasksService,
     OrderPricingService,
     GuestCustomersService,
     S3Service,

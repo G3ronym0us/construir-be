@@ -486,6 +486,42 @@ export class EmailService {
     await this.sendEmail(recipientEmail, subject, html);
   }
 
+  /**
+   * Aviso de que el pedido se anuló solo por no haber llegado el pago.
+   *
+   * Es el único correo de cancelación que existe: las anulaciones a mano las
+   * atiende un vendedor por WhatsApp, pero ésta no la pidió nadie, así que el
+   * cliente se encontraría el pedido cancelado sin explicación ninguna. El
+   * cuerpo dice las tres cosas que necesita saber: que fue por el plazo, que la
+   * mercancía volvió al catálogo y que puede volver a pedirla.
+   *
+   * `releaseHours` llega del plazo con el que corrió la liberación, y no se
+   * relee de la configuración acá: si el dueño lo cambiara entre la
+   * cancelación y el envío, el correo tiene que contar el plazo que de verdad
+   * se le aplicó a ESTE pedido.
+   */
+  async sendOrderReleased(order: Order, releaseHours: number): Promise<void> {
+    const recipientEmail = order.user?.email || order.guestEmail;
+    if (!recipientEmail) return;
+
+    const comun = this.payloads.buildCommon();
+    const subject = `Liberamos tu pedido ${order.orderNumber} por falta de pago`;
+
+    const html = await this.render('order-released', {
+      ...comun,
+      subject,
+      preheader: 'La mercancía volvió al catálogo; puedes pedirla de nuevo',
+      orderNumber: order.orderNumber,
+      customerName: this.customerName(order),
+      releaseHours,
+      totalVes: formatVes(order.totalVes),
+      catalogUrl: `${this.configService.get('app.frontendUrl')}/productos`,
+    });
+    if (!html) return;
+
+    await this.sendEmail(recipientEmail, subject, html);
+  }
+
   /** Se envía cuando la cuenta queda utilizable, es decir tras verificar el correo. */
   async sendWelcome(params: { to: string; firstName: string }): Promise<void> {
     const comun = this.payloads.buildCommon();
