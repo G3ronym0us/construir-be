@@ -110,6 +110,48 @@ export interface AdminOrderRow {
   isGuest: boolean;
 }
 
+/**
+ * Ventas de un mes calendario.
+ *
+ * Cuenta lo MISMO que `verifiedRevenue`: sólo órdenes con el pago verificado y
+ * que no estén canceladas. La tienda cobra por adelantado, así que un pedido
+ * con el comprobante sin revisar todavía no es dinero; y una orden cancelada
+ * no lo es aunque en su día se le verificara el pago. Las rechazadas quedan
+ * fuera solas, porque nunca llegan a `verified`.
+ *
+ * El mes se decide por `createdAt` (cuándo se hizo el pedido) y no por cuándo
+ * el admin revisó el comprobante: si no, verificar hoy un pago de agosto
+ * movería una venta de agosto a septiembre.
+ */
+export interface MonthlySalesStats {
+  /** Mes en formato YYYY-MM. */
+  month: string;
+  verifiedOrders: number;
+  verifiedRevenue: number;
+  /** Nulo si ninguna orden verificada del mes tiene monto en Bs. fijado. */
+  verifiedRevenueVes: number | null;
+  averageTicket: number;
+  averageTicketVes: number | null;
+}
+
+/**
+ * El mes en curso, con su variación contra el mes anterior.
+ *
+ * Las variaciones van en USD y en número de pedidos, nunca en bolívares: los
+ * montos en Bs. son el USD multiplicado por la tasa BCV del día, así que un
+ * "+40% en Bs." puede ser sólo la devaluación y no una venta más. El dueño
+ * necesita saber si vendió más, no si el bolívar valía menos.
+ *
+ * Cada variación es `null` —no 0— cuando el mes anterior fue cero: no hay
+ * porcentaje que calcular contra una base vacía, y pintar "0% vs mes anterior"
+ * diría "vendiste lo mismo", que es falso.
+ */
+export interface CurrentMonthSalesStats extends MonthlySalesStats {
+  percentageChangeRevenue: number | null;
+  percentageChangeOrders: number | null;
+  percentageChangeAverageTicket: number | null;
+}
+
 /** Cabecera del listado de órdenes: KPIs y conteos de los chips por estado. */
 export interface AdminOrderStats {
   totalOrders: number;
@@ -126,6 +168,54 @@ export interface AdminOrderStats {
   averageTicketVes: number | null;
   /** Tasa BCV vigente hoy, no la fijada en ninguna orden. */
   exchangeRate: number | null;
+  /** Bloque "Ventas e Ingresos del Mes" del panel. */
+  currentMonth: CurrentMonthSalesStats;
+  previousMonth: MonthlySalesStats;
+}
+
+/**
+ * Resume en un bloque mensual las órdenes ya filtradas de ese mes.
+ *
+ * `verifiedRevenueVes` suma sólo las órdenes que tienen monto en Bs. fijado
+ * (las anteriores a que se guardara la tasa lo tienen nulo) y el promedio en
+ * Bs. divide entre ESAS, no entre todas: dividir el subtotal en Bs. entre el
+ * número completo de órdenes daría un ticket promedio artificialmente bajo.
+ */
+export function summarizeMonthlySales(
+  orders: Order[],
+  monthStart: Date,
+): MonthlySalesStats {
+  const withVes = orders.filter((order) => order.totalVes !== null);
+  const verifiedRevenue = round2(
+    orders.reduce((sum, order) => sum + Number(order.total), 0),
+  );
+  const verifiedRevenueVes = withVes.length
+    ? round2(withVes.reduce((sum, order) => sum + Number(order.totalVes), 0))
+    : null;
+
+  return {
+    month: `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`,
+    verifiedOrders: orders.length,
+    verifiedRevenue,
+    verifiedRevenueVes,
+    averageTicket: orders.length ? round2(verifiedRevenue / orders.length) : 0,
+    averageTicketVes:
+      verifiedRevenueVes !== null
+        ? round2(verifiedRevenueVes / withVes.length)
+        : null,
+  };
+}
+
+/**
+ * Variación porcentual contra el mes anterior, o `null` si no hay contra qué
+ * comparar. Ver `CurrentMonthSalesStats` para por qué no es 0.
+ */
+export function percentageChange(
+  current: number,
+  previous: number,
+): number | null {
+  if (previous === 0) return null;
+  return round2(((current - previous) / previous) * 100);
 }
 
 @Injectable()
@@ -1182,6 +1272,49 @@ export class OrdersService {
       ? round2(withVes.reduce((sum, order) => sum + Number(order.totalVes), 0))
       : null;
 
+    // Los dos meses del bloque "Ventas e Ingresos del Mes" salen de la MISMA
+    // lista de órdenes verificadas que el KPI de arriba, filtrada por fecha, y
+    // no de una consulta aparte: así el "ingreso del mes" y el "ingreso
+    // verificado" no pueden contar cosas distintas, que es como el panel
+    // acabaría enseñando dos cifras de ventas que no cuadran entre sí.
+    const startOfPreviousMonth = new Date(
+      startOfMonth.getFullYear(),
+      startOfMonth.getMonth() - 1,
+      1,
+    );
+    const currentMonthOrders = verifiedOrdersList.filter(
+      (order) => order.createdAt >= startOfMonth,
+    );
+    const previousMonthOrders = verifiedOrdersList.filter(
+      (order) =>
+        order.createdAt >= startOfPreviousMonth &&
+        order.createdAt < startOfMonth,
+    );
+
+    const currentMonthStats = summarizeMonthlySales(
+      currentMonthOrders,
+      startOfMonth,
+    );
+    const previousMonth = summarizeMonthlySales(
+      previousMonthOrders,
+      startOfPreviousMonth,
+    );
+    const currentMonth: CurrentMonthSalesStats = {
+      ...currentMonthStats,
+      percentageChangeRevenue: percentageChange(
+        currentMonthStats.verifiedRevenue,
+        previousMonth.verifiedRevenue,
+      ),
+      percentageChangeOrders: percentageChange(
+        currentMonthStats.verifiedOrders,
+        previousMonth.verifiedOrders,
+      ),
+      percentageChangeAverageTicket: percentageChange(
+        currentMonthStats.averageTicket,
+        previousMonth.averageTicket,
+      ),
+    };
+
     return {
       totalOrders,
       todayOrders,
@@ -1204,6 +1337,8 @@ export class OrdersService {
           ? round2(verifiedRevenueVes / withVes.length)
           : null,
       exchangeRate: currentRate ? Number(currentRate.rate) : null,
+      currentMonth,
+      previousMonth,
     };
   }
 
