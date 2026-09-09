@@ -26,8 +26,7 @@ yarn analitica:limpiar-rastro    # <- este paso NO se puede saltar
 **Sin este paso la rama no consigue su objetivo.** Las migraciones borran las
 columnas con `DROP COLUMN`, y en Postgres eso **sólo marca el atributo como
 eliminado**: los bytes de las filas ya escritas siguen en el fichero de datos. No
-se pueden leer por SQL, pero sí en un respaldo físico, un snapshot o un disco
-dado de baja.
+se pueden leer por SQL, pero sí en un respaldo físico o en un snapshot.
 
 Está medido, no supuesto. Restaurando el respaldo real en una base limpia y
 aplicando las dos migraciones, leyendo el fichero con `pg_read_binary_file`:
@@ -41,10 +40,21 @@ aplicando las dos migraciones, leyendo el fichero con `pg_read_binary_file`:
 Es decir: una migración pensada para eliminar una credencial filtrada y datos
 personales los deja los tres legibles byte a byte si falta este paso.
 
-El comando ejecuta `VACUUM FULL page_views`, comprueba antes y después que las
-cadenas ya no están, y **sale con código de error si algo sigue ahí**, para que
-un despliegue automatizado se entere. Antes esto vivía sólo como un comentario en
-el código y se omitió dos veces; por eso ahora es un comando.
+El comando ejecuta `VACUUM FULL page_views`, comprueba antes y después que el
+rastro ya no está, y **sale con código de error si algo sigue ahí**, para que un
+despliegue automatizado se entere. Antes esto vivía sólo como un comentario en el
+código y se omitió dos veces; por eso ahora es un comando.
+
+**Qué protege y qué no.** `VACUUM FULL` reescribe la tabla en un fichero nuevo y
+desenlaza el viejo; no sobrescribe los bloques del dispositivo. Es decir: protege
+frente a quien lea la base o se lleve un respaldo lógico, que es el escenario
+real aquí, pero no frente a un análisis forense del disco. Para eso la respuesta
+es el cifrado en reposo, no este comando.
+
+**Límite conocido:** el comando lee el fichero de datos por segmentos y en trozos
+de 16 MB, así que funciona con tablas por encima de 1 GB. Si aun así fallara la
+lectura, **aborta con error en vez de dar un "limpio"**: nunca afirma estar
+limpio sin haberlo medido.
 
 `VACUUM FULL` reescribe la tabla entera y la bloquea mientras dura, así que
 conviene una ventana de poco tráfico (con los tamaños de esta tabla son

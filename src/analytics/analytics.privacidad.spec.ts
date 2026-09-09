@@ -402,6 +402,10 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
         codigos.push(res.status);
       }
 
+      // Testigo: sin esto la prueba sólo afirma "no hubo 429", y eso lo cumple
+      // también un endpoint roto que devuelva 400 a las 260. Es la misma forma
+      // vacua que ya se corrigió en otras dos de este archivo.
+      expect(codigos.filter((c) => c === 201)).toHaveLength(260);
       expect(codigos.filter((c) => c === 429)).toHaveLength(0);
 
       await app.close();
