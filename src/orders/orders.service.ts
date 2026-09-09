@@ -135,6 +135,23 @@ export interface MonthlySalesStats {
 }
 
 /**
+ * El tramo del mes anterior contra el que se compara el mes en curso.
+ *
+ * `daysCompared` NO es siempre el mismo número de días que lleva el mes
+ * actual. El 31 de marzo llevan 31 días corridos, pero febrero sólo tiene 28,
+ * así que el tramo se recorta y se comparan 31 días contra 28. Ese número
+ * tiene que viajar hasta la pantalla: si el rótulo lo dedujera de los días del
+ * mes en curso escribiría "los primeros 31 días de febrero", el mismo "31 de
+ * febrero" que el cálculo se cuida de no inventar. Y lo calcula quien recorta
+ * el tramo, aquí, en vez de repetir la regla en el frontend — repetirla en dos
+ * sitios es exactamente como nació el fallo que este bloque vino a arreglar.
+ */
+export interface PreviousMonthToDateStats extends MonthlySalesStats {
+  /** Días del mes anterior efectivamente comparados. */
+  daysCompared: number;
+}
+
+/**
  * El mes en curso —lo que va de él— con su variación contra el mes anterior.
  *
  * Los importes son los del mes hasta HOY, así que el día 9 son nueve días. La
@@ -189,10 +206,11 @@ export interface AdminOrderStats {
   /** El mes anterior COMPLETO: con lo que cerró. */
   previousMonth: MonthlySalesStats;
   /**
-   * El mismo tramo del mes anterior que lleva recorrido el actual, que es
-   * contra lo que se calculan las variaciones de `currentMonth`.
+   * El mismo tramo del mes anterior que lleva recorrido el actual —recortado
+   * si el mes anterior es más corto—, que es contra lo que se calculan las
+   * variaciones de `currentMonth`.
    */
-  previousMonthToDate: MonthlySalesStats;
+  previousMonthToDate: PreviousMonthToDateStats;
 }
 
 /**
@@ -1350,10 +1368,19 @@ export class OrdersService {
       previousMonthOrders,
       startOfPreviousMonth,
     );
-    const previousMonthToDate = summarizeMonthlySales(
-      previousMonthToDateOrders,
-      startOfPreviousMonth,
-    );
+    // Cuántos días del mes anterior se han comparado DE VERDAD. Cuando el mes
+    // anterior es más corto que el trecho recorrido, el tramo se queda en el
+    // mes entero: el 31 de marzo son 28 días de febrero, no 31. Ver
+    // `PreviousMonthToDateStats`.
+    const daysInPreviousMonth = new Date(
+      startOfMonth.getFullYear(),
+      startOfMonth.getMonth(),
+      0,
+    ).getDate();
+    const previousMonthToDate: PreviousMonthToDateStats = {
+      ...summarizeMonthlySales(previousMonthToDateOrders, startOfPreviousMonth),
+      daysCompared: Math.min(now.getDate(), daysInPreviousMonth),
+    };
     // Contra el TRAMO del mes anterior, no contra el mes anterior entero: ver
     // `CurrentMonthSalesStats`.
     const currentMonth: CurrentMonthSalesStats = {

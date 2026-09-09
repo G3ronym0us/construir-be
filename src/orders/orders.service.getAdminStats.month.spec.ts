@@ -283,6 +283,58 @@ describe('OrdersService.getAdminStats — bloque mensual de ventas', () => {
     expect(stats.currentMonth.percentageChangeRevenue).toBe(42.86);
   });
 
+  it('dice cuántos días del mes anterior comparó, no los del mes en curso', async () => {
+    ordenesVerificadas = [];
+
+    const stats = await service.getAdminStats();
+
+    // 9 de septiembre contra 9 días de agosto: aquí coinciden.
+    expect(stats.currentMonth.daysElapsed).toBe(9);
+    expect(stats.previousMonthToDate.daysCompared).toBe(9);
+  });
+
+  it('recorta los días comparados cuando el mes anterior es más corto', async () => {
+    // 31 de marzo: 31 días corridos contra un febrero de 28. Si este número
+    // saliera de `daysElapsed`, la pantalla escribiría "los primeros 31 días
+    // de febrero" — el "31 de febrero" que el cálculo evita.
+    jest.setSystemTime(new Date(2026, 2, 31, 12, 0, 0));
+    ordenesVerificadas = [];
+
+    const stats = await service.getAdminStats();
+
+    expect(stats.currentMonth.daysElapsed).toBe(31);
+    expect(stats.previousMonthToDate.month).toBe('2026-02');
+    expect(stats.previousMonthToDate.daysCompared).toBe(28);
+  });
+
+  it('en un febrero bisiesto compara los 29 días que tiene', async () => {
+    jest.setSystemTime(new Date(2028, 2, 30, 12, 0, 0));
+    ordenesVerificadas = [];
+
+    const stats = await service.getAdminStats();
+
+    expect(stats.currentMonth.daysElapsed).toBe(30);
+    expect(stats.previousMonthToDate.month).toBe('2028-02');
+    expect(stats.previousMonthToDate.daysCompared).toBe(29);
+  });
+
+  it('el pedido justo en el instante del corte queda fuera del tramo', async () => {
+    // El corte de hoy (9 de septiembre a las 10:00) cae en el 9 de agosto a
+    // las 10:00. El límite es estricto: lo que ocurre EN el corte pertenece ya
+    // al tramo siguiente, igual que el cambio de mes a medianoche.
+    ordenesVerificadas = [
+      orden(new Date(2026, 7, 9, 9, 59, 59, 999), '40.00', '19000.00'),
+      orden(new Date(2026, 7, 9, 10, 0, 0, 0), '500.00', '240000.00'),
+    ];
+
+    const stats = await service.getAdminStats();
+
+    expect(stats.previousMonthToDate.verifiedOrders).toBe(1);
+    expect(stats.previousMonthToDate.verifiedRevenue).toBe(40);
+    // Las dos siguen contando para el mes anterior cerrado.
+    expect(stats.previousMonth.verifiedRevenue).toBe(540);
+  });
+
   it('pide a la BD sólo pagos verificados y sin canceladas', async () => {
     ordenesVerificadas = [
       orden(new Date(2026, 8, 2, 9, 0), '100.00', '48000.00'),
