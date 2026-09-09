@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
 import { CustomerInfoDto, ShippingAddressDto } from './dto/create-order.dto';
+import { DeliveryMethod } from './order.entity';
 
 /**
  * Exigir el teléfono en el buscador cerró la enumeración de cédulas, pero no la
@@ -79,7 +80,7 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
     it('borra dirección y GPS cuando el teléfono no coincide y el pedido no trae dirección', async () => {
       // Éste es el paso 2 del ataque, tal cual: cédula ajena, teléfono propio,
       // retiro en tienda para no mandar dirección.
-      const guardado = await service.createOrUpdate(pedidoDe('04149998877'));
+      const guardado = await service.createOrUpdate(pedidoDe('04149998877'), undefined, DeliveryMethod.PICKUP);
 
       // `toBeNull` y no `toBeUndefined`, y la diferencia no es cosmética: para
       // TypeORM `undefined` significa "no toques esta columna". La primera
@@ -97,14 +98,14 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
 
     it('no le regala al atacante el historial de la víctima', async () => {
       // "4 pedidos anteriores" es de quien los hizo.
-      const guardado = await service.createOrUpdate(pedidoDe('04149998877'));
+      const guardado = await service.createOrUpdate(pedidoDe('04149998877'), undefined, DeliveryMethod.PICKUP);
       expect(guardado.ordersCount).toBe(1);
     });
 
     it('tras el rodeo, el buscador ya no devuelve nada de la víctima', async () => {
       // El paso 3, de punta a punta: se consulta con el teléfono del atacante
       // sobre la ficha tal como quedó.
-      const trasElAtaque = await service.createOrUpdate(pedidoDe('04149998877'));
+      const trasElAtaque = await service.createOrUpdate(pedidoDe('04149998877'), undefined, DeliveryMethod.PICKUP);
       repo.findOne.mockResolvedValue(trasElAtaque);
 
       const ficha = await service.findForAutocomplete(
@@ -125,7 +126,7 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
 
     it('tampoco cuela con la dirección escrita en otra puntuación del teléfono ajeno', async () => {
       // No basta con parecerse: 0414-123.99.98 no es 04141239999.
-      const guardado = await service.createOrUpdate(pedidoDe('0414-123.99.98'));
+      const guardado = await service.createOrUpdate(pedidoDe('0414-123.99.98'), undefined, DeliveryMethod.PICKUP);
       expect(guardado.address).toBeNull();
       expect(guardado.latitude).toBeNull();
     });
@@ -135,6 +136,8 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
     it('conserva su dirección y su historial cuando el teléfono coincide', async () => {
       const guardado = await service.createOrUpdate(
         pedidoDe('04141239999'), // el teléfono real de la ficha
+        undefined,
+        DeliveryMethod.PICKUP,
       );
 
       expect(guardado.address).toBe('Calle Victima 123');
@@ -145,7 +148,7 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
 
     it('lo reconoce aunque escriba el teléfono de otra forma', async () => {
       // Guardado "04141239999"; ahora lo escribe con prefijo internacional.
-      const guardado = await service.createOrUpdate(pedidoDe('+58 414 123 9999'));
+      const guardado = await service.createOrUpdate(pedidoDe('+58 414 123 9999'), undefined, DeliveryMethod.PICKUP);
 
       expect(guardado.address).toBe('Calle Victima 123');
       expect(guardado.ordersCount).toBe(5);
@@ -165,6 +168,7 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
       const guardado = await service.createOrUpdate(
         pedidoDe('04125550000'),
         nuevaDireccion,
+        DeliveryMethod.DELIVERY,
       );
 
       expect(guardado.address).toBe('Av. Nueva 45');
@@ -202,6 +206,7 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
       const guardado = await service.createOrUpdate(
         pedidoDe('04149998877'),
         direccionInventada,
+        DeliveryMethod.DELIVERY,
       );
 
       expect(guardado.additionalInfo).toBeNull();
@@ -215,6 +220,7 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
       const guardado = await service.createOrUpdate(
         pedidoDe('04149998877'),
         direccionInventada,
+        DeliveryMethod.DELIVERY,
       );
 
       // Primero lo que de verdad muerde: `null` explícito. Un `undefined`
@@ -239,6 +245,7 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
       const trasElAtaque = await service.createOrUpdate(
         pedidoDe('04149998877'),
         direccionInventada,
+        DeliveryMethod.DELIVERY,
       );
       repo.findOne.mockResolvedValue(trasElAtaque);
 
@@ -250,6 +257,11 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
 
       expect(ficha!.additionalInfo).toBeNull();
       expect(JSON.stringify(ficha)).not.toContain('Portón azul');
+      // Ésta hoy NO PRUEBA NADA y no puede fallar: el payload del buscador ya
+      // no incluye `latitude` por diseño, así que "10.5" nunca podría salir por
+      // aquí. Se deja como red por si algún día se reabre ese campo — pero que
+      // esté en verde no dice nada sobre el GPS, lo que lo protege es que
+      // `aAutocompletado` no lo copia.
       expect(JSON.stringify(ficha)).not.toContain('10.5');
     });
 
@@ -259,6 +271,7 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
       const guardado = await service.createOrUpdate(
         pedidoDe('04141239999'),
         direccionInventada,
+        DeliveryMethod.DELIVERY,
       );
 
       expect(guardado.address).toBe('Cualquier cosa 1');
@@ -270,11 +283,112 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
     });
   });
 
+  /**
+   * La tabla que faltaba, y la razón por la que el mismo fallo se escapó tres
+   * veces seguidas: las pruebas de antes pasaban o bien NINGÚN domicilio, o
+   * bien uno COMPLETO. Los dos extremos, nunca el medio — y el medio es
+   * justamente donde vive el `undefined` que TypeORM lee como "no toques esta
+   * columna".
+   *
+   * Así que en vez de escribir los escenarios que se me ocurran, se recorre la
+   * FORMA del dato: cada campo omitido de uno en uno, todos omitidos a la vez,
+   * el objeto vacío, y todo eso con los dos métodos de entrega. En ninguna
+   * combinación puede sobrevivir una columna de la víctima.
+   */
+  describe('ningún domicilio parcial deja sobrevivir un dato de la víctima', () => {
+    const CAMPOS = [
+      'address',
+      'city',
+      'state',
+      'zipCode',
+      'country',
+      'additionalInfo',
+      'latitude',
+      'longitude',
+    ] as const;
+
+    const COMPLETO: Record<string, unknown> = {
+      address: 'Cualquier cosa 1',
+      city: 'Nada',
+      state: 'Nada',
+      zipCode: '0000',
+      country: 'Venezuela',
+      additionalInfo: 'sin referencia',
+      latitude: 1.1,
+      longitude: 2.2,
+    };
+
+    /** Lo que la víctima tenía y que no puede sobrevivir en ninguna forma. */
+    const RASTROS_DE_LA_VICTIMA = [
+      'Calle Victima 123',
+      'Caracas',
+      'Miranda',
+      '1010',
+      'Portón azul',
+      '10.5',
+      '-66.9',
+    ];
+
+    const sin = (...omitidos: string[]) => {
+      const parcial: Record<string, unknown> = {};
+      for (const c of CAMPOS) if (!omitidos.includes(c)) parcial[c] = COMPLETO[c];
+      return parcial as unknown as ShippingAddressDto;
+    };
+
+    // Cada campo omitido de uno en uno, todos a la vez, y el objeto vacío.
+    const casos: Array<[string, ShippingAddressDto]> = [
+      ...CAMPOS.map(
+        (c) => [`sin ${c}`, sin(c)] as [string, ShippingAddressDto],
+      ),
+      ['sin ninguno de los ocho', sin(...CAMPOS)],
+      ['objeto vacío {}', {} as ShippingAddressDto],
+    ];
+
+    for (const metodo of [DeliveryMethod.PICKUP, DeliveryMethod.DELIVERY]) {
+      for (const [nombre, domicilio] of casos) {
+        it(`${metodo} · ${nombre}`, async () => {
+          const guardado = await service.createOrUpdate(
+            pedidoDe('04149998877'),
+            domicilio,
+            metodo,
+          );
+
+          // Ninguna columna puede quedarse en `undefined`: eso es exactamente
+          // "no toques la columna", o sea el dato de la víctima intacto.
+          for (const campo of CAMPOS) {
+            const valor = (guardado as unknown as Record<string, unknown>)[campo];
+            expect(valor).not.toBeUndefined();
+          }
+
+          const serializado = JSON.stringify(guardado);
+          for (const rastro of RASTROS_DE_LA_VICTIMA) {
+            expect(serializado).not.toContain(rastro);
+          }
+        });
+      }
+    }
+
+    it('con pickup la dirección del pedido se ignora por completo', async () => {
+      // La raíz de la tercera variante: el DTO no valida `shippingAddress`
+      // cuando el método es `pickup`, así que ahí puede venir cualquier cosa.
+      // Si el resto del pedido la ignora —no se crea registro de envío—, la
+      // ficha tampoco puede hacerle caso.
+      const guardado = await service.createOrUpdate(
+        pedidoDe('04149998877'),
+        { address: 'Colada por pickup' } as ShippingAddressDto,
+        DeliveryMethod.PICKUP,
+      );
+
+      expect(guardado.address).toBeNull();
+      expect(guardado.city).toBeNull();
+    });
+  });
+
   describe('un cliente que no existía se crea igual que siempre', () => {
     it('crea la ficha con lo que trae el pedido', async () => {
       repo.findOne.mockResolvedValue(null);
 
-      const guardado = await service.createOrUpdate(pedidoDe('04125550000'));
+      const guardado = await service.createOrUpdate(pedidoDe('04125550000'), undefined, DeliveryMethod.PICKUP);
 
       expect(guardado.identificationNumber).toBe('30111222');
       expect(guardado.phone).toBe('04125550000');

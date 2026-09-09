@@ -89,8 +89,20 @@ export class ShippingAddressDto {
   @IsOptional()
   country?: string;
 
+  /**
+   * Referencias para llegar: "casa azul, timbre 2", "al lado de la panadería".
+   *
+   * Va acotado porque en la práctica aquí no se escriben sólo referencias: se
+   * escriben SECRETOS DE ACCESO —"el portón está abierto", el código del
+   * edificio— y PATRONES DE PRESENCIA —"sólo por las mañanas"—. Saber la calle
+   * de alguien no te da su código ni te dice cuándo no hay nadie en la casa,
+   * así que este campo puede ser más peligroso que la dirección misma pese a
+   * parecer un detalle. El tope no lo protege, pero limita cuánto se puede
+   * acumular ahí y evita que el campo se use como saco sin fondo.
+   */
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   additionalInfo?: string;
 
   @IsNumber()

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
+import { DeliveryMethod } from './order.entity';
 import { CustomerInfoDto, ShippingAddressDto } from './dto/create-order.dto';
 import { normalizarTelefonoParaComparar } from '../common/validation/venezuela';
 import {
@@ -84,13 +85,12 @@ function borraElDomicilio(cliente: GuestCustomer): void {
 /**
  * Escribe en la ficha el domicilio que trae el pedido, ENTERO.
  *
- * Los campos que el pedido no manda se ponen a NULL en vez de dejarse como
- * estaban, y ésa es la parte que importa. `additionalInfo`, `latitude` y
- * `longitude` son opcionales en el DTO: omitiéndolos llegaban como `undefined`,
- * que para TypeORM significa "no toques esta columna", así que los de la ficha
- * anterior sobrevivían al UPDATE. Bastaba un `POST /orders` a domicilio con una
- * dirección inventada y sin esos tres campos para que la respuesta devolviera
- * la nota y las coordenadas del domicilio de la víctima.
+ * CUALQUIER campo que el pedido no mande se pone a NULL, no sólo los que el
+ * DTO declara opcionales. Ésa es la parte que importa, y la que costó tres
+ * intentos: `undefined` significa "no toques esta columna" para TypeORM, así
+ * que un campo omitido dejaba vivo el de la ficha anterior. Los "obligatorios"
+ * sólo lo son cuando el método es `delivery` —el DTO los valida con un
+ * `@ValidateIf`—, de modo que confiar en que siempre llegan era falso.
  *
  * Además de cerrar eso, es lo correcto aunque no hubiera atacante: conservar la
  * referencia y el GPS de la casa anterior colgando de una dirección nueva es
@@ -100,14 +100,16 @@ function escribeElDomicilio(
   cliente: GuestCustomer,
   domicilio: ShippingAddressDto,
 ): void {
-  cliente.address = domicilio.address;
-  cliente.city = domicilio.city;
-  cliente.state = domicilio.state;
-  cliente.zipCode = domicilio.zipCode;
+  const origen = domicilio as unknown as Record<string, unknown>;
+  const destino = cliente as unknown as Record<string, unknown>;
+
+  // Se recorre la MISMA lista que usa el borrado, en vez de asignar campo a
+  // campo: mientras eran dos listas escritas a mano se contradecían, y el
+  // campo que una borraba la otra lo dejaba intacto.
+  for (const campo of CAMPOS_DEL_DOMICILIO) {
+    destino[campo] = origen[campo] ?? BORRA_LA_COLUMNA;
+  }
   cliente.country = domicilio.country || 'Venezuela';
-  cliente.additionalInfo = domicilio.additionalInfo ?? BORRA_LA_COLUMNA;
-  cliente.latitude = domicilio.latitude ?? BORRA_LA_COLUMNA;
-  cliente.longitude = domicilio.longitude ?? BORRA_LA_COLUMNA;
 }
 
 @Injectable()
@@ -194,11 +196,25 @@ export class GuestCustomersService {
    * guardada, que tendrá que reescribir una vez: si pide a domicilio la está
    * escribiendo igual, y si pide para retirar no le hace falta. Desde el
    * pedido siguiente su ficha vuelve a autocompletar con normalidad.
+   *
+   * `deliveryMethod` es obligatorio a propósito, y no un parámetro más: es lo
+   * que decide si la dirección del pedido se mira siquiera. El DTO sólo valida
+   * `shippingAddress` cuando el método es `delivery` —lleva un `@ValidateIf`—,
+   * así que en un `pickup` ahí puede venir cualquier cosa: un `{}`, o un objeto
+   * con la mitad de los campos. Aceptarla igual era la raíz de tres variantes
+   * seguidas del mismo ataque. Si el resto del pedido ignora esa dirección
+   * —`orders.service` ni siquiera crea el registro de envío cuando es
+   * `pickup`—, la ficha tampoco puede hacerle caso.
    */
   async createOrUpdate(
     customerInfo: CustomerInfoDto,
-    shippingAddress?: ShippingAddressDto,
+    shippingAddress: ShippingAddressDto | undefined,
+    deliveryMethod: DeliveryMethod,
   ): Promise<GuestCustomer> {
+    // La dirección de un pedido que no es a domicilio no existe para nadie más
+    // en el sistema; aquí tampoco.
+    const domicilioDelPedido =
+      deliveryMethod === DeliveryMethod.DELIVERY ? shippingAddress : undefined;
     // Buscar si ya existe
     let guestCustomer = await this.findByIdentification(
       customerInfo.identificationType,
@@ -227,8 +243,8 @@ export class GuestCustomersService {
       }
 
       // Y encima se escribe lo que el pedido traiga, si trae algo.
-      if (shippingAddress) {
-        escribeElDomicilio(guestCustomer, shippingAddress);
+      if (domicilioDelPedido) {
+        escribeElDomicilio(guestCustomer, domicilioDelPedido);
       }
 
       // El historial tampoco se hereda: "3 pedidos anteriores" es de quien los
@@ -244,14 +260,14 @@ export class GuestCustomersService {
         lastName: customerInfo.lastName,
         email: customerInfo.email,
         phone: customerInfo.phone,
-        address: shippingAddress?.address,
-        city: shippingAddress?.city,
-        state: shippingAddress?.state,
-        zipCode: shippingAddress?.zipCode,
-        country: shippingAddress?.country || 'Venezuela',
-        additionalInfo: shippingAddress?.additionalInfo,
-        latitude: shippingAddress?.latitude,
-        longitude: shippingAddress?.longitude,
+        address: domicilioDelPedido?.address,
+        city: domicilioDelPedido?.city,
+        state: domicilioDelPedido?.state,
+        zipCode: domicilioDelPedido?.zipCode,
+        country: domicilioDelPedido?.country || 'Venezuela',
+        additionalInfo: domicilioDelPedido?.additionalInfo,
+        latitude: domicilioDelPedido?.latitude,
+        longitude: domicilioDelPedido?.longitude,
         ordersCount: 1,
         lastOrderDate: new Date(),
       });

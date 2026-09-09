@@ -612,6 +612,10 @@ export class OrdersService {
       const guestCustomer = await this.guestCustomersService.createOrUpdate(
         createOrderDto.customerInfo,
         createOrderDto.shippingAddress,
+        // El método va explícito porque es lo que decide si esa dirección se
+        // mira: el DTO sólo la valida cuando es `delivery`, y arriba tampoco se
+        // crea el registro de envío para un `pickup`.
+        createOrderDto.deliveryMethod,
       );
       guestCustomerId = guestCustomer.id;
     }
