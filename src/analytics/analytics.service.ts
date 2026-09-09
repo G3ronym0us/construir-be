@@ -27,22 +27,42 @@ export class AnalyticsService {
   }
 
   /**
-   * Borra las visitas anteriores a `retentionDays` días.
+   * Borra hasta `batchLimit` visitas anteriores a `retentionDays` días.
    *
    * La tabla no tenía ninguna política de retención: crecía sin techo desde el
    * primer día, y las dos únicas lecturas son "total" y "más visitadas", que no
    * necesitan el historial completo para nada. Guardar menos tiempo también
    * reduce lo que hay que entregar o proteger si algo pasa.
+   *
+   * El tope por ejecución no es adorno: era un `DELETE` único sobre una tabla
+   * diseñada para crecer sin límite, así que la primera pasada sobre un
+   * histórico grande habría sido un bloqueo largo en plena madrugada. Lo que no
+   * entra hoy se borra mañana; el cron es diario y la tabla sólo crece con las
+   * visitas del día.
    */
-  async purgeOldPageViews(retentionDays: number): Promise<number> {
+  async purgeOldPageViews(
+    retentionDays: number,
+    batchLimit: number,
+  ): Promise<number> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - retentionDays);
 
-    const result = await this.pageViewRepository.delete({
-      createdAt: LessThan(cutoff),
+    // Se seleccionan los ids primero porque `DELETE ... LIMIT` no existe en
+    // Postgres; el `delete` por lista de ids es lo que respeta el tope.
+    const aBorrar = await this.pageViewRepository.find({
+      select: ['id'],
+      where: { createdAt: LessThan(cutoff) },
+      order: { id: 'ASC' },
+      take: batchLimit,
     });
 
-    return result.affected ?? 0;
+    if (aBorrar.length === 0) return 0;
+
+    const result = await this.pageViewRepository.delete(
+      aBorrar.map((fila) => fila.id),
+    );
+
+    return result.affected ?? aBorrar.length;
   }
 
   async getPageViewStats(): Promise<{

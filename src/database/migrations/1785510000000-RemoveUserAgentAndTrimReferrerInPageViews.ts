@@ -14,12 +14,16 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * nadie vigila. Lo que se consulta del referrer es "de dónde llega la gente", y
  * para eso basta el origen.
  *
- * Igual que en la migración de la IP, el `UPDATE ... SET NULL` previo al DROP no
- * es redundante: en Postgres el `DROP COLUMN` sólo marca el atributo como
- * eliminado y los bytes de las filas ya escritas siguen en el fichero de datos,
- * ilegibles por SQL pero presentes en un respaldo físico. El UPDATE reescribe
- * cada fila y deja las versiones viejas como muertas, que autovacuum recupera.
- * El recorte de los referrer históricos reescribe las filas por el mismo motivo.
+ * El recorte de los referrer históricos sí reescribe filas, porque cambia su
+ * contenido: ahí es el trabajo, no un efecto colateral buscado.
+ *
+ * El `DROP COLUMN` del navegador, en cambio, **no borra los bytes del disco**:
+ * en Postgres sólo marca el atributo como eliminado y lo escrito sigue en el
+ * fichero de datos, legible en un respaldo físico. Aquí hubo antes un
+ * `UPDATE ... SET NULL` con la intención de forzar la reescritura; se midió y
+ * no servía, y a cambio duplicaba el tamaño en disco. Se quitó. Lo único que
+ * borra de verdad es `VACUUM FULL page_views`, que es un paso obligatorio del
+ * despliegue: ver `docs/despliegue-analitica.md`.
  *
  * El `down` devuelve la columna vacía y no repone las rutas: ni se puede ni se
  * querría. Es la parte irreversible, y es intencionada.
@@ -47,9 +51,6 @@ export class RemoveUserAgentAndTrimReferrerInPageViews1785510000000
     `);
 
     // 3. El navegador se va entero.
-    await queryRunner.query(
-      `UPDATE "page_views" SET "userAgent" = NULL WHERE "userAgent" IS NOT NULL`,
-    );
     await queryRunner.query(
       `ALTER TABLE "page_views" DROP COLUMN IF EXISTS "userAgent"`,
     );

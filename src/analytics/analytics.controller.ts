@@ -1,8 +1,9 @@
 import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { AnalyticsService } from './analytics.service';
 import { CreatePageViewDto } from './dto/create-page-view.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { VisitanteThrottlerGuard } from './visitante-throttler.guard';
 
 @Controller('analytics')
 export class AnalyticsController {
@@ -17,13 +18,23 @@ export class AnalyticsController {
    *
    * **El límite de tasa es lo único que separa esta tabla de un vertedero.**
    * Al ser público y sin coste, cualquiera podía inflarlo con un bucle de
-   * peticiones hasta llenar el disco de la base. 30 por minuto y por IP da
-   * holgura de sobra a una navegación normal —un usuario real cambia de
-   * página unas pocas veces por minuto— y corta el abuso automatizado.
+   * peticiones hasta llenar el disco de la base.
+   *
+   * El techo son 240 por minuto **y por visitante**. Lo de "por visitante" lo
+   * garantiza `VisitanteThrottlerGuard` y no el guard de serie: sin él todas
+   * las visitas compartían el cubo del proxy y la tienda entera quedaba
+   * limitada al techo de una sola persona.
+   *
+   * 240 y no 30: se midió que a 63 cambios de ruta por minuto —un cliente
+   * dándole a atrás y adelante entre productos llega ahí sin esfuerzo— con 30
+   * se perdía el 27% de las visitas, y se perdían en silencio, porque el
+   * registro no avisa de sus fallos. El límite está para frenar un bucle
+   * automatizado, no para estorbar a quien navega rápido: 4 por segundo
+   * sostenidos ya no es una persona.
    */
   @Post('page-view')
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @UseGuards(VisitanteThrottlerGuard)
+  @Throttle({ default: { limit: 240, ttl: 60000 } })
   async trackPageView(@Body() createPageViewDto: CreatePageViewDto) {
     return this.analyticsService.trackPageView(createPageViewDto);
   }

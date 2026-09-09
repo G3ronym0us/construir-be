@@ -55,8 +55,14 @@ export interface EmailConfig {
 }
 
 export interface AnalyticsConfig {
-  /** Días que se conservan las filas de `page_views` antes de purgarlas. */
-  pageViewRetentionDays: number;
+  /**
+   * Días que se conservan las filas de `page_views` antes de purgarlas.
+   * `null` cuando el valor del entorno no se entiende: quien purga no borra
+   * nada en ese caso.
+   */
+  pageViewRetentionDays: number | null;
+  /** Tope de filas que la purga borra en una sola ejecución. */
+  pageViewPurgeBatchLimit: number;
 }
 
 export const databaseConfig = registerAs(
@@ -140,17 +146,55 @@ export const emailConfig = registerAs(
 );
 
 /**
+ * Lee un número entero del entorno **exigiendo que el valor entero lo sea**.
+ *
+ * `parseInt` no vale aquí, y no es una sutileza: se queda con el prefijo
+ * numérico y descarta el resto sin avisar. `"1e9"`, `"1_000"` y `"1 año"` los
+ * convierte los tres en `1`. Como este valor lo edita el dueño de la tienda
+ * —que es justo quien escribe `1e5`—, un dedazo así convertía la purga
+ * nocturna en "borra todo lo anterior a un día", y lo hacía informando de
+ * éxito. Devuelve `null` cuando el texto no es exactamente un entero positivo,
+ * y quien lo consume decide qué hacer con esa ausencia.
+ */
+function enteroPositivoDelEntorno(valor: string | undefined): number | null {
+  if (valor === undefined) return null;
+
+  const limpio = valor.trim();
+  if (!/^[0-9]+$/.test(limpio)) return null;
+
+  const numero = Number(limpio);
+  return Number.isSafeInteger(numero) && numero > 0 ? numero : null;
+}
+
+/**
  * El plazo de retención de las visitas es una decisión del dueño de la tienda,
  * no del código, así que vive en el entorno. El defecto de 180 días cubre de
  * sobra el único uso real (totales del día, del mes y páginas más visitadas)
  * sin acumular historial a perpetuidad.
+ *
+ * Un valor que no se entienda **no cae al defecto**: cae a `null`, y entonces
+ * no se purga nada. Caer a 180 escondería el dedazo; no purgar deja la tabla
+ * creciendo, que es un problema visible y reversible, en vez de borrar datos
+ * que no se recuperan.
  */
 export const analyticsConfig = registerAs(
   'analytics',
   (): AnalyticsConfig => ({
-    pageViewRetentionDays: parseInt(
-      process.env.ANALYTICS_PAGE_VIEW_RETENTION_DAYS || '180',
-      10,
-    ),
+    // Se distingue "no configurado" de "configurado con basura": lo primero
+    // usa el defecto, lo segundo cae a null y no se purga. Con un `?` a secas
+    // una cadena vacía habría caído al defecto, escondiendo el error.
+    pageViewRetentionDays:
+      process.env.ANALYTICS_PAGE_VIEW_RETENTION_DAYS === undefined
+        ? 180
+        : enteroPositivoDelEntorno(
+            process.env.ANALYTICS_PAGE_VIEW_RETENTION_DAYS,
+          ),
+    // Tope por ejecución. La purga es un DELETE sobre una tabla sin techo: la
+    // primera vez que corra sobre un histórico grande, sin lote, sería un
+    // bloqueo largo. Lo que sobre se borra en la ejecución del día siguiente.
+    pageViewPurgeBatchLimit:
+      enteroPositivoDelEntorno(
+        process.env.ANALYTICS_PAGE_VIEW_PURGE_BATCH_LIMIT,
+      ) ?? 50000,
   }),
 );

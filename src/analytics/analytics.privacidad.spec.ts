@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { getMetadataArgsStorage } from 'typeorm';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import * as request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -13,6 +13,7 @@ import { AnalyticsTasksService } from './analytics-tasks.service';
 import { CreatePageViewDto } from './dto/create-page-view.dto';
 import { PageView } from './page-view.entity';
 import { aOrigenDeReferrer } from './referrer.util';
+import { VisitanteThrottlerGuard } from './visitante-throttler.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 /**
@@ -54,6 +55,7 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
     ),
     save: jest.fn((fila) => Promise.resolve({ id: 1, ...fila })),
     count: jest.fn(),
+    find: jest.fn(),
     delete: jest.fn(),
     createQueryBuilder: jest.fn(),
   };
@@ -75,7 +77,7 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
         { provide: ConfigService, useValue: config },
       ],
     })
-      .overrideGuard(ThrottlerGuard)
+      .overrideGuard(VisitanteThrottlerGuard)
       .useValue({ canActivate: () => true })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
@@ -262,13 +264,14 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
      * el metadato del decorador no distinguiría un `@Throttle` bien puesto de
      * uno colgado de un método al que nadie aplica el guard.
      */
-    it('corta a partir de la petición 31 en el mismo minuto', async () => {
+    it('corta a partir de la petición 241 del mismo visitante en un minuto', async () => {
       const modulo = await Test.createTestingModule({
         imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 1000 }])],
         controllers: [AnalyticsController],
         providers: [
           AnalyticsService,
           AnalyticsTasksService,
+          VisitanteThrottlerGuard,
           { provide: getRepositoryToken(PageView), useValue: repositorio },
           { provide: ConfigService, useValue: config },
         ],
@@ -287,47 +290,194 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
           // "application/json; charset=UTF-8" y el body-parser de Express 5
           // rechaza ese charset en mayúsculas con un 415.
           .set('Content-Type', 'application/json')
+          // Un visitante concreto: sin esto todas las peticiones caerían en el
+          // cubo del "desconocido" y la prueba no diría nada del tracker.
+          .set('X-Forwarded-For', '192.0.2.10')
           .send(JSON.stringify({ path: '/' }));
 
-      // El límite global del módulo es 1000: si algo corta a las 30 es el
+      // El límite global del módulo es 1000: si algo corta a las 240 es el
       // @Throttle propio de la ruta, no la configuración de fondo.
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 240; i++) {
         await enviar().expect(201);
       }
       await enviar().expect(429);
 
       await app.close();
-      // 31 peticiones HTTP reales no caben en los 5 s por defecto de jest
+      // 241 peticiones HTTP reales no caben en los 5 s por defecto de jest
       // cuando la suite entera corre en paralelo.
     }, 60000);
+
+    /**
+     * **Ésta es la regresión que más caro salía y la que menos se veía.**
+     *
+     * El guard de serie cuenta por `req.ip`, y `req.ip` sólo es el cliente si
+     * Express tiene `trust proxy`, que `main.ts` no configura. Detrás del proxy
+     * de producción todas las visitas llegaban con la misma IP y compartían un
+     * único cubo: la tienda entera quedaba limitada al techo de una sola
+     * persona, y lo que pasaba de ahí se perdía con un 429 que nadie ve, porque
+     * el registro de visitas falla en silencio.
+     *
+     * Se comprueba en dos niveles. Primero el tracker en aislamiento, que es
+     * donde vive la decisión; después, por encima del techo de la ruta, que
+     * visitantes distintos no se estorban — ahí está la trampa: con menos
+     * peticiones que el límite la prueba pasaría con cualquier tracker, incluso
+     * con el roto, y no diría nada.
+     */
+    describe('el tracker distingue visitantes detrás del proxy', () => {
+      // `getTracker` es protegido; se expone para poder probarlo de frente.
+      const tracker = (req: Record<string, unknown>): Promise<string> =>
+        (
+          new VisitanteThrottlerGuard(
+            {} as never,
+            {} as never,
+            {} as never,
+          ) as unknown as {
+            getTracker: (r: Record<string, unknown>) => Promise<string>;
+          }
+        ).getTracker(req);
+
+      it('usa la primera entrada de x-forwarded-for, que es el cliente', async () => {
+        await expect(
+          tracker({
+            headers: { 'x-forwarded-for': '203.0.113.5, 10.0.0.1, 10.0.0.2' },
+            ip: '10.0.0.1',
+          }),
+        ).resolves.toBe('203.0.113.5');
+      });
+
+      it('dos visitantes tras el mismo proxy no comparten cubo', async () => {
+        const unoU = await tracker({
+          headers: { 'x-forwarded-for': '203.0.113.5' },
+          ip: '10.0.0.1',
+        });
+        const otro = await tracker({
+          headers: { 'x-forwarded-for': '198.51.100.9' },
+          ip: '10.0.0.1',
+        });
+        expect(unoU).not.toBe(otro);
+      });
+
+      it('sin la cabecera cae a req.ip', async () => {
+        await expect(tracker({ headers: {}, ip: '192.0.2.1' })).resolves.toBe(
+          '192.0.2.1',
+        );
+      });
+
+      it('no revienta si no hay ni cabeceras ni ip', async () => {
+        await expect(tracker({})).resolves.toBe('desconocido');
+      });
+    });
+
+    /**
+     * Por encima del techo de la ruta: 260 peticiones con 260 IPs distintas.
+     * Si el tracker fuera el de serie compartirían cubo y la 241 daría 429.
+     */
+    it('260 visitantes distintos no se estorban entre sí', async () => {
+      const modulo = await Test.createTestingModule({
+        imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 1000 }])],
+        controllers: [AnalyticsController],
+        providers: [
+          AnalyticsService,
+          AnalyticsTasksService,
+          VisitanteThrottlerGuard,
+          { provide: getRepositoryToken(PageView), useValue: repositorio },
+          { provide: ConfigService, useValue: config },
+        ],
+      })
+        .overrideGuard(JwtAuthGuard)
+        .useValue({ canActivate: () => true })
+        .compile();
+
+      const app = modulo.createNestApplication();
+      await app.init();
+
+      const codigos: number[] = [];
+      for (let i = 0; i < 260; i++) {
+        const res = await request(app.getHttpServer())
+          .post('/analytics/page-view')
+          .set('Content-Type', 'application/json')
+          .set('X-Forwarded-For', `10.${Math.floor(i / 256)}.${i % 256}.1`)
+          .send(JSON.stringify({ path: '/' }));
+        codigos.push(res.status);
+      }
+
+      expect(codigos.filter((c) => c === 429)).toHaveLength(0);
+
+      await app.close();
+    }, 120000);
   });
 
   describe('purga por retención: la tabla no tenía caducidad y crecía sin techo', () => {
+    /** Devuelve el plazo para la clave del plazo y el lote para la del lote. */
+    const configurar = (dias: number | null, lote = 50000) =>
+      config.get.mockImplementation((clave: string) =>
+        clave === 'analytics.pageViewRetentionDays' ? dias : lote,
+      );
+
+    const filas = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: i + 1 }));
+
     it('borra las visitas anteriores al plazo configurado', async () => {
+      repositorio.find.mockResolvedValue(filas(42));
       repositorio.delete.mockResolvedValue({ affected: 42 });
-      config.get.mockReturnValue(180);
+      configurar(180);
 
       await tareas.handleDailyPageViewPurge();
 
-      expect(repositorio.delete).toHaveBeenCalledTimes(1);
-      const criterio = repositorio.delete.mock.calls[0][0];
+      expect(repositorio.find).toHaveBeenCalledTimes(1);
+      const criterio = repositorio.find.mock.calls[0][0];
       // LessThan guarda el valor en `_value`.
-      const corte: Date = criterio.createdAt._value;
+      const corte: Date = criterio.where.createdAt._value;
       const diasAtras = Math.round(
         (Date.now() - corte.getTime()) / (24 * 60 * 60 * 1000),
       );
       expect(diasAtras).toBe(180);
+      expect(repositorio.delete).toHaveBeenCalledWith(
+        filas(42).map((f) => f.id),
+      );
     });
 
     it('devuelve cuántas borró', async () => {
+      repositorio.find.mockResolvedValue(filas(7));
       repositorio.delete.mockResolvedValue({ affected: 7 });
-      await expect(servicio.purgeOldPageViews(30)).resolves.toBe(7);
+      await expect(servicio.purgeOldPageViews(30, 50000)).resolves.toBe(7);
     });
 
-    it('no borra nada si el plazo configurado no tiene sentido', async () => {
-      config.get.mockReturnValue(NaN);
-      await tareas.handleDailyPageViewPurge();
+    it('no toca la base si no hay nada que borrar', async () => {
+      repositorio.find.mockResolvedValue([]);
+      await expect(servicio.purgeOldPageViews(30, 50000)).resolves.toBe(0);
       expect(repositorio.delete).not.toHaveBeenCalled();
     });
+
+    /**
+     * El tope por ejecución existe porque la purga es un DELETE sobre una tabla
+     * pensada para crecer sin techo: la primera pasada sobre un histórico
+     * grande, sin lote, sería un bloqueo largo de madrugada.
+     */
+    it('no borra más del tope por ejecución', async () => {
+      repositorio.find.mockResolvedValue(filas(1000));
+      repositorio.delete.mockResolvedValue({ affected: 1000 });
+      configurar(180, 1000);
+
+      await tareas.handleDailyPageViewPurge();
+
+      expect(repositorio.find.mock.calls[0][0].take).toBe(1000);
+    });
+
+    /**
+     * Éste es el fallo que más caro salía. `parseInt` se queda con el prefijo
+     * numérico, así que un `1e9` escrito por el dueño de la tienda se leía como
+     * `1` y la purga borraba todo lo anterior a UN día informando de éxito.
+     * Ahora la configuración entrega `null` y aquí no se borra nada.
+     */
+    it.each([[null], [undefined]])(
+      'no borra nada cuando el plazo configurado no se entiende (%s)',
+      async (plazo) => {
+        configurar(plazo as null);
+        await tareas.handleDailyPageViewPurge();
+        expect(repositorio.find).not.toHaveBeenCalled();
+        expect(repositorio.delete).not.toHaveBeenCalled();
+      },
+    );
   });
 });

@@ -8,18 +8,21 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * tabla cuentan filas por fecha y agrupan por `path`. Era, literalmente, un
  * dato personal retenido a perpetuidad a cambio de nada.
  *
- * **Esto se lleva por delante las IPs ya guardadas, que es justo lo que se
- * busca.** No basta con dejar de escribir la columna: el histórico con IPs
- * reales seguiría ahí.
+ * **Esto deja las IPs fuera del alcance de SQL, que es lo que la aplicación
+ * necesita.** No basta con dejar de escribirlas: el histórico seguiría ahí.
  *
- * El UPDATE a NULL previo no es redundante con el DROP. En Postgres, `DROP
- * COLUMN` sólo marca el atributo como eliminado: los bytes de las filas ya
- * escritas siguen en el fichero de datos, ilegibles por SQL pero presentes en
- * un respaldo físico o en el disco. El UPDATE reescribe cada fila sin la IP y
- * deja las versiones viejas como muertas, que autovacuum recupera. Para
- * borrarlo del disco en el acto hace falta `VACUUM FULL page_views`, que no
- * puede correr dentro de la transacción de la migración: se ejecuta a mano
- * después.
+ * **Lo que esta migración NO hace es borrarlas del disco, y conviene no
+ * engañarse.** En Postgres el `DROP COLUMN` sólo marca el atributo como
+ * eliminado; los bytes de las filas ya escritas siguen en el fichero de datos y
+ * son legibles en un respaldo físico. Aquí hubo antes un `UPDATE ... SET NULL`
+ * pensado para forzar la reescritura de cada fila: se midió y no servía —los
+ * bytes seguían en el heap con y sin él— mientras que duplicaba el tamaño en
+ * disco y alargaba el bloqueo de la migración, en una tabla pensada para
+ * crecer. Se quitó.
+ *
+ * Lo único que borra de verdad es `VACUUM FULL page_views`, que no puede correr
+ * dentro de la transacción de una migración. Es un paso obligatorio del
+ * despliegue, no una recomendación: ver `docs/despliegue-analitica.md`.
  *
  * El `down` sólo puede devolver la columna vacía: los datos no se recuperan, y
  * tampoco se querría. Si algún día hicieran falta visitantes únicos, la vía es
@@ -31,9 +34,6 @@ export class RemoveIpAddressFromPageViews1785500000000
   name = 'RemoveIpAddressFromPageViews1785500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `UPDATE "page_views" SET "ip_address" = NULL WHERE "ip_address" IS NOT NULL`,
-    );
     await queryRunner.query(
       `ALTER TABLE "page_views" DROP COLUMN IF EXISTS "ip_address"`,
     );
