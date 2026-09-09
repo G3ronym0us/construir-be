@@ -2,6 +2,7 @@ import {
   normalizarCedulaVE,
   normalizarCedulaVEDesdePartes,
   normalizarTelefonoMovilVE,
+  normalizarTelefonoParaComparar,
 } from './venezuela';
 
 /**
@@ -126,5 +127,46 @@ describe('normalizarCedulaVEDesdePartes', () => {
   it('rechaza el número mal formado', () => {
     expect(normalizarCedulaVEDesdePartes('V', '123')).toBeNull();
     expect(normalizarCedulaVEDesdePartes('V', '')).toBeNull();
+  });
+});
+
+/**
+ * El buscador de invitados del checkout usa el teléfono como segundo dato para
+ * que la cédula sola no entregue la ficha de un comprador. Para eso hay que
+ * cotejar el teléfono que teclea el cliente con el que está guardado, y en
+ * `guest_customers` hay números cargados desde antes de que se validara nada.
+ *
+ * Estas pruebas evitan dos regresiones opuestas: que un cliente viejo con un
+ * teléfono no venezolano quede encerrado fuera de su propio autocompletado, y
+ * que un valor inservible ("", "asdf") se cuele como coincidencia por el
+ * camino de "los dos normalizan a null".
+ */
+describe('normalizarTelefonoParaComparar', () => {
+  it('reduce a la misma forma un móvil venezolano escrito de cualquier manera', () => {
+    for (const escrito of [
+      '04141234567',
+      '0414-1234567',
+      '+58 414 1234567',
+      '4141234567',
+    ]) {
+      expect(normalizarTelefonoParaComparar(escrito)).toBe('04141234567');
+    }
+  });
+
+  it('deja comparables los teléfonos viejos que no son móviles venezolanos', () => {
+    // Sin esto, el cliente que compró con "+1 (406) 729-6503" no volvería a
+    // reconocerse a sí mismo nunca más.
+    expect(normalizarTelefonoParaComparar('+1 (406) 729-6503')).toBe(
+      '14067296503',
+    );
+    expect(normalizarTelefonoParaComparar('14067296503')).toBe('14067296503');
+  });
+
+  it('no da nada comparable con lo que no identifica a nadie', () => {
+    // Un "123" no puede servir de segundo factor, y quien devuelva null aquí
+    // NUNCA debe tratarse como igual a otro null.
+    for (const basura of ['', '   ', 'asdf', '123', null, undefined, 12345678]) {
+      expect(normalizarTelefonoParaComparar(basura)).toBeNull();
+    }
   });
 });

@@ -49,12 +49,28 @@ export class OrdersController {
    * Crear una nueva orden (con o sin autenticación)
    * Si el usuario está autenticado, usa su carrito del backend
    * Si no está autenticado (guest), crea orden con email del shippingAddress
+   *
+   * La respuesta NO devuelve la ficha del invitado. Esta ruta no exige sesión y
+   * la ficha viajaba entera por la relación eager: identificadores internos,
+   * fechas y —lo que de verdad importaba— la nota del domicilio y las
+   * coordenadas GPS guardadas. Era un canal de fuga por sí solo: bastaba pedir
+   * con una cédula ajena para que la respuesta del propio POST devolviera el
+   * domicilio de esa persona, sin necesidad siquiera de consultar el buscador
+   * después.
+   *
+   * No se pierde nada con quitarla: quien acaba de hacer el pedido conoce sus
+   * datos, los acaba de escribir, y el checkout sólo usa el `uuid` de la
+   * respuesta para subir el comprobante y redirigir.
    */
   @Post()
   @UseGuards(OptionalJwtAuthGuard)
   async createOrder(@Request() req, @Body() createOrderDto: CreateOrderDto) {
     const userId = req.user?.userId || null;
-    return this.ordersService.createOrder(createOrderDto, userId);
+    const orden = await this.ordersService.createOrder(createOrderDto, userId);
+
+    const { guestCustomer: _fichaDelInvitado, ...sinLaFicha } = orden;
+    void _fichaDelInvitado;
+    return sinLaFicha;
   }
 
   /**
