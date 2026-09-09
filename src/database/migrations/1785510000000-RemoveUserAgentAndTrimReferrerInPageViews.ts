@@ -9,8 +9,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * reidentifica sesiones aunque la IP ya no esté.
  *
  * El `referrer` se guardaba entero, con su ruta y su query. No era un riesgo
- * teórico: en esta tabla había cuatro filas con el `?token=` de una invitación
- * de registro, un secreto de un solo uso copiado a un almacén de analítica que
+ * teórico: en esta tabla había **12 filas** con el `?token=` de una invitación
+ * de registro —un único token, arrastrado por el navegador durante toda la
+ * sesión—, un secreto de un solo uso copiado a un almacén de analítica que
  * nadie vigila. Lo que se consulta del referrer es "de dónde llega la gente", y
  * para eso basta el origen.
  *
@@ -34,20 +35,36 @@ export class RemoveUserAgentAndTrimReferrerInPageViews1785510000000
   name = 'RemoveUserAgentAndTrimReferrerInPageViews1785510000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // 1. Recorta los referrer http(s) ya guardados a "esquema://host[:puerto]".
-    //    El mismo criterio que `aOrigenDeReferrer` aplica en tiempo de escritura.
+    // 1. Recorta los referrer http(s) ya guardados al mismo origen que
+    //    `aOrigenDeReferrer` produce al escribir. Igualar los dos criterios no
+    //    es cosmético; la versión anterior fallaba en tres cosas medibles:
+    //
+    //    - Conservaba las credenciales de `https://usuario:CLAVE@host/x`, que
+    //      es exactamente la clase de secreto por la que existe esta migración.
+    //      Ahora el `(?:[^@/?#]*@)?` se come el userinfo, igual que hace
+    //      `URL.origin`.
+    //    - `substring` con regex POSIX distingue mayúsculas mientras el filtro
+    //      usaba `~*`, así que un `HTTPS://…` entraba al WHERE, no casaba en el
+    //      substring y salía NULL: pérdida silenciosa. Se usa `(?i)` en ambos.
+    //    - No bajaba el host a minúsculas, cosa que `URL` sí hace, con lo que
+    //      el histórico y lo nuevo no agrupaban juntos en el ranking.
     await queryRunner.query(`
       UPDATE "page_views"
-      SET "referrer" = substring("referrer" from '^https?://[^/?#]+')
-      WHERE "referrer" ~* '^https?://[^/?#]+'
+      SET "referrer" = lower(
+            substring("referrer" from '(?i)^https?://')
+            || substring("referrer" from '(?i)^https?://(?:[^@/?#]*@)?([^/?#]*)')
+          )
+      WHERE "referrer" ~ '(?i)^https?://(?:[^@/?#]*@)?[^/?#]+'
     `);
 
     // 2. Lo que no era una URL http(s) utilizable (cadena vacía, about:blank,
     //    basura) pasa a NULL, que es como se representa "no hay procedencia".
+    //    Tras el paso 1 lo válido queda en minúsculas y sin userinfo, así que
+    //    este patrón se compara sin `~*` a propósito.
     await queryRunner.query(`
       UPDATE "page_views"
       SET "referrer" = NULL
-      WHERE "referrer" IS NOT NULL AND "referrer" !~* '^https?://[^/?#]+$'
+      WHERE "referrer" IS NOT NULL AND "referrer" !~ '^https?://[^/?#@]+$'
     `);
 
     // 3. El navegador se va entero.

@@ -14,6 +14,7 @@ import { CreatePageViewDto } from './dto/create-page-view.dto';
 import { PageView } from './page-view.entity';
 import { aOrigenDeReferrer } from './referrer.util';
 import { VisitanteThrottlerGuard } from './visitante-throttler.guard';
+import { analyticsConfig } from '../config/configuration';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 /**
@@ -464,12 +465,6 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
       expect(repositorio.find.mock.calls[0][0].take).toBe(1000);
     });
 
-    /**
-     * Éste es el fallo que más caro salía. `parseInt` se queda con el prefijo
-     * numérico, así que un `1e9` escrito por el dueño de la tienda se leía como
-     * `1` y la purga borraba todo lo anterior a UN día informando de éxito.
-     * Ahora la configuración entrega `null` y aquí no se borra nada.
-     */
     it.each([[null], [undefined]])(
       'no borra nada cuando el plazo configurado no se entiende (%s)',
       async (plazo) => {
@@ -479,5 +474,38 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
         expect(repositorio.delete).not.toHaveBeenCalled();
       },
     );
+
+    /**
+     * **El caso catastrófico, con la configuración de verdad por medio.**
+     *
+     * Antes esta comprobación mockeaba el `ConfigService` devolviendo `NaN`, que
+     * es justo el único valor malo que la guarda ya manejaba: no ejercitaba
+     * `analyticsConfig()`, que es donde vivía el `parseInt` que convertía `1e9`
+     * en `1`. La prueba pasaba y el fallo seguía entero. Aquí se lee el valor
+     * como lo lee la aplicación al arrancar y se comprueba que, con un `1e9` en
+     * el entorno, no se borra ni una fila.
+     */
+    it('un 1e9 en el entorno no borra nada (antes borraba todo lo de ayer)', async () => {
+      const original = process.env.ANALYTICS_PAGE_VIEW_RETENTION_DAYS;
+      process.env.ANALYTICS_PAGE_VIEW_RETENTION_DAYS = '1e9';
+
+      try {
+        const plazoReal = analyticsConfig().pageViewRetentionDays;
+        // Con parseInt esto valía 1, y la purga borraba todo lo anterior a ayer.
+        expect(plazoReal).toBeNull();
+
+        configurar(plazoReal);
+        await tareas.handleDailyPageViewPurge();
+
+        expect(repositorio.find).not.toHaveBeenCalled();
+        expect(repositorio.delete).not.toHaveBeenCalled();
+      } finally {
+        if (original === undefined) {
+          delete process.env.ANALYTICS_PAGE_VIEW_RETENTION_DAYS;
+        } else {
+          process.env.ANALYTICS_PAGE_VIEW_RETENTION_DAYS = original;
+        }
+      }
+    });
   });
 });

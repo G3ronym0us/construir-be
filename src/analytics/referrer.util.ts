@@ -22,6 +22,10 @@
  * - `android-app://com.x`         → `null` (origen opaco: la URL lo serializa
  *                                   como la cadena "null", que no queremos
  *                                   guardar literalmente)
+ * - `https://user:clave@host/x`   → `https://host` (el userinfo no llega nunca;
+ *                                   `URL.origin` no lo incluye)
+ * - `HTTPS://Host.COM/x`          → `https://host.com` (esquema y host en
+ *                                   minúsculas, como manda la norma)
  * - referrer interno de la tienda → su propio origen, tratado como cualquier otro
  */
 export function aOrigenDeReferrer(referrer?: string | null): string | null {

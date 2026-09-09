@@ -16,40 +16,44 @@ viejo en caché deja de contar sus visitas hasta que recargue, y nadie se entera
 
 **Despliega el frontend antes que el backend.**
 
-## 2. `VACUUM FULL page_views` — obligatorio, no opcional
-
-Las migraciones borran las columnas con `DROP COLUMN`. En Postgres eso **sólo
-marca el atributo como eliminado**: los bytes de las filas ya escritas siguen en
-el fichero de datos. No se pueden leer por SQL, pero sí en un respaldo físico o
-con acceso al disco.
-
-Se midió: tras `DROP COLUMN "userAgent"`, las cadenas `Mozilla` seguían legibles
-en el fichero de la tabla. También se midió que un `UPDATE ... SET NULL` previo
-al `DROP` **no** los borra —siguen en el heap con y sin él— y a cambio duplica el
-tamaño en disco y alarga el bloqueo de la migración. Por eso no está.
-
-Lo único que los borra es:
-
-```sql
-VACUUM FULL page_views;
-```
-
-No puede ir dentro de la migración (no corre en una transacción, y el modo
-transaccional de este proyecto es `all`). **Ejecútalo a mano justo después de
-`yarn migration:run`**, en una ventana de poco tráfico: reescribe la tabla entera
-y la bloquea mientras dura.
-
-Comprobación de que quedó limpio (sustituye la cadena por lo que buscas):
-
-```sql
-SELECT count(*) FROM page_views;   -- las filas siguen ahí
-```
+## 2. `yarn analitica:limpiar-rastro` — obligatorio, no opcional
 
 ```bash
-# Ninguna coincidencia = los bytes ya no están en el fichero de datos.
-psql -tAc "SELECT pg_relation_filepath('page_views')" construir_db
-grep -c "Mozilla" "$PGDATA/<ruta que devuelva la consulta anterior>"
+yarn migration:run
+yarn analitica:limpiar-rastro    # <- este paso NO se puede saltar
 ```
+
+**Sin este paso la rama no consigue su objetivo.** Las migraciones borran las
+columnas con `DROP COLUMN`, y en Postgres eso **sólo marca el atributo como
+eliminado**: los bytes de las filas ya escritas siguen en el fichero de datos. No
+se pueden leer por SQL, pero sí en un respaldo físico, un snapshot o un disco
+dado de baja.
+
+Está medido, no supuesto. Restaurando el respaldo real en una base limpia y
+aplicando las dos migraciones, leyendo el fichero con `pg_read_binary_file`:
+
+| Rastro | A nivel SQL | En el fichero de datos | Tras el comando |
+|---|---|---|---|
+| Token de invitación en `referrer` | 0 filas | **legible** | no |
+| IP del visitante | columna borrada | **legible** | no |
+| `user_agent` (`Mozilla…`) | columna borrada | **legible** | no |
+
+Es decir: una migración pensada para eliminar una credencial filtrada y datos
+personales los deja los tres legibles byte a byte si falta este paso.
+
+El comando ejecuta `VACUUM FULL page_views`, comprueba antes y después que las
+cadenas ya no están, y **sale con código de error si algo sigue ahí**, para que
+un despliegue automatizado se entere. Antes esto vivía sólo como un comentario en
+el código y se omitió dos veces; por eso ahora es un comando.
+
+`VACUUM FULL` reescribe la tabla entera y la bloquea mientras dura, así que
+conviene una ventana de poco tráfico (con los tamaños de esta tabla son
+segundos). No puede ir dentro de una migración porque no corre en transacción y
+el modo transaccional de este proyecto es `all`.
+
+También se midió que un `UPDATE ... SET NULL` previo al `DROP` **no** borra esos
+bytes —siguen en el heap con y sin él— y a cambio duplica el tamaño en disco y
+alarga el bloqueo de la migración. Por eso no está.
 
 ## 3. Política de retención
 
