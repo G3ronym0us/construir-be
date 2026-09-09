@@ -135,18 +135,34 @@ export interface MonthlySalesStats {
 }
 
 /**
- * El mes en curso, con su variación contra el mes anterior.
+ * El mes en curso —lo que va de él— con su variación contra el mes anterior.
+ *
+ * Los importes son los del mes hasta HOY, así que el día 9 son nueve días. La
+ * variación, en cambio, NO se calcula contra el mes anterior entero: se
+ * calcula contra su mismo tramo (del 1 al 9 de agosto). Comparar nueve días
+ * contra treinta y uno daría una caída aplastante los primeros días del mes y
+ * una subida eufórica el último, sin que la venta hubiera cambiado; el dueño
+ * miraría el panel el día 2 y creería que se hundió el negocio.
  *
  * Las variaciones van en USD y en número de pedidos, nunca en bolívares: los
  * montos en Bs. son el USD multiplicado por la tasa BCV del día, así que un
  * "+40% en Bs." puede ser sólo la devaluación y no una venta más. El dueño
  * necesita saber si vendió más, no si el bolívar valía menos.
  *
- * Cada variación es `null` —no 0— cuando el mes anterior fue cero: no hay
+ * Cada variación es `null` —no 0— cuando el tramo anterior fue cero: no hay
  * porcentaje que calcular contra una base vacía, y pintar "0% vs mes anterior"
  * diría "vendiste lo mismo", que es falso.
+ *
+ * Queda un sesgo que no se puede quitar filtrando por `createdAt`: como los
+ * comprobantes se revisan con retraso, el tramo del mes anterior sigue
+ * CRECIENDO hacia atrás cada vez que el admin verifica un pago viejo. Es el
+ * precio correcto de fechar la venta cuando se hizo el pedido y no cuando se
+ * revisó el papel; lo que no puede pasar es que el panel calle que compara
+ * tramos parciales, y por eso `daysElapsed` viaja hasta la pantalla.
  */
 export interface CurrentMonthSalesStats extends MonthlySalesStats {
+  /** Días del mes ya transcurridos, hoy incluido. El día 9 vale 9. */
+  daysElapsed: number;
   percentageChangeRevenue: number | null;
   percentageChangeOrders: number | null;
   percentageChangeAverageTicket: number | null;
@@ -170,7 +186,13 @@ export interface AdminOrderStats {
   exchangeRate: number | null;
   /** Bloque "Ventas e Ingresos del Mes" del panel. */
   currentMonth: CurrentMonthSalesStats;
+  /** El mes anterior COMPLETO: con lo que cerró. */
   previousMonth: MonthlySalesStats;
+  /**
+   * El mismo tramo del mes anterior que lleva recorrido el actual, que es
+   * contra lo que se calculan las variaciones de `currentMonth`.
+   */
+  previousMonthToDate: MonthlySalesStats;
 }
 
 /**
@@ -180,6 +202,16 @@ export interface AdminOrderStats {
  * (las anteriores a que se guardara la tasa lo tienen nulo) y el promedio en
  * Bs. divide entre ESAS, no entre todas: dividir el subtotal en Bs. entre el
  * número completo de órdenes daría un ticket promedio artificialmente bajo.
+ *
+ * CUIDADO al leer las dos cifras de una misma tarjeta como si fueran la misma
+ * venta en dos monedas. Cuando hay órdenes viejas sin `totalVes`, el importe
+ * en USD cubre TODAS y el de Bs. sólo las que tienen tasa fijada, así que
+ * dividir uno entre otro no da ninguna tasa real: con 81.000 Bs. sobre 203,33
+ * USD sale 398 y con 27.000 sobre 50,83 sale 531, y ninguna de las dos es la
+ * del BCV. Los Bs. no se recalculan a la tasa de hoy a propósito —cada orden
+ * lleva congelada la del día en que se hizo, que es lo que de verdad cobró la
+ * tienda—, así que el desfase se irá solo cuando caduquen las órdenes previas
+ * a la tasa fijada. No "arreglarlo" convirtiendo el USD al vuelo.
  */
 export function summarizeMonthlySales(
   orders: Order[],
@@ -1206,7 +1238,8 @@ export class OrdersService {
    * Obtiene estadísticas del dashboard de admin
    */
   async getAdminStats(): Promise<AdminOrderStats> {
-    const startOfToday = new Date();
+    const now = new Date();
+    const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(
       startOfToday.getFullYear(),
@@ -1291,6 +1324,24 @@ export class OrdersService {
         order.createdAt < startOfMonth,
     );
 
+    // El corte del tramo comparable: el mismo trecho de mes que lleva
+    // recorrido el actual, trasladado al anterior. Se traslada por duración y
+    // no por día del mes para no tener que inventarse un "31 de febrero".
+    //
+    // Cuando el mes anterior es más corto que ese trecho —el 30 de marzo son
+    // 29 días y febrero tiene 28— el corte cae ya dentro del mes en curso. No
+    // hace falta taparlo: se filtra sobre `previousMonthOrders`, que ya está
+    // acotado a `< startOfMonth`, así que el tramo nunca puede pasar de ser
+    // el mes anterior entero. Filtrar aquí sobre la lista completa sí sería
+    // un fallo: metería ventas de marzo en la comparación de marzo.
+    const elapsed = now.getTime() - startOfMonth.getTime();
+    const previousMonthCutoff = new Date(
+      startOfPreviousMonth.getTime() + elapsed,
+    );
+    const previousMonthToDateOrders = previousMonthOrders.filter(
+      (order) => order.createdAt < previousMonthCutoff,
+    );
+
     const currentMonthStats = summarizeMonthlySales(
       currentMonthOrders,
       startOfMonth,
@@ -1299,19 +1350,26 @@ export class OrdersService {
       previousMonthOrders,
       startOfPreviousMonth,
     );
+    const previousMonthToDate = summarizeMonthlySales(
+      previousMonthToDateOrders,
+      startOfPreviousMonth,
+    );
+    // Contra el TRAMO del mes anterior, no contra el mes anterior entero: ver
+    // `CurrentMonthSalesStats`.
     const currentMonth: CurrentMonthSalesStats = {
       ...currentMonthStats,
+      daysElapsed: now.getDate(),
       percentageChangeRevenue: percentageChange(
         currentMonthStats.verifiedRevenue,
-        previousMonth.verifiedRevenue,
+        previousMonthToDate.verifiedRevenue,
       ),
       percentageChangeOrders: percentageChange(
         currentMonthStats.verifiedOrders,
-        previousMonth.verifiedOrders,
+        previousMonthToDate.verifiedOrders,
       ),
       percentageChangeAverageTicket: percentageChange(
         currentMonthStats.averageTicket,
-        previousMonth.averageTicket,
+        previousMonthToDate.averageTicket,
       ),
     };
 
@@ -1339,6 +1397,7 @@ export class OrdersService {
       exchangeRate: currentRate ? Number(currentRate.rate) : null,
       currentMonth,
       previousMonth,
+      previousMonthToDate,
     };
   }
 

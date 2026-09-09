@@ -132,6 +132,10 @@ describe('OrdersService.getAdminStats — bloque mensual de ventas', () => {
     expect(stats.previousMonth.month).toBe('2026-08');
     expect(stats.previousMonth.verifiedOrders).toBe(1);
     expect(stats.previousMonth.verifiedRevenue).toBe(80);
+
+    // El 15 de agosto queda fuera del tramo comparable, que hoy son los 9
+    // primeros días.
+    expect(stats.previousMonthToDate.verifiedOrders).toBe(0);
   });
 
   it('incluye el último día del mes anterior y no lo cuenta en el actual', async () => {
@@ -150,7 +154,8 @@ describe('OrdersService.getAdminStats — bloque mensual de ventas', () => {
     ordenesVerificadas = [
       orden(new Date(2026, 8, 2, 9, 0), '100.00', '48000.00'),
       orden(new Date(2026, 8, 8, 9, 0), '50.00', '24000.00'),
-      orden(new Date(2026, 7, 15, 9, 0), '100.00', '20000.00'),
+      // 5 de agosto: dentro del tramo comparable (los 9 primeros días).
+      orden(new Date(2026, 7, 5, 9, 0), '100.00', '20000.00'),
     ];
 
     const stats = await service.getAdminStats();
@@ -202,6 +207,80 @@ describe('OrdersService.getAdminStats — bloque mensual de ventas', () => {
 
     expect(stats.currentMonth.verifiedRevenueVes).toBeNull();
     expect(stats.currentMonth.averageTicketVes).toBeNull();
+  });
+
+  it('compara contra el mismo tramo del mes anterior, no contra el mes entero', async () => {
+    ordenesVerificadas = [
+      orden(new Date(2026, 8, 2, 9, 0), '100.00', '48000.00'),
+      orden(new Date(2026, 8, 8, 9, 0), '50.00', '24000.00'),
+      // Dentro de los 9 primeros días de agosto.
+      orden(new Date(2026, 7, 5, 9, 0), '80.00', '38000.00'),
+      // El 20 de agosto: cuenta para el mes cerrado, NO para el tramo.
+      orden(new Date(2026, 7, 20, 9, 0), '350.00', '168000.00'),
+    ];
+
+    const stats = await service.getAdminStats();
+
+    expect(stats.previousMonth.verifiedRevenue).toBe(430);
+    expect(stats.previousMonthToDate.verifiedRevenue).toBe(80);
+    // 150 contra los 80 del mismo tramo: +87.5%. Contra el agosto entero
+    // habría salido -65.1%, una caída inventada por comparar 9 días con 31.
+    expect(stats.currentMonth.percentageChangeRevenue).toBe(87.5);
+    expect(stats.currentMonth.percentageChangeOrders).toBe(100);
+  });
+
+  it('dice cuántos días del mes lleva contados', async () => {
+    ordenesVerificadas = [];
+
+    const stats = await service.getAdminStats();
+
+    // El panel lo necesita para rotular "vs los primeros 9 días de agosto".
+    expect(stats.currentMonth.daysElapsed).toBe(9);
+  });
+
+  it('en enero el mes anterior es diciembre del año pasado', async () => {
+    jest.setSystemTime(new Date(2027, 0, 5, 12, 0, 0));
+    ordenesVerificadas = [
+      orden(new Date(2027, 0, 3, 9, 0), '60.00', '30000.00'),
+      // 2 de diciembre: dentro del tramo (los 5 primeros días).
+      orden(new Date(2026, 11, 2, 9, 0), '40.00', '20000.00'),
+      // 20 de diciembre: sólo en el mes cerrado.
+      orden(new Date(2026, 11, 20, 9, 0), '500.00', '250000.00'),
+    ];
+
+    const stats = await service.getAdminStats();
+
+    expect(stats.currentMonth.month).toBe('2027-01');
+    expect(stats.previousMonth.month).toBe('2026-12');
+    expect(stats.previousMonth.verifiedRevenue).toBe(540);
+    expect(stats.previousMonthToDate.verifiedRevenue).toBe(40);
+    // 60 contra 40.
+    expect(stats.currentMonth.percentageChangeRevenue).toBe(50);
+  });
+
+  it('cuando el mes anterior es más corto, el tramo no se come el mes en curso', async () => {
+    // 30 de marzo: han pasado 29 días, pero febrero de 2026 sólo tiene 28, así
+    // que el corte del tramo cae ya dentro de marzo. El tramo tiene que
+    // quedarse en "todo febrero"; si se calculara sobre la lista completa de
+    // verificadas en vez de sobre las del mes anterior, el pedido del 1 de
+    // marzo entraría en su propia comparación y el porcentaje saldría a 0.
+    jest.setSystemTime(new Date(2026, 2, 30, 12, 0, 0));
+    ordenesVerificadas = [
+      orden(new Date(2026, 2, 1, 9, 0), '100.00', '48000.00'),
+      orden(new Date(2026, 1, 27, 9, 0), '70.00', '33000.00'),
+    ];
+
+    const stats = await service.getAdminStats();
+
+    expect(stats.currentMonth.month).toBe('2026-03');
+    expect(stats.currentMonth.verifiedRevenue).toBe(100);
+    expect(stats.previousMonth.month).toBe('2026-02');
+    // Febrero entero, y ni un céntimo de marzo.
+    expect(stats.previousMonth.verifiedRevenue).toBe(70);
+    expect(stats.previousMonthToDate.verifiedRevenue).toBe(70);
+    expect(stats.previousMonthToDate.verifiedOrders).toBe(1);
+    // 100 contra 70, no contra 170.
+    expect(stats.currentMonth.percentageChangeRevenue).toBe(42.86);
   });
 
   it('pide a la BD sólo pagos verificados y sin canceladas', async () => {
