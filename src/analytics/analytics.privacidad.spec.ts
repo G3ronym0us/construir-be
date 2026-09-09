@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { APP_GUARD } from '@nestjs/core';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { getMetadataArgsStorage } from 'typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -13,7 +14,7 @@ import { AnalyticsTasksService } from './analytics-tasks.service';
 import { CreatePageViewDto } from './dto/create-page-view.dto';
 import { PageView } from './page-view.entity';
 import { aOrigenDeReferrer } from './referrer.util';
-import { VisitanteThrottlerGuard } from './visitante-throttler.guard';
+import { VisitanteThrottlerGuard } from '../common/throttling/visitante-throttler.guard';
 import { analyticsConfig } from '../config/configuration';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -51,7 +52,9 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
     // estarían comprobando el mock, no la entidad.
     create: jest.fn((datos: Record<string, unknown>) =>
       Object.fromEntries(
-        Object.entries(datos).filter(([k]) => columnasDeLaEntidad().includes(k)),
+        Object.entries(datos).filter(([k]) =>
+          columnasDeLaEntidad().includes(k),
+        ),
       ),
     ),
     save: jest.fn((fila) => Promise.resolve({ id: 1, ...fila })),
@@ -78,8 +81,9 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
         { provide: ConfigService, useValue: config },
       ],
     })
-      .overrideGuard(VisitanteThrottlerGuard)
-      .useValue({ canActivate: () => true })
+      // Ya no hace falta anular el limitador: dejó de declararse en el
+      // controlador y ahora es el APP_GUARD de la aplicación, que este módulo
+      // de prueba no registra.
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
       .compile();
@@ -195,9 +199,15 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
     });
 
     it('aOrigenDeReferrer nunca lanza, pase lo que pase', () => {
-      ['', '   ', 'http://', '://x', 'https://[', 'about:blank', '\u0000'].forEach(
-        (v) => expect(() => aOrigenDeReferrer(v)).not.toThrow(),
-      );
+      [
+        '',
+        '   ',
+        'http://',
+        '://x',
+        'https://[',
+        'about:blank',
+        '\u0000',
+      ].forEach((v) => expect(() => aOrigenDeReferrer(v)).not.toThrow());
     });
   });
 
@@ -272,7 +282,10 @@ describe('Analítica de visitas — no se recogen datos que identifiquen al visi
         providers: [
           AnalyticsService,
           AnalyticsTasksService,
-          VisitanteThrottlerGuard,
+          // Como APP_GUARD, igual que en `app.module.ts`. El controlador ya no
+          // lo declara con `@UseGuards`: declararlo en los dos sitios lo hacía
+          // correr dos veces y gastaba dos peticiones del cupo por visita.
+          { provide: APP_GUARD, useClass: VisitanteThrottlerGuard },
           { provide: getRepositoryToken(PageView), useValue: repositorio },
           { provide: ConfigService, useValue: config },
         ],

@@ -100,9 +100,28 @@ describe('Comprobantes de pago privados', () => {
   describe('la ruta de subida no es barra libre', () => {
     const handler = OrdersController.prototype.uploadReceipt;
 
-    it('mantiene el ThrottlerGuard aplicado', () => {
-      const guards = Reflect.getMetadata('__guards__', handler) as unknown[];
-      expect(guards).toContain(ThrottlerGuard);
+    /**
+     * El guard ya no se declara en la ruta: es el `APP_GUARD` de toda la
+     * aplicación (`app.module.ts`), así que preguntarle al metadato
+     * `__guards__` del método ya no dice nada — y declararlo además acá lo
+     * haría correr DOS veces, gastando dos peticiones del cupo por cada una
+     * real.
+     *
+     * El cambio no debilita esta ruta, la arregla: el `ThrottlerGuard` de
+     * serie que había acá cuenta por `req.ip`, y sin `trust proxy` eso es la
+     * IP del proxy para todo el mundo. O sea que estas 5 subidas por minuto se
+     * las repartía la tienda entera. El guard global sí identifica al
+     * visitante.
+     *
+     * Lo que se comprueba, entonces, es que el techo de la ruta sigue
+     * declarado; que el límite corta de verdad se prueba levantando una
+     * aplicación con el guard global en
+     * `orders.controller.limiteDeTasa.spec.ts`.
+     */
+    it('no declara el guard en la ruta: lo aplica el APP_GUARD', () => {
+      const guards =
+        (Reflect.getMetadata('__guards__', handler) as unknown[]) ?? [];
+      expect(guards).not.toContain(ThrottlerGuard);
     });
 
     it('no afloja el tope de subidas por minuto', () => {

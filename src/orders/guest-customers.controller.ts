@@ -5,7 +5,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -45,9 +45,16 @@ export class GuestCustomersController {
    * **El límite de tasa se queda, no lo quites.** Ya no es la única contención,
    * pero es lo que evita que alguien que sí conoce un teléfono lo pruebe
    * contra un rango de cédulas.
+   *
+   * Lo que sí cambió: el `@UseGuards(ThrottlerGuard)` que había acá usaba el
+   * guard de serie, que cuenta por `req.ip`. Sin `trust proxy` eso es la IP
+   * del proxy para todo el mundo, así que estas 5 búsquedas por minuto se las
+   * repartía la tienda entera — el límite era mucho más duro de lo que decía
+   * y podía dejar sin autocompletar a clientes que no habían buscado nada.
+   * Ahora cuenta el guard global (`VisitanteThrottlerGuard`), que sí distingue
+   * visitantes, y acá queda sólo el `@Throttle` con el techo de la ruta.
    */
   @Get('search')
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async searchByIdentification(
     @Query('identificationType') identificationType: IdentificationType,

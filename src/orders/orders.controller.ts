@@ -17,7 +17,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import {
@@ -64,6 +64,23 @@ export class OrdersController {
    */
   @Post()
   @UseGuards(OptionalJwtAuthGuard)
+  // 5 pedidos por minuto y por cliente. Ésta es la ruta cara de todo el
+  // proyecto y hasta ahora no tenía ningún límite: sin sesión, sin coste y sin
+  // techo, cada llamada **crea un pedido, descuenta inventario real y dispara
+  // dos correos** —uno al cliente y otro al administrador—, y la dirección del
+  // primero la elige quien llama. Medido antes de este límite: 70 llamadas
+  // seguidas dieron 70 pedidos, 71 unidades menos de inventario y 142 correos
+  // salidos con el dominio de la tienda.
+  //
+  // 5 no estorba a nadie: un cliente hace UN pedido por compra. El margen es
+  // para el que reintenta —se equivocó en la referencia del pago, se le fue la
+  // conexión al confirmar, le rebotó por la tasa (409) y vuelve a probar—, y
+  // cinco intentos en el mismo minuto ya cubre de sobra ese día malo.
+  //
+  // Y no se puede subir "por si acaso": el número ES el techo del bombardeo de
+  // correo (5 pedidos = 10 correos por minuto y por origen) y el de la
+  // sangría de inventario. Cada unidad que se sube multiplica las dos cosas.
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   async createOrder(@Request() req, @Body() createOrderDto: CreateOrderDto) {
     const userId = req.user?.userId || null;
     const orden = await this.ordersService.createOrder(createOrderDto, userId);
@@ -88,6 +105,18 @@ export class OrdersController {
   @Post('quote')
   @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
+  // 30 por minuto. El checkout recotiza en cada cambio del formulario —método
+  // de entrega, cantidad, cupón—, así que el límite tiene que aguantar a
+  // alguien toqueteando la pantalla; 30 es más de lo que da la mano en un
+  // minuto y muy poco para un bucle.
+  //
+  // Lo que se está acotando acá es la ENUMERACIÓN DE CUPONES: esta ruta acepta
+  // un `discountCode` y responde distinto según exista o no. El mensaje ya se
+  // unificó en `DiscountsService.validateDiscount`, así que la respuesta ya no
+  // dice cuál de los dos es; el límite es la segunda mitad, la que impide
+  // probar el diccionario entero. Es el mismo par de medidas que se aplicó al
+  // buscador de invitados, en el endpoint de al lado.
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
   async quoteOrder(@Request() req, @Body() quoteOrderDto: QuoteOrderDto) {
     const userId = req.user?.userId || null;
     return this.ordersService.quoteOrder(quoteOrderDto, userId);
@@ -103,7 +132,13 @@ export class OrdersController {
    * de archivo validado por el `Content-Type` que él mismo mandaba. Lo que
    * ahora lo acota:
    *
-   * - `ThrottlerGuard` con 5 subidas por minuto y por IP;
+   * - 5 subidas por minuto y por cliente. Ojo: el "y por cliente" es nuevo. El
+   *   `@UseGuards(ThrottlerGuard)` que había acá usaba el guard de serie, que
+   *   cuenta por `req.ip`, y sin `trust proxy` eso es la IP del proxy para todo
+   *   el mundo: las 5 subidas por minuto se las repartía la tienda entera, y el
+   *   sexto cliente del minuto no podía pagar. Ahora el guard es el global
+   *   (`VisitanteThrottlerGuard`, en `app.module.ts`), que identifica al
+   *   visitante de verdad, y acá sólo queda el `@Throttle` que baja el techo;
    * - la orden tiene que existir, no estar cancelada y no tener el pago ya
    *   verificado (`assertReceiptUploadAllowed`), y eso se comprueba ANTES de
    *   escribir en S3, para no dejar basura en el bucket de un intento inválido;
@@ -116,7 +151,6 @@ export class OrdersController {
    * pública ni en S3 ni en la respuesta.
    */
   @Post(':uuid/receipt')
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { ttl: 60000, limit: 5 } })
   @UseInterceptors(
     FileInterceptor('receipt', {

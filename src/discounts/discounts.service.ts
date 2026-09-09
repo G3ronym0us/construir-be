@@ -12,6 +12,48 @@ import { UpdateDiscountDto } from './dto/update-discount.dto';
 import { ValidateDiscountResponseDto } from './dto/validate-discount.dto';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 
+/**
+ * La ÚNICA respuesta que da un cupón que no se aplica, sea cual sea el motivo.
+ *
+ * **Antes esto era un oráculo de cupones.** `validateDiscount` distinguía por
+ * el mensaje entre "el código no existe" (`Cupón no válido`) y "el código
+ * existe pero caducó" (`Este cupón ha expirado`), más otros tres estados que
+ * también confirmaban la existencia. Y se llega hasta acá desde tres rutas
+ * públicas sin sesión: `POST /discounts/validate`, `POST /orders/quote` y
+ * `POST /orders`. Con eso se podía recorrer un diccionario de códigos y separar
+ * los que existen de los que no, con una señal limpia y sin coste — la misma
+ * clase de fallo que se acaba de cerrar en el buscador de invitados, sólo que
+ * cosechando cupones en vez de cédulas. Un cupón caducado o agotado no es
+ * inofensivo: dice qué códigos genera esta tienda y con qué forma, que es la
+ * mitad del trabajo para adivinar el que sí está vivo.
+ *
+ * Se unifica acá, en el servicio, y no en cada controlador, porque el oráculo
+ * no era una ruta: era esta función, y las tres rutas sólo la exponían.
+ *
+ * **El equilibrio con el cliente legítimo.** Al que escribe mal un cupón no se
+ * le puede decir en cuál de los cinco motivos cayó sin volver a abrir el canal,
+ * pero lo que necesita saber no es el motivo: es (a) que NO se le aplicó —si
+ * no, paga de más creyendo que sí— y (b) qué revisar. El mensaje enumera de
+ * una vez todas las causas posibles sin decir cuál es la suya: mal escrito,
+ * vencido, o el pedido no cumple las condiciones. Con un solo texto los cinco
+ * casos quedan accionables.
+ *
+ * Lo que se pierde de verdad es un caso: el del monto mínimo, donde antes se
+ * decía la cifra que faltaba y ahora sólo se menciona que puede haber
+ * condiciones. Se acepta a sabiendas — esa cifra confirmaba la existencia del
+ * cupón igual que los demás mensajes, y el sitio para publicarla es el anuncio
+ * del cupón, no un error que le responde a cualquiera que pregunte.
+ */
+// Congelado porque se devuelve SIEMPRE el mismo objeto a todos los que
+// preguntan: si alguien río abajo le añadiera un detalle ("faltan $5") estaría
+// reabriendo el oráculo para todas las llamadas siguientes, y en silencio.
+const CUPON_RECHAZADO: ValidateDiscountResponseDto = Object.freeze({
+  valid: false,
+  error:
+    'No pudimos aplicar este cupón. Revisá que esté bien escrito, que siga ' +
+    'vigente y que tu pedido cumpla sus condiciones.',
+});
+
 @Injectable()
 export class DiscountsService {
   constructor(
@@ -143,34 +185,22 @@ export class DiscountsService {
 
       // Validar si está activo
       if (!discount.isActive) {
-        return {
-          valid: false,
-          error: 'Este cupón no está activo',
-        };
+        return CUPON_RECHAZADO;
       }
 
       // Validar fechas
       const now = new Date();
       if (discount.startDate && now < discount.startDate) {
-        return {
-          valid: false,
-          error: 'Este cupón aún no está disponible',
-        };
+        return CUPON_RECHAZADO;
       }
 
       if (discount.endDate && now > discount.endDate) {
-        return {
-          valid: false,
-          error: 'Este cupón ha expirado',
-        };
+        return CUPON_RECHAZADO;
       }
 
       // Validar usos máximos
       if (discount.maxUses && discount.currentUses >= discount.maxUses) {
-        return {
-          valid: false,
-          error: 'Este cupón ha alcanzado su límite de usos',
-        };
+        return CUPON_RECHAZADO;
       }
 
       // Validar monto mínimo de compra
@@ -178,10 +208,7 @@ export class DiscountsService {
         discount.minPurchaseAmount &&
         orderTotal < discount.minPurchaseAmount
       ) {
-        return {
-          valid: false,
-          error: `El monto mínimo de compra para este cupón es $${discount.minPurchaseAmount}`,
-        };
+        return CUPON_RECHAZADO;
       }
 
       // Calcular descuento
@@ -217,10 +244,7 @@ export class DiscountsService {
       };
     } catch (error) {
       if (error instanceof NotFoundException) {
-        return {
-          valid: false,
-          error: 'Cupón no válido',
-        };
+        return CUPON_RECHAZADO;
       }
       throw error;
     }

@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
@@ -130,6 +131,8 @@ export interface AdminOrderStats {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
@@ -820,13 +823,64 @@ export class OrdersService {
       await this.discountsService.incrementUsage(pricing.discountUuid);
     }
 
-    // 11. Enviar email de confirmación
+    // 11. Avisar por correo. **Que un fallo de acá no tumbe la compra.**
+    //
+    // Es la última línea de un método que ya guardó el pedido, creó sus
+    // renglones, descontó inventario real, vació el carrito, quizá dio de alta
+    // una cuenta y consumió un uso del cupón. Nada de eso está en una
+    // transacción: si esta parte lanza, el cliente recibe un 500 y da por
+    // fallada una compra que SÍ existe y que ya le apartó la mercancía. Va a
+    // volver a intentarlo, y el inventario se descuenta otra vez.
+    //
+    // Un correo es un aviso, no parte de la compra. `EmailService` ya traga
+    // los fallos de SMTP y los de plantilla por su cuenta (está medido: con el
+    // servidor de correo caído `POST /orders` sigue devolviendo 201), pero eso
+    // es una garantía de la otra clase, que puede perderse en cualquier cambio
+    // de allá; lo que no puede perderse es que este método no reviente después
+    // de haber escrito. Por eso el `catch` va acá, en el sitio que sabe lo que
+    // hay en juego, y no se confía en el de más abajo.
+    //
+    // Es el mismo criterio que ya se aplica al alta de cuenta
+    // (`UsersService.create`, que manda el correo de verificación con
+    // `.catch()` y no propaga), y el mismo que documenta `EmailService.render`.
     const finalOrder = await this.findOneByUuid(order.uuid);
-    await this.emailService.sendOrderConfirmation(finalOrder);
-    await this.emailService.sendAdminNewOrder(finalOrder);
+    await this.avisaPorCorreo(finalOrder);
 
     // 12. Retornar la orden completa
     return finalOrder;
+  }
+
+  /**
+   * Manda la confirmación al cliente y el aviso al administrador, y se traga
+   * lo que falle.
+   *
+   * Los dos van por separado a propósito: si el del cliente fallara, el
+   * administrador tiene que enterarse igual de que hay un pedido nuevo que
+   * cobrar. Con un solo `try` alrededor de los dos, el primer fallo se llevaba
+   * el segundo por delante.
+   *
+   * El fallo queda en el log y en ningún otro sitio, así que conviene saber
+   * qué significa verlo: el pedido está creado y el inventario descontado, pero
+   * el cliente no tiene su comprobante — hay que avisarlo a mano.
+   */
+  private async avisaPorCorreo(order: Order): Promise<void> {
+    try {
+      await this.emailService.sendOrderConfirmation(order);
+    } catch (error) {
+      this.logger.error(
+        `Pedido ${order.orderNumber} creado, pero falló su correo de ` +
+          `confirmación al cliente: ${error}`,
+      );
+    }
+
+    try {
+      await this.emailService.sendAdminNewOrder(order);
+    } catch (error) {
+      this.logger.error(
+        `Pedido ${order.orderNumber} creado, pero falló el aviso al ` +
+          `administrador: ${error}`,
+      );
+    }
   }
 
   /**
