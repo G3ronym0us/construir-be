@@ -1,10 +1,21 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomer, IdentificationType } from './guest-customer.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrderAdminGuard } from '../auth/guards/order-admin.guard';
 import { GuestCustomerAutocomplete } from './guest-customer-autocomplete';
+
+/** Los cinco tipos que acepta la columna, para rechazar el resto sin ir a la base. */
+const TIPOS_DE_IDENTIFICACION = new Set<string>(
+  Object.values(IdentificationType),
+);
 
 @Controller('guest-customers')
 export class GuestCustomersController {
@@ -45,6 +56,17 @@ export class GuestCustomersController {
   ): Promise<GuestCustomerAutocomplete | null> {
     if (!identificationType || !identificationNumber || !phone) {
       return null;
+    }
+
+    // `identification_type` es un enum de Postgres: un valor que no está en la
+    // lista reventaba la consulta y salía un 500. No era canal de enumeración
+    // —los cinco tipos válidos son públicos y no dicen nada de ningún
+    // cliente—, pero un parámetro mal escrito es un 400, no un error del
+    // servidor: el 500 sólo servía para ensuciar el log de errores reales.
+    if (!TIPOS_DE_IDENTIFICACION.has(identificationType)) {
+      throw new BadRequestException(
+        `identificationType debe ser uno de: ${[...TIPOS_DE_IDENTIFICACION].join(', ')}`,
+      );
     }
 
     return this.guestCustomersService.findForAutocomplete(

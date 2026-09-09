@@ -11,6 +11,12 @@ import { GuestCustomer } from './guest-customer.entity';
  *
  * `ordersCount` sí se queda: el aviso "Datos autocompletados · 3 pedidos
  * anteriores" del checkout lo pinta, y quitarlo era romper la pantalla.
+ *
+ * Las coordenadas GPS tampoco salen, y son el caso más claro de todos: son el
+ * punto exacto de la casa de alguien, repartido por una ruta sin sesión. La
+ * dirección escrita basta para autocompletar —este checkout la pide a mano, no
+ * por mapa—, así que devolverlas no compraba nada y costaba lo más sensible
+ * del conjunto.
  */
 export interface GuestCustomerAutocomplete {
   identificationType: GuestCustomer['identificationType'];
@@ -25,8 +31,6 @@ export interface GuestCustomerAutocomplete {
   zipCode?: string;
   country?: string;
   additionalInfo?: string;
-  latitude?: number;
-  longitude?: number;
   ordersCount: number;
 }
 
@@ -47,8 +51,6 @@ export function aAutocompletado(
     zipCode: cliente.zipCode,
     country: cliente.country,
     additionalInfo: cliente.additionalInfo,
-    latitude: cliente.latitude,
-    longitude: cliente.longitude,
     ordersCount: cliente.ordersCount,
   };
 }

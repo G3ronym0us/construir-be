@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { GuestCustomersService } from './guest-customers.service';
@@ -207,6 +208,22 @@ describe('GuestCustomersService.findForAutocomplete — la cédula ya no basta',
       }
     });
 
+    it('no reparte las coordenadas GPS del domicilio', async () => {
+      // Son el punto exacto de la casa de alguien y la ruta no tiene sesión.
+      // La dirección escrita ya autocompleta; el mapa no se usa en este
+      // checkout, así que devolverlas no compraba nada.
+      const ficha = (await buscar('04141234567')) as unknown as Record<
+        string,
+        unknown
+      >;
+
+      expect(ficha).not.toHaveProperty('latitude');
+      expect(ficha).not.toHaveProperty('longitude');
+      // Y no es que la ficha de prueba no las tenga: el cliente sí las tiene.
+      expect(CLIENTE.latitude).toBeDefined();
+      expect(CLIENTE.longitude).toBeDefined();
+    });
+
     it('busca por el par tipo + número, no sólo por el número', async () => {
       await service.findForAutocomplete(
         IdentificationType.E,
@@ -241,18 +258,72 @@ describe('GuestCustomersService.findForAutocomplete — la cédula ya no basta',
     });
   });
 
-  describe('el controlador no responde distinto por falta de parámetros', () => {
+  describe('el controlador responde igual falte lo que falte', () => {
+    /**
+     * El servicio se sustituye por uno que SIEMPRE encontraría al cliente. Así
+     * lo único que puede hacer que no salga la ficha es el propio controlador,
+     * y cualquier atajo suyo se ve.
+     */
     const controller = new GuestCustomersController({
-      findForAutocomplete: jest.fn().mockResolvedValue(null),
+      findForAutocomplete: jest.fn().mockResolvedValue(CLIENTE),
     } as unknown as GuestCustomersService);
 
-    it('sin teléfono devuelve lo mismo que con un teléfono equivocado', async () => {
-      const sinTelefono = await controller.searchByIdentification(
-        IdentificationType.V,
-        '12345678',
-        '',
+    const consultar = (
+      tipo: unknown,
+      numero: unknown,
+      telefono: unknown,
+    ): Promise<unknown> =>
+      controller.searchByIdentification(
+        tipo as IdentificationType,
+        numero as string,
+        telefono as string,
       );
-      expect(sinTelefono).toBeNull();
+
+    it('todas las combinaciones con algo ausente dan exactamente la misma respuesta', async () => {
+      // La versión anterior de esta prueba miraba un solo caso contra un
+      // servicio que devolvía null de todas formas: el nombre prometía una
+      // comparación que no hacía. Ahora se comparan todas contra todas.
+      const incompletas = [
+        [undefined, '12345678', '04141234567'],
+        ['', '12345678', '04141234567'],
+        [IdentificationType.V, undefined, '04141234567'],
+        [IdentificationType.V, '', '04141234567'],
+        [IdentificationType.V, '12345678', undefined],
+        [IdentificationType.V, '12345678', ''],
+        [undefined, undefined, undefined],
+      ];
+
+      const respuestas: unknown[] = [];
+      for (const [tipo, numero, telefono] of incompletas) {
+        respuestas.push(await consultar(tipo, numero, telefono));
+      }
+
+      // Ninguna entrega la ficha, aunque el servicio la habría devuelto...
+      for (const r of respuestas) expect(r).toBeNull();
+      // ...y todas son el MISMO valor, así que no hay nada que distinguir.
+      for (const r of respuestas) expect(r).toEqual(respuestas[0]);
+    });
+
+    it('con los tres parámetros sí llega al servicio', async () => {
+      // La contracara: si el controlador cortara siempre, las aserciones de
+      // arriba pasarían sin significar nada.
+      expect(
+        await consultar(IdentificationType.V, '12345678', '04141234567'),
+      ).toBe(CLIENTE);
+    });
+
+    it('un tipo de identificación inválido es un 400, no un 500', async () => {
+      // `identification_type` es un enum de Postgres: un valor fuera de la
+      // lista reventaba la consulta y salía un error del servidor.
+      await expect(
+        consultar('X', '12345678', '04141234567'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('acepta los cinco tipos que existen', async () => {
+      for (const tipo of Object.values(IdentificationType)) {
+        expect(await consultar(tipo, '12345678', '04141234567')).toBe(CLIENTE);
+      }
     });
   });
 });

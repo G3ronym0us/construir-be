@@ -103,7 +103,27 @@ export class GuestCustomersService {
   }
 
   /**
-   * Crea o actualiza un cliente guest con la información de la orden
+   * Crea o actualiza un cliente guest con la información de la orden.
+   *
+   * La cédula NOMBRA a una persona; el teléfono es lo que prueba que quien
+   * pide es esa persona. Cuando el pedido llega con un teléfono que no es el
+   * de la ficha, no hay forma de distinguir dos situaciones: el mismo cliente
+   * que cambió de número, o alguien distinto que escribió una cédula ajena
+   * —que son secuenciales y se adivinan—.
+   *
+   * Como no se pueden distinguir, la ficha NO PUEDE HEREDAR NADA de su ocupante
+   * anterior. Antes sí heredaba, y eso era un rodeo completo del arreglo del
+   * buscador: bastaba pedir con la cédula de la víctima, un teléfono propio y
+   * `pickup` —sin dirección de envío, para que el `if (shippingAddress)` no
+   * corriera— y la ficha quedaba con el teléfono del atacante y la dirección y
+   * las coordenadas GPS de la víctima. Después se consultaba el buscador con
+   * ese teléfono y salía el domicilio ajeno. Coste para el atacante: un pedido
+   * de invitado que se queda esperando un pago que nunca hace, o sea ninguno.
+   *
+   * Al cliente legítimo que cambió de número esto le cuesta su dirección
+   * guardada, que tendrá que reescribir una vez: si pide a domicilio la está
+   * escribiendo igual, y si pide para retirar no le hace falta. Desde el
+   * pedido siguiente su ficha vuelve a autocompletar con normalidad.
    */
   async createOrUpdate(
     customerInfo: CustomerInfoDto,
@@ -116,6 +136,10 @@ export class GuestCustomersService {
     );
 
     if (guestCustomer) {
+      // ¿Quien pide demuestra ser el ocupante actual de la ficha? Se mira
+      // ANTES de pisar el teléfono, que si no siempre coincidiría consigo mismo.
+      const mismoDueno = mismoTelefono(guestCustomer.phone, customerInfo.phone);
+
       // Actualizar datos del cliente
       guestCustomer.firstName = customerInfo.firstName;
       guestCustomer.lastName = customerInfo.lastName;
@@ -132,9 +156,23 @@ export class GuestCustomersService {
         guestCustomer.additionalInfo = shippingAddress.additionalInfo;
         guestCustomer.latitude = shippingAddress.latitude;
         guestCustomer.longitude = shippingAddress.longitude;
+      } else if (!mismoDueno) {
+        // Sin dirección en el pedido y sin probar el teléfono: se borra la que
+        // había. Éste es exactamente el hueco por el que entraba el rodeo:
+        // `pickup` no manda dirección, así que la de la víctima sobrevivía.
+        guestCustomer.address = undefined;
+        guestCustomer.city = undefined;
+        guestCustomer.state = undefined;
+        guestCustomer.zipCode = undefined;
+        guestCustomer.country = 'Venezuela';
+        guestCustomer.additionalInfo = undefined;
+        guestCustomer.latitude = undefined;
+        guestCustomer.longitude = undefined;
       }
 
-      guestCustomer.ordersCount += 1;
+      // El historial tampoco se hereda: "3 pedidos anteriores" es de quien los
+      // hizo. Quien no prueba el teléfono empieza su cuenta desde cero.
+      guestCustomer.ordersCount = mismoDueno ? guestCustomer.ordersCount + 1 : 1;
       guestCustomer.lastOrderDate = new Date();
     } else {
       // Crear nuevo
