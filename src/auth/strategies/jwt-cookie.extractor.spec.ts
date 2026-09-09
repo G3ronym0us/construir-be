@@ -67,28 +67,44 @@ describe('Extracción del JWT — cookie y cabecera', () => {
     ).toBe('abc.def.ghi');
   });
 
-  it('la cookie gana sobre la cabecera cuando llegan las dos', () => {
-    // Orden del `fromExtractors` de la estrategia: la sesión del navegador
-    // manda. Se comprueba acá porque es el orden lo que decide el
-    // comportamiento, y es trivial invertirlo sin darse cuenta.
+  /** El mismo orden que arma `JwtStrategy`. */
+  const comoLaEstrategia = ExtractJwt.fromExtractors([
+    ExtractJwt.fromAuthHeaderAsBearerToken(),
+    extraerTokenDeCookie,
+  ]);
+
+  it('un `Bearer` explícito GANA sobre la cookie', () => {
+    // El navegador nunca manda `Authorization` solo: si viene, alguien la puso
+    // a mano y quiere ese token. Con la cookie primero, una cookie vieja en la
+    // misma sesión tapaba un `Bearer` válido y salía un 401 inexplicable.
     const req = pedido({
       cookie: 'token=desde.cookie',
       authorization: 'Bearer desde.cabecera',
     });
-    const combinado = ExtractJwt.fromExtractors([
-      extraerTokenDeCookie,
-      ExtractJwt.fromAuthHeaderAsBearerToken(),
-    ]);
-    expect(combinado(req)).toBe('desde.cookie');
+    expect(comoLaEstrategia(req)).toBe('desde.cabecera');
   });
 
-  it('cae a la cabecera si la cookie no está', () => {
-    const combinado = ExtractJwt.fromExtractors([
-      extraerTokenDeCookie,
-      ExtractJwt.fromAuthHeaderAsBearerToken(),
-    ]);
+  it('una cookie INVÁLIDA no tapa un `Bearer` válido', () => {
+    // El caso concreto que se depuraba a ciegas: Postman contra el navegador
+    // donde ya hay sesión, o una cookie de una versión anterior.
+    const req = pedido({
+      cookie: 'token=basura',
+      authorization: 'Bearer desde.cabecera',
+    });
+    expect(comoLaEstrategia(req)).toBe('desde.cabecera');
+  });
+
+  it('sin cabecera, manda la cookie: es la sesión del navegador', () => {
+    expect(comoLaEstrategia(pedido({ cookie: 'token=desde.cookie' })))
+      .toBe('desde.cookie');
+  });
+
+  it('cae a la cookie si la cabecera no es un `Bearer`', () => {
     expect(
-      combinado(pedido({ authorization: 'Bearer desde.cabecera' })),
-    ).toBe('desde.cabecera');
+      comoLaEstrategia(pedido({
+        cookie: 'token=desde.cookie',
+        authorization: 'Basic dXNlcjpwYXNz',
+      })),
+    ).toBe('desde.cookie');
   });
 });

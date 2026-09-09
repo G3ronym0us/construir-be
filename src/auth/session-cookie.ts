@@ -59,6 +59,37 @@ export interface OpcionesSesion {
  * origina otro sitio. Con `lax` el navegador no la adjunta en peticiones
  * cruzadas que no sean navegaciones GET de nivel superior, lo que cubre el CSRF
  * clásico por formulario o imagen.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * `SameSite=Lax` ES LA ÚNICA DEFENSA CSRF DE ESTA API. NO ES UNA PERILLA
+ * NEUTRA: `COOKIE_SAMESITE=none` LA APAGA Y ABRE UN AGUJERO REAL.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * Conviene dejar escrito por qué, porque el razonamiento intuitivo es erróneo
+ * en dos puntos y se comprobó contra el servidor:
+ *
+ *  1. La lista blanca de CORS NO es una defensa CSRF. Cuando el origen no está
+ *     permitido, Express omite la cabecera `Access-Control-Allow-Origin` pero
+ *     EL HANDLER SE EJECUTA IGUAL y el efecto secundario ocurre. Lo único que
+ *     el navegador impide es que el atacante LEA la respuesta. Comprobado: un
+ *     `POST /banners` con `Origin: https://sitio-malicioso.example` y sólo la
+ *     cookie pasa la autenticación y el guard de rol, y llega hasta la
+ *     validación de negocio.
+ *
+ *  2. `multipart/form-data` está en la lista segura de `Content-Type`, así que
+ *     un `<form enctype="multipart/form-data" method="POST">` alojado en otra
+ *     web es una petición SIMPLE: no dispara preflight, y por tanto el CORS no
+ *     llega a mirarla siquiera. El argumento de "todo va en JSON y el JSON
+ *     preflightea" no cubre estos tres endpoints, que aceptan multipart:
+ *       - POST /banners            (la portada de la tienda)
+ *       - POST /categories
+ *       - POST /products/:uuid/... (imagen de producto)
+ *
+ * Con `lax`, el navegador no adjunta la cookie a ese formulario cruzado y el
+ * ataque muere ahí. Con `none`, la adjunta. Por eso `none` EXIGE montar antes
+ * un token anti-CSRF (patrón de doble envío o token por sesión, verificado en
+ * un guard global para los métodos que cambian estado). Mientras ese token no
+ * exista, `none` no se debe usar: `bootstrap()` avisa por log si se configura.
  */
 export function opcionesCookieSesion(op: OpcionesSesion): CookieOptions {
   const sameSite = (op.sameSite ?? 'lax').toLowerCase() as

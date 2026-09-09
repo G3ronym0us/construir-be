@@ -41,6 +41,22 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // `SameSite=Lax` es la única defensa CSRF que tiene esta API (ver
+  // `src/auth/session-cookie.ts`). Ponerla en `none` la apaga, y el problema es
+  // que lo hace en silencio: todo sigue funcionando igual y nadie se entera de
+  // que quedaron expuestos los endpoints que aceptan `multipart/form-data`.
+  // Este aviso convierte esa degradación muda en una ruidosa.
+  if ((process.env.COOKIE_SAMESITE ?? '').toLowerCase() === 'none') {
+    logger.error(
+      'COOKIE_SAMESITE=none desactiva la única protección CSRF de esta API. ' +
+        'Los endpoints que aceptan multipart/form-data (POST /banners, ' +
+        'POST /categories, la subida de imagen de producto) quedan expuestos a ' +
+        'un formulario alojado en otra web: multipart no dispara preflight, así ' +
+        'que la lista blanca de CORS NO los cubre. No uses `none` hasta montar ' +
+        'un token anti-CSRF.',
+    );
+  }
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

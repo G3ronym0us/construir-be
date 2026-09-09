@@ -14,18 +14,23 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private jwt: ConfigType<typeof jwtConfig>,
   ) {
     super({
-      // La cookie `httpOnly` va PRIMERO: es la sesión del navegador, la que se
-      // introdujo para que el JavaScript de la página no pueda leer el token.
+      // La cabecera `Authorization` va PRIMERO, y el orden importa: un
+      // navegador nunca la manda sola, así que si viene es porque alguien la
+      // puso a mano y quiere usar ESE token. Con la cookie primero, una cookie
+      // vieja o inválida en la misma sesión tapaba un `Bearer` válido y la
+      // respuesta era 401 sin explicación — media hora de depuración para
+      // quien prueba con Postman en el navegador donde ya inició sesión.
       //
-      // La cabecera `Authorization` se conserva como fuente secundaria a
-      // propósito. La vulnerabilidad que se está cerrando es guardar el token
-      // donde el JS lo alcanza (`localStorage`, `document.cookie`), no la
-      // cabecera en sí: quien manda un `Bearer` ya tiene el token en la mano.
-      // Quitarla rompería la colección de Postman, los scripts de
-      // mantenimiento y las pruebas sin cerrar ningún hueco.
+      // La cabecera se conserva a propósito, además: la usan la colección de
+      // Postman, los scripts de mantenimiento y las pruebas. La vulnerabilidad
+      // que se está cerrando es guardar el token donde el JavaScript de la
+      // página lo alcanza (`localStorage`, `document.cookie`), no la cabecera
+      // en sí — quien manda un `Bearer` ya tiene el token en la mano.
+      //
+      // La cookie `httpOnly` es la sesión del navegador y cubre todo lo demás.
       jwtFromRequest: ExtractJwt.fromExtractors([
-        extraerTokenDeCookie,
         ExtractJwt.fromAuthHeaderAsBearerToken(),
+        extraerTokenDeCookie,
       ]),
       ignoreExpiration: false,
       secretOrKey: jwt.secret,
