@@ -31,6 +31,7 @@ import {
   toOrderTrackingDto,
 } from './dto/order-tracking.dto';
 import { round2 } from '../products/iva.util';
+import { HorarioComercial, plazoHabilAgotado } from './horario-habil';
 import * as bcrypt from 'bcrypt';
 
 export type QuoteIssue =
@@ -1168,6 +1169,228 @@ export class OrdersService {
     // Las cancelaciones no se notifican por correo: las atiende un vendedor por
     // WhatsApp, que es lo que el cliente necesita cuando su pedido se cae.
     return cancelledOrder;
+  }
+
+  /**
+   * Campos de `payment_info` que significan «yo ya pagué, están ustedes
+   * revisando».
+   *
+   * **De esta lista depende que la liberación automática no haga daño**, así
+   * que está en un solo sitio, enumerada a mano y no derivada de las columnas
+   * de la entidad: una columna nueva no debe entrar acá sin que alguien decida
+   * si es evidencia de pago o no.
+   *
+   * Están TODOS los campos de `PaymentDetailsDto` porque todos son cosas que el
+   * cliente teclea en el paso de pago del checkout y ninguno se rellena solo:
+   *
+   * - `receiptKey` / `receiptUrl` — el comprobante en imagen. Las dos cuentan:
+   *   las subidas de ahora escriben la clave de S3, y las anteriores a la
+   *   migración dejaron la URL pública con la clave nula. Mirar sólo
+   *   `receiptKey` daría por «sin pagar» a todos los pedidos viejos.
+   * - `referenceCode` y `referenceNumber` — el número de referencia del pago
+   *   móvil y el de la transferencia. Es literalmente el dato con el que la
+   *   tienda busca el movimiento en el banco.
+   * - `senderName` y `senderBank` — quién y desde qué banco envió el Zelle.
+   * - `accountName` — el titular de la cuenta desde la que se transfirió.
+   * - `phoneNumber` y `cedula` — el teléfono y la cédula DEL PAGADOR. No son
+   *   los del comprador: los datos de contacto viven en `customerInfo`, van a
+   *   `guest_customers` y a la dirección de envío, y no tocan esta tabla. Acá
+   *   sólo llegan si el cliente los escribió en el paso de pago, que es lo que
+   *   hace falta para identificar un pago móvil.
+   * - `bankId` / `transferBankId` — el banco emisor que el cliente eligió.
+   * - `notes` — texto libre del cliente en el paso de pago; suele ser
+   *   «transferí desde otra cuenta», «pago en dos partes». Ante la duda, entra.
+   *
+   * **Lo que deliberadamente NO cuenta.** `method` está siempre puesto: es un
+   * enum obligatorio del DTO y no dice nada sobre si alguien pagó — si contara,
+   * no se cancelaría jamás ningún pedido. Y `status` tampoco sirve como señal
+   * de «no pagó»: nace en `pending` y sigue en `pending` hasta que un humano lo
+   * revisa, así que en esta base TODOS los pagos aportados están en `pending`.
+   * Filtrar por `status = 'pending'` para decidir a quién cancelar sería,
+   * literalmente, cancelar a los que sí pagaron. Sí se usa en la otra
+   * dirección: un pago ya `verified` no se toca nunca.
+   *
+   * La regla de fondo es la asimetría del daño: el ataque que esto viene a
+   * frenar crea pedidos VACÍOS —lo confirman los tres `on-hold` de la base con
+   * las once columnas en blanco—, no rellena datos de pago. Contar de más
+   * deja unas unidades apartadas de sobra, un rato; contar de menos anula la
+   * compra de alguien que pagó.
+   */
+  private static readonly CAMPOS_EVIDENCIA_DE_PAGO = [
+    'receiptKey',
+    'receiptUrl',
+    'referenceCode',
+    'referenceNumber',
+    'senderName',
+    'senderBank',
+    'accountName',
+    'phoneNumber',
+    'cedula',
+    'bankId',
+    'transferBankId',
+    'notes',
+  ] as const satisfies readonly (keyof PaymentInfo)[];
+
+  /**
+   * ¿El cliente aportó algo que signifique que ya pagó y espera confirmación?
+   *
+   * Una cadena vacía cuenta como ausencia: la base guarda `''` y no `NULL` en
+   * varias de estas columnas cuando el checkout manda el campo en blanco (se ve
+   * en los pedidos 31, 32 y 37, con las once columnas a `''`). Tratar `''` como
+   * evidencia dejaría el cron sin cancelar absolutamente nada, que es el otro
+   * modo de fallo: silencioso y con cara de funcionar.
+   */
+  private tieneEvidenciaDePago(order: Order): boolean {
+    const pago = order.paymentInfo;
+    if (!pago) {
+      // Sin fila de pago no hay forma de saber si aportó algo. Ante la duda,
+      // no se cancela.
+      return true;
+    }
+
+    // Un pago ya verificado por la tienda no se anula por esta vía ni aunque
+    // las columnas de detalle estén vacías: alguien lo dio por bueno a mano.
+    if (pago.status === PaymentStatus.VERIFIED) return true;
+
+    return OrdersService.CAMPOS_EVIDENCIA_DE_PAGO.some((campo) => {
+      const valor = pago[campo];
+      if (valor === null || valor === undefined) return false;
+      return typeof valor === 'string' ? valor.trim() !== '' : true;
+    });
+  }
+
+  /**
+   * Devuelve al catálogo el inventario que apartaron los pedidos que nunca se
+   * pagaron.
+   *
+   * Un pedido descuenta stock al crearse y queda `on-hold` esperando el pago.
+   * Si no llega nunca, esas unidades quedaban apartadas para siempre y el
+   * catálogo se podía agotar entero sin gastar un céntimo, porque `POST
+   * /orders` es público. El límite de tasa acota el ritmo; esto cierra la fuga.
+   *
+   * **La regla que no se puede romper: sólo se anula el pedido en el que el
+   * cliente NO aportó NADA sobre su pago.** Ni comprobante en imagen, ni
+   * referencia, ni emisor, ni banco. Ver `CAMPOS_EVIDENCIA_DE_PAGO` para la
+   * lista y el porqué de cada campo. Un pedido con cualquiera de esos datos es
+   * alguien esperando a la tienda, y anulárselo por la demora de la propia
+   * tienda es el peor daño que este cron podría hacer, así que el filtro va
+   * dos veces: en la consulta que elige candidatos y otra vez sobre la fila
+   * recién releída, por si el cliente aportó algo entre una cosa y la otra.
+   *
+   * El plazo se cuenta en horas **hábiles** (ver `horario-habil.ts`): el reloj
+   * se detiene con la tienda cerrada. La consulta prefiltra por horas seguidas
+   * —que es lo único que sabe hacer SQL acá— y eso es correcto porque el
+   * tiempo hábil nunca supera al tiempo corrido: lo que la consulta descarta
+   * tampoco habría vencido en horas hábiles. El reloj hábil decide después,
+   * sobre cada candidato.
+   *
+   * Cancela reutilizando `cancelOrder`, que es quien sabe devolver el
+   * inventario; acá no hay una segunda ruta de cancelación que pueda
+   * desincronizarse con ella.
+   */
+  async liberarPedidosSinPagar(
+    horas: number,
+    horario: HorarioComercial,
+    zona: string,
+  ): Promise<{ liberados: number; omitidos: number; fallidos: number }> {
+    const ahora = new Date();
+    const limite = new Date(ahora.getTime() - horas * 60 * 60 * 1000);
+
+    // `innerJoinAndSelect` y no la relación eager: con QueryBuilder las
+    // relaciones eager no se cargan solas, y sin `paymentInfo` en la fila el
+    // segundo filtro de evidencia no tendría qué mirar.
+    const candidatos = await this.orderRepository
+      .createQueryBuilder('order')
+      .innerJoinAndSelect('order.paymentInfo', 'pago')
+      .where('order.status = :onHold', { onHold: OrderStatus.ON_HOLD })
+      .andWhere('order.createdAt < :limite', { limite })
+      .andWhere(
+        // Un solo `andWhere` con las doce columnas: en SQL "no aportó nada" es
+        // la conjunción entera, y partirla en doce `andWhere` sueltos invita a
+        // que alguien borre uno sin notar que abre un agujero.
+        OrdersService.CAMPOS_EVIDENCIA_DE_PAGO.map(
+          // `''` cuenta como vacío igual que `NULL`: el checkout guarda cadena
+          // vacía cuando el campo se manda en blanco.
+          (campo) => `COALESCE(CAST(pago.${campo} AS TEXT), '') = ''`,
+        ).join(' AND '),
+      )
+      .andWhere('pago.status != :verificado', {
+        verificado: PaymentStatus.VERIFIED,
+      })
+      .getMany();
+
+    let liberados = 0;
+    let omitidos = 0;
+    let fallidos = 0;
+
+    for (const candidato of candidatos) {
+      try {
+        // Segunda lectura, fresca: entre la consulta de arriba y esta línea
+        // pueden pasar segundos, y en esos segundos el cliente pudo subir su
+        // comprobante o un vendedor pudo mover el pedido de estado.
+        const order = await this.findOneByUuid(candidato.uuid);
+
+        if (this.tieneEvidenciaDePago(order)) {
+          this.logger.log(
+            `Pedido ${order.orderNumber} NO se libera: el cliente aportó ` +
+              'datos de pago y está esperando confirmación.',
+          );
+          omitidos++;
+          continue;
+        }
+
+        if (order.status !== OrderStatus.ON_HOLD) {
+          omitidos++;
+          continue;
+        }
+
+        // El reloj hábil, sobre la hora en que el cliente hizo el pedido.
+        if (!plazoHabilAgotado(order.createdAt, ahora, horas, horario, zona)) {
+          omitidos++;
+          continue;
+        }
+
+        const cancelado = await this.cancelOrder(order.uuid);
+        liberados++;
+        this.logger.log(
+          `Pedido ${cancelado.orderNumber} liberado tras ${horas} h hábiles ` +
+            `sin datos de pago; ${cancelado.items.length} renglones devueltos ` +
+            'al inventario.',
+        );
+
+        // El correo va DESPUÉS de liberar y con su propio try: el stock ya
+        // está devuelto y el pedido anulado cuando esto corre. Si el SMTP se
+        // cae, el fallo queda en el log y la liberación se mantiene — igual
+        // que en `createOrder`. Lo contrario dejaría el pedido anulado, el
+        // stock devuelto y el cron abortado a medio recorrido por un correo.
+        await this.avisaLiberacion(cancelado, horas);
+      } catch (error) {
+        fallidos++;
+        this.logger.error(
+          `No se pudo liberar el pedido ${candidato.orderNumber}: ${error}`,
+        );
+      }
+    }
+
+    return { liberados, omitidos, fallidos };
+  }
+
+  /**
+   * Avisa al cliente de que su pedido se liberó, y se traga lo que falle.
+   *
+   * El fallo queda en el log y en ningún otro sitio; saber leerlo importa: el
+   * pedido está anulado y el inventario devuelto, pero el cliente no se enteró
+   * y va a encontrarse un pedido cancelado sin explicación.
+   */
+  private async avisaLiberacion(order: Order, horas: number): Promise<void> {
+    try {
+      await this.emailService.sendOrderReleased(order, horas);
+    } catch (error) {
+      this.logger.error(
+        `Pedido ${order.orderNumber} liberado, pero falló su correo de ` +
+          `aviso al cliente: ${error}`,
+      );
+    }
   }
 
   /**

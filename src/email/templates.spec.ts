@@ -32,6 +32,7 @@ describe('plantillas de correo', () => {
       'invitation.hbs',
       'order-confirmation.hbs',
       'order-ready-for-pickup.hbs',
+      'order-released.hbs',
       'order-shipped.hbs',
       'password-reset.hbs',
       'payment-confirmed.hbs',

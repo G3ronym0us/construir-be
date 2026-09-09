@@ -1,0 +1,82 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light only" />
+<meta name="supported-color-schemes" content="light only" />
+<title>{{subject}}</title>
+<!--[if mso]><style>body,table,td{font-family:Arial,Helvetica,sans-serif !important}</style><![endif]-->
+</head>
+<body style="margin:0;padding:0;background-color:#eceae5;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;font-size:1px;color:#f2efe9;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">{{preheader}}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eceae5">
+  <tr>
+    <td align="center" style="padding:24px 12px">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background-color:#ffffff;border:1px solid #ded9d2;border-radius:14px;overflow:hidden">
+{{> header eyebrow=(concat "Pedido " orderNumber) }}
+        <tr>
+          <td style="background-color:#fbe9e7;border-bottom:1px solid #f0cbc6;padding:12px 26px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:700;letter-spacing:.4px;color:#b4322a">PEDIDO LIBERADO{{#if releaseHours}} · pasaron {{releaseHours}} horas hábiles sin recibir el pago{{/if}}</td>
+        </tr>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:26px 26px 0">
+            <h1 style="margin:0 0 8px;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:23px;line-height:1.2;font-weight:700;color:#0f4c81">Soltamos tu pedido, {{customerName}}</h1>
+            <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#55524d">Cuando haces un pedido apartamos la mercancía a tu nombre mientras esperamos tu pago. {{#if releaseHours}}Pasaron {{releaseHours}} horas de atención{{else}}Pasó el plazo{{/if}} y no recibimos ni el comprobante ni la referencia, así que devolvimos los materiales al catálogo para que otro cliente pueda comprarlos. No se te cobró nada.</p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e7e3dd;border-radius:10px">
+              <tr><td style="padding:18px">
+                <p style="margin:0 0 8px;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;color:#14181d">Si todavía lo quieres, vuelve a pedirlo</p>
+                <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.7;color:#55524d">Este pedido quedó anulado y no se puede reactivar, pero armar uno nuevo toma un minuto. Ten a mano el comprobante o la referencia del pago al terminar la compra: en cuanto nos los dejas, el pedido ya no se libera solo y espera a que lo revisemos. Los precios y la disponibilidad pueden haber cambiado desde entonces.</p>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+{{#if totalVes}}
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e7e3dd;border-radius:10px">
+              <tr><td style="padding:18px">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d">Monto del pedido liberado</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d">Bs. {{totalVes}}</td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+{{/if}}
+{{#if catalogUrl}}
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td align="center" bgcolor="#e2851b" style="border-radius:10px">
+                <a href="{{catalogUrl}}" style="display:block;padding:15px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d;text-decoration:none;border-radius:10px">Volver al catálogo</a>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+{{/if}}
+{{#if whatsappUrl}}
+        <tr>
+          <td style="background-color:#f7f5f2;padding:14px 26px 0">
+            <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;line-height:1.7;color:#55524d">¿Ya habías pagado y el comprobante o la referencia no llegaron a registrarse? <a href="{{whatsappUrl}}" style="color:#0f4c81;font-weight:700;text-decoration:underline">Escríbele a un vendedor por WhatsApp</a> con la referencia a mano y lo revisan contigo.</p>
+          </td>
+        </tr>
+{{/if}}
+        <tr><td style="background-color:#f7f5f2;line-height:26px;font-size:26px;height:26px">&nbsp;</td></tr>
+{{> footer compact=true }}
+      </table>
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px">
+        <tr><td style="padding:14px 8px 0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11.5px;line-height:1.6;color:#9a968f">Constru-ir · Materiales de construcción · Caracas, Venezuela</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

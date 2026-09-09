@@ -254,4 +254,38 @@ describe('EmailService — payload de las plantillas', () => {
     expect(html).not.toContain('BCV <');
     noQuedanHuecos(html);
   });
+
+  /**
+   * El correo de pedido liberado. Se comprueba lo que el cliente tiene que
+   * poder leer: por qué se anuló, cuántas horas pasaron y que puede volver a
+   * pedirlo. Sin el `releaseHours` en el HTML, el aviso dice «pasó el plazo»
+   * sin decir cuál, que es justo la pregunta que el cliente se hace.
+   */
+  it('sendOrderReleased compone la plantilla sin huecos y cuenta el plazo', async () => {
+    await service.sendOrderReleased(makeOrder(), 3);
+
+    expect(enviados).toHaveLength(1);
+    expect(enviados[0].to).toBe('carlosvas@gmail.com');
+    expect(enviados[0].subject).toContain('ORD-MS92XZW4-ASXE');
+    noQuedanHuecos(enviados[0].html);
+    expect(enviados[0].html).toContain('3 horas');
+    expect(enviados[0].html).toContain('https://constru-ir.com/productos');
+  });
+
+  it('el plazo que sale en el correo es el que se le pasó, no uno fijo', async () => {
+    await service.sendOrderReleased(makeOrder(), 8);
+
+    expect(enviados[0].html).toContain('8 horas');
+    expect(enviados[0].html).not.toContain('3 horas');
+  });
+
+  /** Sin destinatario no hay correo que mandar, y tampoco excepción. */
+  it('sendOrderReleased no envía nada si el pedido no tiene correo', async () => {
+    await service.sendOrderReleased(
+      makeOrder({ guestEmail: null, user: null }),
+      3,
+    );
+
+    expect(enviados).toHaveLength(0);
+  });
 });
