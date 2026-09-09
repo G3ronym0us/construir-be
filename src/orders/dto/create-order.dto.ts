@@ -8,6 +8,7 @@ import {
   IsNotEmpty,
   MinLength,
   IsArray,
+  ArrayMaxSize,
   IsInt,
   IsPositive,
   Min,
@@ -208,7 +209,24 @@ export class CreateOrderDto {
   expectedExchangeRate?: number;
 
   // Items del carrito (solo para usuarios guest sin autenticación)
+  /**
+   * Tope de renglones. Antes no había ninguno y lo acotaba de hecho el límite
+   * de cuerpo de Express: por encima de unos 1300 renglones devolvía 413. Eso
+   * no es un límite, es un accidente — depende de lo largo que sea un uuid y
+   * se mueve solo si alguien toca la configuración del body-parser.
+   *
+   * 100 es holgado para una ferretería: es el número de PRODUCTOS DISTINTOS en
+   * un pedido, no de unidades (las unidades van en `quantity`, que no tiene
+   * tope acá porque lo topa el inventario). Una obra que compra de todo no
+   * llega a cien líneas distintas.
+   *
+   * Importa porque cada renglón es una consulta de producto y una escritura, y
+   * esta ruta es pública: sin tope, un solo cuerpo de 1300 renglones costaba
+   * 1300 consultas y no lo frenaba ningún límite de tasa, que cuenta
+   * peticiones, no trabajo por petición.
+   */
   @IsArray()
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => GuestCartItemDto)
   @IsOptional()

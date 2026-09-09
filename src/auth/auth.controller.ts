@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import type { Response } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
@@ -53,7 +54,24 @@ export class AuthController {
     };
   }
 
+  /**
+   * 10 intentos por minuto y por origen. No tenía ninguno.
+   *
+   * Sin límite esto es un probador de contraseñas: la ruta es pública, no
+   * cuesta nada y responde distinto según acierte, así que un diccionario
+   * contra `admin@construir.com` corría a la velocidad de la red. 10 por
+   * minuto lo deja en un ritmo con el que un diccionario decente tarda años.
+   *
+   * 10 y no 5 porque acá el que se equivoca es una persona real que no
+   * recuerda su contraseña, y echarla del login es echarla de la tienda.
+   * Diez intentos en un minuto son más de los que da nadie a mano.
+   *
+   * El techo es por origen, no por cuenta: cuenta también los intentos contra
+   * cuentas distintas desde la misma IP, que es la forma que tiene el rociado
+   * de contraseñas de esquivar un bloqueo por usuario.
+   */
   @Post('login')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   async login(
     @Body() loginDto: LoginDto,
     @Res({ passthrough: true }) res: Response,
@@ -97,7 +115,23 @@ export class AuthController {
     return { message: 'Sesión cerrada.' };
   }
 
+  /**
+   * 5 por minuto y por origen. No tenía ninguno, y es un emisor de correo
+   * anónimo: cada llamada manda un correo a la dirección que ponga quien
+   * llama. Sin techo eso es bombardear el buzón de un cliente desde el
+   * dominio de la tienda hasta que el proveedor de correo la marque como
+   * emisora de spam — se pierde el remitente, y con él los correos de
+   * confirmación de pedido, que es el canal por el que la tienda cobra.
+   *
+   * 5 no molesta a nadie: quien olvidó la contraseña pide el enlace una vez, y
+   * como mucho lo repite porque no le llegó.
+   *
+   * La respuesta ya es la misma exista o no el correo, así que esto no es la
+   * defensa contra la enumeración de cuentas; es la defensa contra el
+   * bombardeo.
+   */
   @Post('forgot-password')
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     await this.usersService.requestPasswordReset(dto.email);
     return {

@@ -3,7 +3,6 @@ import { Throttle } from '@nestjs/throttler';
 import { AnalyticsService } from './analytics.service';
 import { CreatePageViewDto } from './dto/create-page-view.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { VisitanteThrottlerGuard } from './visitante-throttler.guard';
 
 @Controller('analytics')
 export class AnalyticsController {
@@ -23,7 +22,11 @@ export class AnalyticsController {
    * El techo son 240 por minuto **y por visitante**. Lo de "por visitante" lo
    * garantiza `VisitanteThrottlerGuard` y no el guard de serie: sin él todas
    * las visitas compartían el cubo del proxy y la tienda entera quedaba
-   * limitada al techo de una sola persona.
+   * limitada al techo de una sola persona. Ese guard ya no se declara acá: es
+   * el `APP_GUARD` de toda la aplicación (`app.module.ts`), y declararlo
+   * además en la ruta lo haría correr DOS veces, gastando dos peticiones del
+   * cupo por cada visita registrada. Sólo queda el `@Throttle`, que baja el
+   * techo global de 600 a los 240 que le corresponden a esta ruta.
    *
    * 240 y no 30: se midió que a 63 cambios de ruta por minuto —un cliente
    * dándole a atrás y adelante entre productos llega ahí sin esfuerzo— con 30
@@ -33,7 +36,6 @@ export class AnalyticsController {
    * sostenidos ya no es una persona.
    */
   @Post('page-view')
-  @UseGuards(VisitanteThrottlerGuard)
   @Throttle({ default: { limit: 240, ttl: 60000 } })
   async trackPageView(@Body() createPageViewDto: CreatePageViewDto) {
     return this.analyticsService.trackPageView(createPageViewDto);
