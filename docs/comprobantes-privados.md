@@ -44,7 +44,7 @@ cualquier cosa en el bucket de producción.
 
 **Los comprobantes que ya están subidos siguen en el bucket, bajo `receipts/`, y
 siguen respondiendo 200 a cualquiera que tenga la URL.** Son 9 objetos (los que
-tienen `receipt_url` en `payment_info`). Borrar la URL de la base no los cierra:
+tienen `receipt_key` en `payment_info`). Borrar la URL de la base no los cierra:
 quien la haya copiado alguna vez la sigue teniendo.
 
 Hay que hacer dos cosas en la consola de AWS, con la cuenta dueña del bucket
@@ -57,55 +57,85 @@ Hoy la policy del bucket casi con seguridad concede `s3:GetObject` a
 **todo**. Hay que reducir ese permiso a los prefijos que de verdad tienen que ser
 públicos.
 
+> ### Dos avisos antes de tocar nada
+>
+> **NO pegues un JSON entero encima de la policy.** Puede haber más sentencias de
+> las que tratamos aquí, y sustituir el documento completo las borraría todas. Lo
+> único que hay que cambiar es el campo `Resource` de UNA sentencia.
+>
+> **NO añadas una sentencia `Deny` con `"Principal": "*"`.** Es la salida que
+> parece más natural y es la peor: un `Deny` así también le pega al usuario IAM
+> del backend, las URL firmadas dejarían de funcionar y el admin no vería ningún
+> comprobante. En AWS un `Deny` explícito gana siempre, incluso sobre los
+> permisos del propio dueño. Lo correcto es recortar el `Allow`.
+
 1. Consola de AWS → **S3** → bucket `congress-marketing` → pestaña
    **Permissions** → **Bucket policy** → **Edit**.
 2. Copiar la policy actual a un archivo aparte, por si hay que volver atrás.
-3. En la sentencia que tiene `"Principal": "*"` y `"Action": "s3:GetObject"`,
-   sustituir el `Resource` por la lista de prefijos públicos:
+3. Buscar la sentencia que tiene `"Principal": "*"` y `"Action": "s3:GetObject"`.
+   Dentro de **esa sentencia y sólo esa**, el campo `Resource` dirá algo como:
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "LecturaPublicaSoloImagenesDeLaTienda",
-      "Effect": "Allow",
-      "Principal": "*",
-      "Action": "s3:GetObject",
-      "Resource": [
-        "arn:aws:s3:::congress-marketing/products/*",
-        "arn:aws:s3:::congress-marketing/categories/*",
-        "arn:aws:s3:::congress-marketing/banners/*"
-      ]
-    }
-  ]
-}
-```
+   ```json
+   "Resource": "arn:aws:s3:::congress-marketing/*"
+   ```
 
-   Si la policy tiene además otras sentencias (por ejemplo de otra aplicación que
-   use el mismo bucket), hay que dejarlas como están y tocar sólo ésa.
+   Hay que **sustituir ese campo, y sólo ese**, por esta lista:
 
-4. **Guardar y comprobar** desde una terminal cualquiera, sin credenciales:
+   ```json
+   "Resource": [
+     "arn:aws:s3:::congress-marketing/categories/*",
+     "arn:aws:s3:::congress-marketing/banners/*",
+     "arn:aws:s3:::congress-marketing/products/*"
+   ]
+   ```
 
-```bash
-# Un comprobante viejo: TIENE que dar 403
-curl -s -o /dev/null -w "%{http_code}\n" \
-  https://congress-marketing.s3.us-east-2.amazonaws.com/receipts/<uuid>.png
+   `products/*` va en la lista porque es donde el backend sube las imágenes de
+   producto nuevas, aunque hoy el bucket todavía no tenga ninguna (ver el aviso
+   del paso 4).
 
-# Una imagen de producto: TIENE que seguir dando 200
-curl -s -o /dev/null -w "%{http_code}\n" \
-  https://congress-marketing.s3.us-east-2.amazonaws.com/products/<uuid>.jpg
-```
+4. **Guardar y comprobar** desde una terminal cualquiera, sin credenciales. Hay
+   que usar objetos que existan de verdad: **S3 responde 403 y no 404 a un objeto
+   que no existe** cuando quien pregunta no tiene permiso de `ListBucket`, así
+   que probar con una ruta inventada da un 403 que parece un fallo del cambio y
+   no lo es.
 
-   Si la imagen de producto empieza a dar 403, la tienda se queda sin fotos: hay
-   que revisar que los tres prefijos de arriba sean de verdad los que usa la
-   aplicación (`products/`, `categories/`, `banners/`) antes de dar el cambio por
-   bueno.
+   **Ojo: no sirve probar con `products/`.** A día de hoy el bucket **no tiene ni
+   un objeto bajo `products/`** — todas las imágenes de producto se sirven desde
+   `public/uploads` del servidor, no desde S3. Un `curl` a `products/loquesea`
+   devuelve 403 antes y después del cambio. Hay que probar con `categories/` o
+   `banners/`, que sí tienen contenido.
 
-**Importante: no añadir una sentencia `Deny` con `"Principal": "*"`.** Un `Deny`
-así también le pega al usuario IAM del backend, y entonces las URL firmadas
-dejarían de funcionar y el admin no vería ningún comprobante. Lo correcto es
-recortar el `Allow`, como arriba.
+   Las dos primeras consultas devuelven la URL completa, ya lista para pegar en
+   el `curl`; la tercera devuelve sólo la clave, que va detrás del dominio:
+
+   ```sql
+   SELECT image FROM categories WHERE image ILIKE '%amazonaws%' LIMIT 1;
+   SELECT images->'desktop'->>'jpeg' FROM banners LIMIT 1;
+   SELECT receipt_key FROM payment_info WHERE receipt_key IS NOT NULL LIMIT 1;
+   ```
+
+   Y entonces:
+
+   ```bash
+   # Una imagen de categoría: TIENE que seguir dando 200
+   curl -s -o /dev/null -w "categoria %{http_code}\n" '<url de la 1a consulta>'
+
+   # Un banner: TIENE que seguir dando 200
+   curl -s -o /dev/null -w "banner    %{http_code}\n" '<url de la 2a consulta>'
+
+   # Un comprobante viejo: TIENE que pasar de 200 a 403
+   curl -s -o /dev/null -w "recibo    %{http_code}\n" \
+     'https://congress-marketing.s3.us-east-2.amazonaws.com/<receipt_key>'
+   ```
+
+   Lo que se espera: `categoria 200`, `banner 200`, `recibo 403`. Si la categoría
+   o el banner pasan a 403, ahí sí se rompió algo: hay que volver a poner la
+   policy guardada en el paso 2 y revisar los prefijos.
+
+5. Por último, comprobar que el admin sigue viendo los comprobantes en el panel
+   (detalle de una orden que tenga uno). Eso pasa por la URL firmada, que es lo
+   que confirma que el recorte del `Allow` no se llevó por delante al usuario IAM
+   del backend.
 
 ### 2. Mover los comprobantes viejos bajo `private/`
 
@@ -113,6 +143,10 @@ Con el paso 1 los comprobantes ya no son públicos, así que esto es opcional; s
 para que todo lo privado quede junto bajo un solo prefijo y la policy sea más
 fácil de mantener. Desde una terminal con el AWS CLI configurado con la cuenta
 del bucket:
+
+Los objetos a mover son los que la base lista en `payment_info.receipt_key` (la
+columna `receipt_url` está a NULL después de la migración, así que no sirve para
+localizarlos):
 
 ```bash
 # Ver primero qué hay, sin mover nada

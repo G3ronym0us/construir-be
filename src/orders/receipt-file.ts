@@ -18,7 +18,13 @@ export interface ReceiptFileType {
   extension: string;
 }
 
-/** Tamaño máximo de un comprobante. Es una foto del teléfono o un PDF. */
+/**
+ * Tamaño a partir del cual se rechaza un comprobante. Es una foto del teléfono
+ * o un PDF; 5 MB sobran.
+ *
+ * El corte es inclusivo — un fichero de exactamente 5 MB también se rechaza —
+ * y da igual: la diferencia es un byte y el margen está a favor del servidor.
+ */
 export const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
 
 const SIGNATURES: Array<{

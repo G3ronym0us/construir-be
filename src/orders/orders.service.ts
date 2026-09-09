@@ -913,6 +913,10 @@ export class OrdersService {
       throw new NotFoundException(`Order with UUID ${orderUuid} not found`);
     }
 
+    // 401 y no 403, que es lo que semánticamente correspondería: es el mismo
+    // error que ya devuelven `findOneByUuid` y `cancelOrder` para «esta orden no
+    // es tuya». Cambiarlo sólo aquí dejaría al frontend distinguiendo dos
+    // códigos para el mismo rechazo. Si se corrige, hay que corregir los tres.
     if (!viewer.isAdmin && order.userId !== viewer.userId) {
       throw new UnauthorizedException('Access denied to this order');
     }
