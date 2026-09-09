@@ -12,6 +12,7 @@ import {
   IsPositive,
   Min,
   IsNumber,
+  MaxLength,
   ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -19,14 +20,32 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentMethod } from '../payment-info.entity';
 import { DeliveryMethod } from '../order.entity';
 import { IdentificationType } from '../guest-customer.entity';
+import {
+  EsNumeroCedulaVE,
+  EsTelefonoMovilVE,
+  NormalizaNumeroCedulaVE,
+  NormalizaTelefonoMovilVE,
+} from '../../common/validation/venezuela.decorators';
 
 export class CustomerInfoDto {
   @IsEnum(IdentificationType)
   @IsNotEmpty()
   identificationType: IdentificationType;
 
+  /**
+   * Misma regla que el registro: el checkout también puede crear la cuenta
+   * (`createAccount`), y ese camino no pasa por `CreateUserDto`. Sin validar
+   * acá, la cédula entraba con cualquier forma por la puerta de al lado.
+   *
+   * Sólo se exige forma de cédula cuando el tipo es V o E: un RIF (J, G) o un
+   * pasaporte (P) tienen otras reglas y siguen aceptándose como antes.
+   */
   @IsString()
   @IsNotEmpty()
+  // El ancho real de la columna: pasarse devolvía un 500 en vez de un 400.
+  @MaxLength(50)
+  @EsNumeroCedulaVE('identificationType')
+  @NormalizaNumeroCedulaVE()
   identificationNumber: string;
 
   @IsString()
@@ -41,8 +60,11 @@ export class CustomerInfoDto {
   @IsNotEmpty()
   email: string;
 
+  /** Sólo móviles: es por donde el despachador coordina la entrega. */
   @IsString()
   @IsNotEmpty()
+  @EsTelefonoMovilVE()
+  @NormalizaTelefonoMovilVE()
   phone: string;
 }
 

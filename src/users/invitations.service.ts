@@ -156,6 +156,13 @@ export class InvitationsService {
         role: invitation.role,
         isActive: true,
         emailVerified: true,
+        // Igual que en el alta desde el panel: se guardan si el invitado los
+        // aportó. El formulario de invitación no los pide hoy, pero el DTO ya
+        // los valida, así que si algún día se piden entran con la misma regla
+        // que el registro público en vez de con un criterio propio.
+        phone: dto.phone ?? null,
+        identificationType: dto.identificationType ?? null,
+        identificationNumber: dto.identificationNumber ?? null,
       });
 
       await em.save(User, user);

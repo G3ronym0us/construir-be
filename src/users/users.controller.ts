@@ -16,6 +16,7 @@ import {
 import { UsersService } from './users.service';
 import { InvitationsService } from './invitations.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { RegisterValidationPipe } from './register-validation.pipe';
 import { CreateUserAdminDto } from './dto/create-user-admin.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserAdminDto } from './dto/update-user-admin.dto';
@@ -45,7 +46,12 @@ export class UsersController {
    * Public registration - creates CUSTOMER by default
    */
   @Post('register')
-  async register(@Body() createUserDto: CreateUserDto) {
+  async register(@Body(RegisterValidationPipe) body: unknown) {
+    // El cuerpo se declara `unknown` a propósito: si se tipara como
+    // `CreateUserDto`, el `ValidationPipe` global —que corre antes que los
+    // pipes de ruta— rechazaría con su 400 sin `code` y la pantalla de
+    // registro volvería a quedarse sin saber qué campo avisarle al cliente.
+    const createUserDto = body as CreateUserDto;
     const user = await this.usersService.create(createUserDto);
     const {
       password,
