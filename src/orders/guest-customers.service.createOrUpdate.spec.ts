@@ -169,11 +169,104 @@ describe('GuestCustomersService.createOrUpdate — la ficha no se hereda', () =>
 
       expect(guardado.address).toBe('Av. Nueva 45');
       expect(guardado.city).toBe('Barquisimeto');
-      // Y NO se cuela nada de la dirección anterior.
-      expect(guardado.additionalInfo).toBeUndefined();
-      expect(guardado.latitude).toBeUndefined();
-      expect(guardado.longitude).toBeUndefined();
       expect(guardado.address).not.toBe('Calle Victima 123');
+      // `toBeNull` y NUNCA `toBeUndefined`: son los tres campos opcionales que
+      // el pedido no manda, y `undefined` es exactamente lo que dejaba viva la
+      // nota y el GPS del domicilio anterior.
+      expect(guardado.additionalInfo).toBeNull();
+      expect(guardado.latitude).toBeNull();
+      expect(guardado.longitude).toBeNull();
+    });
+  });
+
+  describe('el rodeo por delivery tampoco conserva nada de la víctima', () => {
+    /**
+     * La variante que se escapó del primer arreglo, y la más barata de las dos
+     * para el atacante: una sola petición sin autenticar.
+     *
+     * Manda `delivery` con una dirección inventada y OMITE los tres campos
+     * opcionales. `address/city/state/zipCode` se pisan porque el DTO los
+     * exige, pero `additionalInfo`, `latitude` y `longitude` llegaban como
+     * `undefined` —"no toques esta columna" para TypeORM— y los de la víctima
+     * sobrevivían. La propia respuesta del POST los devolvía.
+     */
+    const direccionInventada = {
+      address: 'Cualquier cosa 1',
+      city: 'Nada',
+      state: 'Nada',
+      zipCode: '0000',
+      // A propósito: sin additionalInfo, sin latitude y sin longitude.
+    } as ShippingAddressDto;
+
+    it('borra la nota y el GPS que el pedido no manda', async () => {
+      const guardado = await service.createOrUpdate(
+        pedidoDe('04149998877'),
+        direccionInventada,
+      );
+
+      expect(guardado.additionalInfo).toBeNull();
+      expect(guardado.latitude).toBeNull();
+      expect(guardado.longitude).toBeNull();
+      // Y lo que sí mandó el pedido, escrito.
+      expect(guardado.address).toBe('Cualquier cosa 1');
+    });
+
+    it('no deja ni rastro de la víctima en la ficha resultante', async () => {
+      const guardado = await service.createOrUpdate(
+        pedidoDe('04149998877'),
+        direccionInventada,
+      );
+
+      // Primero lo que de verdad muerde: `null` explícito. Un `undefined`
+      // desaparece al serializar, así que la comprobación sobre el texto de
+      // abajo lo daría por bueno — y contra Postgres `undefined` significa que
+      // el dato de la víctima sigue en su columna.
+      expect(guardado.additionalInfo).toBeNull();
+      expect(guardado.latitude).toBeNull();
+      expect(guardado.longitude).toBeNull();
+
+      // Y después la red de seguridad, que cubre cualquier campo que alguien
+      // añada mañana y olvide borrar.
+      const serializada = JSON.stringify(guardado);
+      expect(serializada).not.toContain('Calle Victima 123');
+      expect(serializada).not.toContain('Portón azul');
+      expect(serializada).not.toContain('10.5');
+      expect(serializada).not.toContain('-66.9');
+      expect(serializada).not.toContain('Marta');
+    });
+
+    it('y el buscador tampoco los devuelve después', async () => {
+      const trasElAtaque = await service.createOrUpdate(
+        pedidoDe('04149998877'),
+        direccionInventada,
+      );
+      repo.findOne.mockResolvedValue(trasElAtaque);
+
+      const ficha = await service.findForAutocomplete(
+        IdentificationType.V,
+        '30111222',
+        '04149998877',
+      );
+
+      expect(ficha!.additionalInfo).toBeNull();
+      expect(JSON.stringify(ficha)).not.toContain('Portón azul');
+      expect(JSON.stringify(ficha)).not.toContain('10.5');
+    });
+
+    it('al cliente legítimo sí le escribe la dirección nueva completa', async () => {
+      // Mismo camino, pero probando el teléfono: no hay borrado defensivo, hay
+      // reemplazo del domicilio por el que trae el pedido.
+      const guardado = await service.createOrUpdate(
+        pedidoDe('04141239999'),
+        direccionInventada,
+      );
+
+      expect(guardado.address).toBe('Cualquier cosa 1');
+      expect(guardado.ordersCount).toBe(5);
+      // La referencia y el GPS de la casa ANTERIOR no pueden quedar colgando de
+      // una dirección nueva: además de fuga, es mandar mal al repartidor.
+      expect(guardado.additionalInfo).toBeNull();
+      expect(guardado.latitude).toBeNull();
     });
   });
 

@@ -55,6 +55,61 @@ function mismoTelefono(guardado: unknown, recibido: unknown): boolean {
  */
 const BORRA_LA_COLUMNA = null as unknown as undefined;
 
+/** Los campos del domicilio guardado en la ficha, en un solo sitio. */
+const CAMPOS_DEL_DOMICILIO = [
+  'address',
+  'city',
+  'state',
+  'zipCode',
+  'country',
+  'additionalInfo',
+  'latitude',
+  'longitude',
+] as const;
+
+/**
+ * Vacía el domicilio guardado, de verdad y hasta el último campo.
+ *
+ * Se recorre la lista en vez de escribir ocho asignaciones porque así añadir
+ * una columna de domicilio a la entidad no puede olvidarse de borrarla: es
+ * justo el olvido que dejó vivo el ataque por `delivery`.
+ */
+function borraElDomicilio(cliente: GuestCustomer): void {
+  for (const campo of CAMPOS_DEL_DOMICILIO) {
+    (cliente as unknown as Record<string, unknown>)[campo] = BORRA_LA_COLUMNA;
+  }
+  cliente.country = 'Venezuela';
+}
+
+/**
+ * Escribe en la ficha el domicilio que trae el pedido, ENTERO.
+ *
+ * Los campos que el pedido no manda se ponen a NULL en vez de dejarse como
+ * estaban, y ésa es la parte que importa. `additionalInfo`, `latitude` y
+ * `longitude` son opcionales en el DTO: omitiéndolos llegaban como `undefined`,
+ * que para TypeORM significa "no toques esta columna", así que los de la ficha
+ * anterior sobrevivían al UPDATE. Bastaba un `POST /orders` a domicilio con una
+ * dirección inventada y sin esos tres campos para que la respuesta devolviera
+ * la nota y las coordenadas del domicilio de la víctima.
+ *
+ * Además de cerrar eso, es lo correcto aunque no hubiera atacante: conservar la
+ * referencia y el GPS de la casa anterior colgando de una dirección nueva es
+ * dato falso, y manda al repartidor al sitio equivocado.
+ */
+function escribeElDomicilio(
+  cliente: GuestCustomer,
+  domicilio: ShippingAddressDto,
+): void {
+  cliente.address = domicilio.address;
+  cliente.city = domicilio.city;
+  cliente.state = domicilio.state;
+  cliente.zipCode = domicilio.zipCode;
+  cliente.country = domicilio.country || 'Venezuela';
+  cliente.additionalInfo = domicilio.additionalInfo ?? BORRA_LA_COLUMNA;
+  cliente.latitude = domicilio.latitude ?? BORRA_LA_COLUMNA;
+  cliente.longitude = domicilio.longitude ?? BORRA_LA_COLUMNA;
+}
+
 @Injectable()
 export class GuestCustomersService {
   constructor(
@@ -161,28 +216,19 @@ export class GuestCustomersService {
       guestCustomer.email = customerInfo.email;
       guestCustomer.phone = customerInfo.phone;
 
-      // Actualizar dirección si se proporciona
+      // Qué se hereda se decide UNA sola vez y antes de escribir nada: si no
+      // probó el teléfono, no se hereda nada del domicilio anterior. Estuvo
+      // repartido en dos ramas —la de `pickup` y la de `delivery`— y sólo una
+      // de las dos borraba; la otra dejaba pasar los campos opcionales y el
+      // ataque seguía funcionando por ahí. Un único sitio, para que no vuelva
+      // a divergir.
+      if (!mismoDueno) {
+        borraElDomicilio(guestCustomer);
+      }
+
+      // Y encima se escribe lo que el pedido traiga, si trae algo.
       if (shippingAddress) {
-        guestCustomer.address = shippingAddress.address;
-        guestCustomer.city = shippingAddress.city;
-        guestCustomer.state = shippingAddress.state;
-        guestCustomer.zipCode = shippingAddress.zipCode;
-        guestCustomer.country = shippingAddress.country || 'Venezuela';
-        guestCustomer.additionalInfo = shippingAddress.additionalInfo;
-        guestCustomer.latitude = shippingAddress.latitude;
-        guestCustomer.longitude = shippingAddress.longitude;
-      } else if (!mismoDueno) {
-        // Sin dirección en el pedido y sin probar el teléfono: se borra la que
-        // había. Éste es exactamente el hueco por el que entraba el rodeo:
-        // `pickup` no manda dirección, así que la de la víctima sobrevivía.
-        guestCustomer.address = BORRA_LA_COLUMNA;
-        guestCustomer.city = BORRA_LA_COLUMNA;
-        guestCustomer.state = BORRA_LA_COLUMNA;
-        guestCustomer.zipCode = BORRA_LA_COLUMNA;
-        guestCustomer.country = 'Venezuela';
-        guestCustomer.additionalInfo = BORRA_LA_COLUMNA;
-        guestCustomer.latitude = BORRA_LA_COLUMNA;
-        guestCustomer.longitude = BORRA_LA_COLUMNA;
+        escribeElDomicilio(guestCustomer, shippingAddress);
       }
 
       // El historial tampoco se hereda: "3 pedidos anteriores" es de quien los
