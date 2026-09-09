@@ -120,3 +120,72 @@ export function opcionesBorradoSesion(op: OpcionesSesion): CookieOptions {
   void maxAge;
   return resto;
 }
+
+/** Host de una URL, o `null` si no se puede leer. */
+function hostDe(url?: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+export interface EntornoDominio {
+  /** `FRONTEND_URL`: dónde vive la tienda (y el `middleware.ts` de Next). */
+  frontendUrl?: string;
+  /** `APP_URL`: dónde vive esta API. */
+  appUrl?: string;
+  /** `COOKIE_DOMAIN`. */
+  cookieDomain?: string;
+}
+
+/**
+ * Detecta la configuración que deja el panel rebotando a login para siempre.
+ *
+ * La cookie de sesión, sin `Domain`, queda atada al host que la emitió: el de
+ * la API. El `middleware.ts` de Next corre en el host de la TIENDA y lee la
+ * cookie de ahí, así que si los hosts difieren NO LA VE NUNCA. El login
+ * responde 200, todo parece ir bien, y `/admin/*` redirige a `/admin/login`
+ * indefinidamente. No se imprime ningún error en ninguna consola: es el fallo
+ * más mudo de todo este cambio, y por eso se comprueba al arrancar.
+ *
+ * Ojo: la regla es por HOST, no por dominio registrable. `construir.com` y
+ * `api.construir.com` ya son hosts distintos, e incluso `localhost` y
+ * `127.0.0.1` lo son.
+ *
+ * @returns el mensaje a gritar, o `null` si la configuración es coherente.
+ */
+export function problemaDeDominioDeCookie(env: EntornoDominio): string | null {
+  if (env.cookieDomain) return null; // ya se declaró un dominio compartido
+
+  const tienda = hostDe(env.frontendUrl);
+  const api = hostDe(env.appUrl);
+
+  if (!tienda || !api || tienda === api) return null;
+
+  return (
+    `La tienda (${tienda}) y esta API (${api}) están en hosts distintos y ` +
+    'COOKIE_DOMAIN está vacía. La cookie de sesión quedará atada al host de la ' +
+    'API, y el middleware de Next —que corre en el host de la tienda— no la ' +
+    'verá nunca: el login responderá 200 pero /admin/* rebotará a /admin/login ' +
+    'para siempre, sin ningún error visible. Declara el dominio padre que ' +
+    `comparten, por ejemplo COOKIE_DOMAIN=.${dominioPadre(tienda, api) ?? 'tudominio.com'}`
+  );
+}
+
+/** Sufijo común de dos hosts, para poder sugerir un `COOKIE_DOMAIN` concreto. */
+function dominioPadre(a: string, b: string): string | null {
+  const pa = a.split('.').reverse();
+  const pb = b.split('.').reverse();
+  const comun: string[] = [];
+
+  for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+    if (pa[i] !== pb[i]) break;
+    comun.push(pa[i]);
+  }
+
+  // Con menos de dos etiquetas en común no hay dominio padre que sugerir
+  // (`localhost` frente a `127.0.0.1`, por ejemplo).
+  return comun.length >= 2 ? comun.reverse().join('.') : null;
+}

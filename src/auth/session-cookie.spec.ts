@@ -8,6 +8,7 @@ import {
   opcionesCookieSesion,
   opcionesBorradoSesion,
   duracionEnMs,
+  problemaDeDominioDeCookie,
 } from './session-cookie';
 
 /**
@@ -178,5 +179,77 @@ describe('`opcionesCookieSesion` — atributos según el entorno', () => {
     const o = opcionesBorradoSesion({ expiresIn: '24h', produccion: true });
     expect(o.maxAge).toBeUndefined();
     expect(o.httpOnly).toBe(true);
+  });
+});
+
+/**
+ * El fallo más mudo de todo el cambio a cookie: si la tienda y la API están en
+ * hosts distintos y no se declara `COOKIE_DOMAIN`, la cookie queda atada al
+ * host de la API y el `middleware.ts` de Next —que corre en el host de la
+ * tienda— no la ve NUNCA. El login responde 200, parece que todo va bien, y
+ * `/admin/*` rebota a `/admin/login` para siempre sin imprimir un solo error.
+ *
+ * Como no hay forma de notarlo en caliente, se detecta al arrancar. Estas
+ * pruebas fijan esa detección.
+ */
+describe('Aviso de COOKIE_DOMAIN — el rebote infinito del panel', () => {
+  it('avisa cuando los hosts difieren y no hay COOKIE_DOMAIN', () => {
+    const aviso = problemaDeDominioDeCookie({
+      frontendUrl: 'https://construir.com',
+      appUrl: 'https://api.construir.com',
+    });
+    expect(aviso).toContain('construir.com');
+    expect(aviso).toContain('api.construir.com');
+    // Tiene que sugerir el valor concreto, no sólo describir el problema.
+    expect(aviso).toContain('COOKIE_DOMAIN=.construir.com');
+  });
+
+  it('la regla es por HOST, no por dominio registrable', () => {
+    // `localhost` y `127.0.0.1` apuntan a la misma máquina pero son hosts
+    // distintos para las cookies: reproducido, basta eso para romperlo.
+    expect(
+      problemaDeDominioDeCookie({
+        frontendUrl: 'http://127.0.0.1:3000',
+        appUrl: 'http://localhost:3001',
+      }),
+    ).not.toBeNull();
+  });
+
+  it('no avisa si comparten host, aunque cambie el puerto', () => {
+    // Los puertos no cuentan para las cookies: mismo host, misma cookie.
+    expect(
+      problemaDeDominioDeCookie({
+        frontendUrl: 'http://localhost:3000',
+        appUrl: 'http://localhost:3001',
+      }),
+    ).toBeNull();
+  });
+
+  it('no avisa si ya se declaró COOKIE_DOMAIN', () => {
+    expect(
+      problemaDeDominioDeCookie({
+        frontendUrl: 'https://construir.com',
+        appUrl: 'https://api.construir.com',
+        cookieDomain: '.construir.com',
+      }),
+    ).toBeNull();
+  });
+
+  it('no avisa si falta información para juzgar', () => {
+    // Sin `APP_URL` no se puede saber, y un aviso falso en cada arranque
+    // enseña a ignorar los avisos de verdad.
+    expect(problemaDeDominioDeCookie({ frontendUrl: 'https://construir.com' })).toBeNull();
+    expect(problemaDeDominioDeCookie({})).toBeNull();
+    expect(
+      problemaDeDominioDeCookie({ frontendUrl: 'no-es-url', appUrl: 'tampoco' }),
+    ).toBeNull();
+  });
+
+  it('no inventa un dominio padre cuando no lo hay', () => {
+    const aviso = problemaDeDominioDeCookie({
+      frontendUrl: 'http://localhost:3000',
+      appUrl: 'http://127.0.0.1:3001',
+    });
+    expect(aviso).toContain('tudominio.com');
   });
 });
