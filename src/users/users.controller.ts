@@ -34,6 +34,25 @@ import { PreventSelfRoleChangeGuard } from '../auth/guards/prevent-self-role-cha
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from './user.entity';
 
+/**
+ * Este controlador devuelve la ENTIDAD `User` tal cual, sin desarmarla.
+ *
+ * Antes cada ruta hacía `const { password, ...result } = user; return result;`.
+ * El spread parecía la parte segura del código y era justo lo contrario: el
+ * objeto resultante ya no es un `User`, es un `Object` pelado, y
+ * `ClassSerializerInterceptor` decide qué recortar por la CLASE del valor que
+ * recibe. Sin clase no hay metadatos, así que TODOS los `@Exclude()` de la
+ * entidad dejaban de aplicarse y sólo se iba el campo que la mano había
+ * quitado. Medido contra el servidor: `GET /users/profile` y
+ * `GET /users/admin/users` devolvían `id`, `emailVerificationToken` y
+ * `passwordResetToken` —los tres con `@Exclude()`— porque el spread los
+ * desarmaba.
+ *
+ * Devolver la entidad entera es lo seguro: `@Exclude()` sí corre, y la lista
+ * de lo que no sale vive en un solo sitio (`user.entity.ts`) en vez de
+ * repetida a mano en once rutas, donde bastaba olvidar una para abrir el
+ * agujero de nuevo. `users.controller.serializacion.spec.ts` lo sujeta.
+ */
 @Controller('users')
 export class UsersController {
   constructor(
@@ -53,14 +72,7 @@ export class UsersController {
     // pipes de ruta— rechazaría con su 400 sin `code` y la pantalla de
     // registro volvería a quedarse sin saber qué campo avisarle al cliente.
     const createUserDto = body as CreateUserDto;
-    const user = await this.usersService.create(createUserDto);
-    const {
-      password,
-      emailVerificationToken,
-      emailVerificationExpiresAt,
-      ...result
-    } = user;
-    return result;
+    return await this.usersService.create(createUserDto);
   }
 
   /**
@@ -109,8 +121,7 @@ export class UsersController {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    const { password, ...result } = user;
-    return result;
+    return user;
   }
 
   /**
@@ -120,8 +131,7 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   async updateProfile(@Request() req, @Body() updateUserDto: UpdateUserDto) {
     const user = await this.usersService.update(req.user.uuid, updateUserDto);
-    const { password, ...result } = user;
-    return result;
+    return user;
   }
 
   /**
@@ -158,9 +168,8 @@ export class UsersController {
   async findAll(@Query() getUsersDto: GetUsersDto) {
     const result = await this.usersService.findAllPaginated(getUsersDto);
 
-    // Remove passwords from all users
-    result.data = result.data.map(({ password, ...user }) => user) as any;
-
+    // `result.data` son entidades `User`: se devuelven sin tocar para que el
+    // serializador pueda leer sus `@Exclude()`. Ver el comentario de la clase.
     return result;
   }
 
@@ -175,8 +184,7 @@ export class UsersController {
     if (!user) {
       throw new NotFoundException(`User with UUID ${uuid} not found`);
     }
-    const { password, ...result } = user;
-    return result;
+    return user;
   }
 
   /**
@@ -187,8 +195,7 @@ export class UsersController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   async createByAdmin(@Body() createUserAdminDto: CreateUserAdminDto) {
     const user = await this.usersService.createByAdmin(createUserAdminDto);
-    const { password, ...result } = user;
-    return result;
+    return user;
   }
 
   /**
@@ -205,8 +212,7 @@ export class UsersController {
       uuid,
       updateUserAdminDto,
     );
-    const { password, ...result } = user;
-    return result;
+    return user;
   }
 
   /**
@@ -220,8 +226,7 @@ export class UsersController {
     @Body() updateRoleDto: UpdateRoleDto,
   ) {
     const user = await this.usersService.updateRole(uuid, updateRoleDto);
-    const { password, ...result } = user;
-    return result;
+    return user;
   }
 
   /**
@@ -318,8 +323,7 @@ export class UsersController {
   @Post('register/invitation')
   async completeInvitation(@Body() dto: CompleteInvitationDto) {
     const user = await this.invitationsService.completeRegistration(dto);
-    const { password, ...result } = user;
-    return result;
+    return user;
   }
 
   // ==================== ORDER_ADMIN READ-ONLY ACCESS ====================
@@ -333,9 +337,8 @@ export class UsersController {
   async findAllForOrderAdmin(@Query() getUsersDto: GetUsersDto) {
     const result = await this.usersService.findAllPaginated(getUsersDto);
 
-    // Remove passwords from all users
-    result.data = result.data.map(({ password, ...user }) => user) as any;
-
+    // `result.data` son entidades `User`: se devuelven sin tocar para que el
+    // serializador pueda leer sus `@Exclude()`. Ver el comentario de la clase.
     return result;
   }
 
@@ -350,7 +353,6 @@ export class UsersController {
     if (!user) {
       throw new NotFoundException(`User with UUID ${uuid} not found`);
     }
-    const { password, ...result } = user;
-    return result;
+    return user;
   }
 }
