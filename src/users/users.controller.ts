@@ -13,6 +13,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { UsersService } from './users.service';
 import { InvitationsService } from './invitations.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -64,18 +65,29 @@ export class UsersController {
 
   /**
    * Verify email with token
+   *
+   * `alreadyVerified` distingue al que acaba de activar su cuenta del que
+   * abrió el enlace por segunda vez. Los dos son un éxito —la cuenta está
+   * activa—, pero merecen textos distintos.
    */
   @Get('verify-email')
   @HttpCode(HttpStatus.OK)
   async verifyEmail(@Query('token') token: string) {
-    await this.usersService.verifyEmail(token);
-    return { message: 'Correo verificado exitosamente' };
+    const { alreadyVerified } = await this.usersService.verifyEmail(token);
+    return { message: 'Correo verificado exitosamente', alreadyVerified };
   }
 
   /**
    * Resend verification email
+   *
+   * Limitado a 3 por minuto por IP. Sin tope es un emisor de correos a
+   * demanda: el endpoint es público, no pide sesión y acepta cualquier
+   * dirección, así que quien quiera puede usarlo para llenarle la bandeja a
+   * otro a costa de la reputación de envío de la tienda. Tres alcanzan de
+   * sobra para quien de verdad no recibió el suyo.
    */
   @Post('resend-verification')
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
   @HttpCode(HttpStatus.OK)
   async resendVerification(@Body('email') email: string) {
     await this.usersService.resendVerification(email);

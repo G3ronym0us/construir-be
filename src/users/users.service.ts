@@ -21,6 +21,8 @@ import { GetUsersDto } from './dto/get-users.dto';
 import * as bcrypt from 'bcrypt';
 import { EmailService } from '../email/email.service';
 import { RegisterErrorCode } from './register-error-code.enum';
+import { EmailVerificationErrorCode } from './email-verification-error-code.enum';
+import { PasswordResetErrorCode } from './password-reset-error-code.enum';
 
 /** `jose@correo.com` → `jo•••@correo.com`. Deja como mucho dos caracteres. */
 function maskEmail(email: string): string {
@@ -83,26 +85,51 @@ export class UsersService {
     return user;
   }
 
-  async verifyEmail(token: string): Promise<void> {
-    const user = await this.usersRepository.findOne({
-      where: { emailVerificationToken: token },
-    });
+  /**
+   * Activa la cuenta a partir del enlace del correo.
+   *
+   * Devuelve `alreadyVerified` en vez de fallar cuando el enlace ya se usó:
+   * abrir dos veces el correo, o que el antivirus del proveedor visite el
+   * enlace antes que la persona, no es un error del cliente y no merece una
+   * pantalla roja. Antes daba "Token de verificación inválido" — el mismo texto
+   * que recibía quien llegaba con un enlace inventado—, así que el cliente
+   * creía que su cuenta no había quedado activa cuando sí lo estaba.
+   *
+   * Para poder distinguir "ya se usó" de "nunca existió", el token se conserva
+   * al verificar en vez de borrarse. No concede nada: en cuanto `emailVerified`
+   * es true este método sale por arriba sin volver a tocar la cuenta.
+   */
+  async verifyEmail(token: string): Promise<{ alreadyVerified: boolean }> {
+    // Sin token no se consulta: `findOne` con `undefined` en el `where` trae la
+    // primera fila de la tabla y verificaría una cuenta ajena.
+    const user = token
+      ? await this.usersRepository.findOne({
+          where: { emailVerificationToken: token },
+        })
+      : null;
 
     if (!user) {
-      throw new BadRequestException('Token de verificación inválido');
+      throw this.rechazoVerificacion(
+        EmailVerificationErrorCode.TOKEN_INVALID,
+        'Token de verificación inválido',
+      );
+    }
+
+    if (user.emailVerified) {
+      return { alreadyVerified: true };
     }
 
     if (
       !user.emailVerificationExpiresAt ||
       user.emailVerificationExpiresAt < new Date()
     ) {
-      throw new BadRequestException(
+      throw this.rechazoVerificacion(
+        EmailVerificationErrorCode.TOKEN_EXPIRED,
         'El token de verificación ha expirado. Solicita uno nuevo.',
       );
     }
 
     user.emailVerified = true;
-    user.emailVerificationToken = null;
     user.emailVerificationExpiresAt = null;
     await this.usersRepository.save(user);
 
@@ -111,18 +138,35 @@ export class UsersService {
     this.emailService
       .sendWelcome({ to: user.email, firstName: user.firstName })
       .catch((err) => console.error('Error sending welcome email:', err));
+
+    return { alreadyVerified: false };
+  }
+
+  /** 400 con `code` además del `message`, igual que `AuthService.rechazo`. */
+  private rechazoVerificacion(
+    code: EmailVerificationErrorCode,
+    message: string,
+  ) {
+    return new BadRequestException({
+      statusCode: 400,
+      error: 'Bad Request',
+      message,
+      code,
+    });
   }
 
   async resendVerification(email: string): Promise<void> {
-    const user = await this.usersRepository.findOne({ where: { email } });
+    const user = email
+      ? await this.usersRepository.findOne({ where: { email } })
+      : null;
 
-    if (!user) {
-      // No revelar si el correo existe o no
+    // Se sale en silencio tanto si el correo no existe como si ya está
+    // verificado. Antes el segundo caso lanzaba "Este correo ya fue
+    // verificado", que le confirmaba a cualquiera —sin sesión— que esa
+    // dirección tiene cuenta en la tienda; el controlador ya prometía una
+    // respuesta que no distingue los casos, y el servicio la desmentía.
+    if (!user || user.emailVerified) {
       return;
-    }
-
-    if (user.emailVerified) {
-      throw new BadRequestException('Este correo ya fue verificado');
     }
 
     const token = crypto.randomBytes(48).toString('hex');
@@ -458,7 +502,12 @@ export class UsersService {
     if (!user || !expiresAt || expiresAt.getTime() <= Date.now()) {
       // Mismo error para inexistente, usado y vencido: la diferencia sólo le
       // sirve a quien esté probando tokens.
-      throw new NotFoundException('El enlace no es válido o ya venció');
+      throw new NotFoundException({
+        statusCode: 404,
+        error: 'Not Found',
+        message: 'El enlace no es válido o ya venció',
+        code: PasswordResetErrorCode.TOKEN_INVALID,
+      });
     }
 
     return { email: maskEmail(user.email), expiresAt: expiresAt.toISOString() };
@@ -468,16 +517,36 @@ export class UsersService {
     token: string,
     newPassword: string,
   ): Promise<void> {
-    const user = await this.usersRepository.findOne({
-      where: { passwordResetToken: token },
-    });
+    const user = token
+      ? await this.usersRepository.findOne({
+          where: { passwordResetToken: token },
+        })
+      : null;
 
     if (
       !user ||
       !user.passwordResetExpiresAt ||
       user.passwordResetExpiresAt < new Date()
     ) {
-      throw new BadRequestException('Token inválido o expirado');
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Token inválido o expirado',
+        code: PasswordResetErrorCode.TOKEN_INVALID,
+      });
+    }
+
+    // El mínimo se comprueba también acá y no sólo en el DTO: el mensaje que
+    // sale del validador es una lista en inglés, y la pantalla necesita
+    // distinguir "contraseña corta" de "enlace vencido" para no mandar a pedir
+    // un enlace nuevo a quien sólo escribió cinco letras.
+    if (!newPassword || newPassword.length < 6) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'La contraseña debe tener al menos 6 caracteres',
+        code: PasswordResetErrorCode.WEAK_PASSWORD,
+      });
     }
 
     user.password = await bcrypt.hash(newPassword, 10);
