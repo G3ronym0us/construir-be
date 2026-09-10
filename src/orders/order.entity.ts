@@ -10,6 +10,7 @@ import {
   JoinColumn,
   Generated,
 } from 'typeorm';
+import { Expose } from 'class-transformer';
 import { User } from '../users/user.entity';
 import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
@@ -228,6 +229,24 @@ export class Order {
   updatedAt: Date;
 
   // Computed properties
+
+  /**
+   * Unidades del pedido, sumando las cantidades de cada renglón.
+   *
+   * `@Expose()` NO es decorativo: es lo único que hace que este getter viaje en
+   * la respuesta. `ClassSerializerInterceptor` arma el JSON con
+   * `instanceToPlain`, que recorre las propiedades PROPIAS del objeto — y un
+   * getter vive en el prototipo, así que sin `@Expose()` se cae del JSON en
+   * silencio, sin error ni aviso.
+   *
+   * Es exactamente el fallo que ya se había corregido en `Cart` (ver
+   * `cart.serialization.spec.ts`) y que aquí quedó pendiente. Consecuencia:
+   * `GET /orders` y `GET /orders/:uuid` respondían sin `totalItems`, y en
+   * "Mis pedidos" el cliente leía **"undefined productos"** debajo de cada
+   * compra suya. El listado del panel no lo sufría porque `toAdminOrderRow`
+   * copia el getter a mano en JavaScript, donde sí funciona.
+   */
+  @Expose()
   get totalItems(): number {
     return this.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
   }
