@@ -1,146 +1,96 @@
-<!DOCTYPE html>
-<html lang="es">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="light dark">
-    <meta name="supported-color-schemes" content="light dark">
-    <title>Pago Confirmado</title>
-    <style>
-        :root { color-scheme: light dark; }
-
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #1a1a1a;
-            background-color: #e8e8e8;
-            margin: 0;
-            padding: 20px;
-        }
-
-        .wrapper { max-width: 600px; margin: 0 auto; }
-
-        .header {
-            background-color: #1e3a8a;
-            padding: 24px 20px;
-            text-align: center;
-            border-radius: 8px 8px 0 0;
-        }
-
-        .header img { height: 44px; width: auto; display: block; margin: 0 auto; }
-
-        .header h1 {
-            margin: 12px 0 0;
-            font-size: 20px;
-            font-weight: 700;
-            color: #ffffff;
-        }
-
-        .content {
-            background-color: #f2f2f2;
-            padding: 24px;
-            border: 1px solid #cccccc;
-        }
-
-        .content > p { color: #1a1a1a; margin: 0 0 16px; }
-
-        .success-icon {
-            text-align: center;
-            font-size: 52px;
-            margin: 8px 0 20px;
-        }
-
-        .order-info {
-            background-color: #ffffff;
-            padding: 16px;
-            margin: 16px 0;
-            border-radius: 6px;
-            border: 1px solid #e0e0e0;
-        }
-
-        .order-info h3 {
-            margin: 0 0 12px;
-            font-size: 15px;
-            color: #1e3a8a;
-            border-bottom: 1px solid #e0e0e0;
-            padding-bottom: 8px;
-        }
-
-        .order-info p { margin: 6px 0; color: #333333; }
-
-        .total-highlight {
-            font-size: 18px;
-            font-weight: 700;
-            color: #2563eb;
-        }
-
-        .button-wrap { text-align: center; margin: 20px 0 4px; }
-
-        .button {
-            display: inline-block;
-            padding: 13px 32px;
-            background-color: #2563eb;
-            color: #ffffff !important;
-            text-decoration: none;
-            border-radius: 6px;
-            font-weight: 700;
-            font-size: 15px;
-        }
-
-        .footer {
-            text-align: center;
-            padding: 20px;
-            color: #777777;
-            font-size: 12px;
-            background-color: #e8e8e8;
-            border-radius: 0 0 8px 8px;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            body { background-color: #121212 !important; color: #e8e8e8 !important; }
-            .wrapper { background-color: #121212; }
-            .header { background-color: #1e3a8a !important; }
-            .content { background-color: #1e1e1e !important; border-color: #333333 !important; }
-            .content > p { color: #e0e0e0 !important; }
-            .order-info { background-color: #2a2a2a !important; border-color: #3a3a3a !important; }
-            .order-info h3 { color: #93c5fd !important; border-color: #3a3a3a !important; }
-            .order-info p { color: #cccccc !important; }
-            .total-highlight { color: #93c5fd !important; }
-            .footer { background-color: #121212 !important; color: #888888 !important; }
-        }
-    </style>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light only" />
+<meta name="supported-color-schemes" content="light only" />
+<title>{{subject}}</title>
+<!--[if mso]><style>body,table,td{font-family:Arial,Helvetica,sans-serif !important}</style><![endif]-->
 </head>
-<body>
-<div class="wrapper">
-    <div class="header">
-        <img src="{{logoUrl}}" alt="Constru-ir" />
-        <h1>¡Pago Confirmado!</h1>
-    </div>
+<body style="margin:0;padding:0;background-color:#eceae5;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;font-size:1px;color:#f2efe9;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">{{preheader}}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eceae5">
+  <tr>
+    <td align="center" style="padding:24px 12px">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background-color:#ffffff;border:1px solid #ded9d2;border-radius:14px;overflow:hidden">
+{{> header eyebrow=(concat "Pedido " orderNumber) }}
+        <tr>
+          <td style="background-color:#e8f2ea;border-bottom:1px solid #c9e0d1;padding:12px 26px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12.5px;font-weight:700;letter-spacing:.4px;color:#1f7a4d">PAGO VERIFICADO · el pedido pasó a preparación</td>
+        </tr>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:26px 26px 0">
+            <h1 style="margin:0 0 8px;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:23px;line-height:1.2;font-weight:700;color:#0f4c81">Listo, {{customerName}}: tu pago está confirmado</h1>
+            <p style="margin:0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#55524d">Ya no hay nada pendiente de tu lado. Te escribimos otra vez cuando tu pedido {{#if isPickup}}esté listo para retirar{{else}}salga del galpón{{/if}}.</p>
+          </td>
+        </tr>
 
-    <div class="content">
-        <div class="success-icon">✅</div>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #e7e3dd;border-radius:10px">
+              <tr><td style="padding:18px">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Método</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">{{paymentMethod}}{{#if paymentReference}} · ref. {{paymentReference}}{{/if}}</td>
+                  </tr>
+                </table>
+{{#if verifiedAt}}
+                <div style="height:1px;background-color:#f0ece5;margin:0 0 10px">&nbsp;</div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">Verificado</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">{{verifiedAt}}</td>
+                  </tr>
+                </table>
+{{/if}}
+{{#if estimatedDelivery}}
+                <div style="height:1px;background-color:#f0ece5;margin:0 0 10px">&nbsp;</div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;color:#55524d;padding:0 0 10px">{{#if isPickup}}Listo para retirar{{else}}Entrega estimada{{/if}}</td>
+                    <td align="right" style="font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13.5px;font-weight:700;color:#14181d;padding:0 0 10px">{{estimatedDelivery}}</td>
+                  </tr>
+                </table>
+{{/if}}
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:2px solid #1f7a4d;margin-top:4px">
+                  <tr>
+                    <td align="left" style="padding:12px 0 0;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d">Total pagado</td>
+                    <td align="right" style="padding:12px 0 0">
+                      <span style="display:block;font-family:Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;line-height:1;font-weight:700;color:#1f7a4d">{{#if totalVes}}Bs. {{totalVes}}{{/if}}</span>
+                      <span style="display:block;margin-top:4px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;color:#7d7a74">ref. ${{total}}{{#if exchangeRate}} · BCV {{exchangeRate}}{{/if}}</span>
+                    </td>
+                  </tr>
+                </table>
 
-        <p>Hola <strong>{{customerName}}</strong>,</p>
-        <p>¡Excelentes noticias! Hemos verificado tu pago y tu orden está siendo procesada.</p>
-
-        <div class="order-info">
-            <h3>Detalles de la Orden</h3>
-            <p><strong>Número de Orden:</strong> {{orderNumber}}</p>
-            <p><strong>Estado:</strong> {{orderStatus}}</p>
-            <p><strong>Total Pagado:</strong> <span class="total-highlight">${{total}}</span></p>
-        </div>
-
-        <p>Tu orden será preparada pronto. Te notificaremos cuando esté en camino.</p>
-
-        <div class="button-wrap">
-            <a href="{{trackingUrl}}" class="button">Ver mi Orden</a>
-        </div>
-    </div>
-
-    <div class="footer">
-        <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
-        <p>Si tienes alguna pregunta, contáctanos.</p>
-    </div>
-</div>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f7f5f2;padding:18px 26px 0">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td align="center" bgcolor="#e2851b" style="border-radius:10px">
+                <a href="{{trackingUrl}}" style="display:block;padding:15px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#14181d;text-decoration:none;border-radius:10px">Ver mi pedido</a>
+              </td></tr>
+            </table>
+{{#if whatsappUrl}}
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px">
+              <tr><td align="center" bgcolor="#ffffff" style="border:1.5px solid #d9d4cc;border-radius:10px">
+                <a href="{{whatsappUrl}}" style="display:block;padding:13px 20px;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#0f4c81;text-decoration:none;border-radius:10px">Escribirnos por WhatsApp</a>
+              </td></tr>
+            </table>
+{{/if}}
+          </td>
+        </tr>
+        <tr><td style="background-color:#f7f5f2;line-height:26px;font-size:26px;height:26px">&nbsp;</td></tr>
+{{> footer compact=true }}
+      </table>
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px">
+        <tr><td style="padding:14px 8px 0;font-family:Manrope,'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11.5px;line-height:1.6;color:#9a968f">Constru-ir · Materiales de construcción · Caracas, Venezuela</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
 </body>
 </html>

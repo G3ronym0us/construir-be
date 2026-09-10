@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsInt,
   IsNotEmpty,
@@ -37,8 +38,11 @@ export class QuoteOrderDto {
     description:
       'Ítems a cotizar. Sólo se usa para invitados: un usuario autenticado cotiza su carrito del servidor.',
   })
+  // Mismo tope que `CreateOrderDto.items`, por el mismo motivo y para que el
+  // quote no acepte un pedido que después el POST va a rechazar.
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => QuoteOrderItemDto)
   items?: QuoteOrderItemDto[];

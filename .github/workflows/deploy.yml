@@ -38,17 +38,26 @@ jobs:
             echo "📥 Pulling latest changes..."
             git pull origin main
 
-            echo "🛑 Stopping and removing all project containers (including orphans)..."
-            docker-compose down --remove-orphans || true
-
+            # NO se tumba el servicio antes de construir. El orden anterior
+            # hacía `down` primero, así que un build fallido dejaba la tienda
+            # caída — y el build falla por cosas ajenas al código, como el disco
+            # lleno. Se construye con el servicio en pie y se cambia al final,
+            # que además baja el corte a unos segundos.
             echo "🧹 Cleaning up dangling images..."
             docker image prune -f
 
+            echo "🧹 Liberando espacio antes de construir..."
+            # El build de Docker muere con ENOSPC y deja el servicio caído.
+            # Ya pasó: el disco llegó al 95% con cinco proyectos en la misma
+            # máquina. Se limpia ANTES, no después de romper nada.
+            docker builder prune -f || true
+            df -h / | tail -1
+
             echo "🔨 Building new image..."
-            docker-compose build app
+            docker compose build app
 
             echo "🗄️ Running database migrations..."
-            docker-compose run --rm app node -e "
+            docker compose run --rm app node -e "
               const { AppDataSource } = require('./dist/src/database/data-source');
               AppDataSource.initialize()
                 .then(ds => ds.runMigrations())
@@ -59,8 +68,11 @@ jobs:
                 .catch(e => { console.error('Migration failed:', e); process.exit(1); });
             "
 
-            echo "🚀 Starting new container..."
-            docker-compose up -d app
+            echo "🚀 Cambiando al contenedor nuevo..."
+            # `up -d` recrea sólo lo que cambió. Con `--no-deps` no se toca la
+            # base de datos, que antes se reiniciaba en cada despliegue sin
+            # necesidad.
+            docker compose up -d --no-deps app
 
             echo "⏳ Waiting for application to start..."
             sleep 5
@@ -93,8 +105,11 @@ jobs:
           script: |
             cd ~/construir-be
 
-            echo "🔄 Restarting container..."
-            docker-compose restart app
+            echo "🔄 Recreando el contenedor..."
+            # `restart` NO relee el .env: el entorno se fija al CREAR el
+            # contenedor, así que una variable nueva no entra y el fallo es
+            # mudo — el servicio arranca bien, con la configuración vieja.
+            docker compose up -d --force-recreate --no-deps app
 
             echo "⏳ Waiting for application to start..."
             sleep 5

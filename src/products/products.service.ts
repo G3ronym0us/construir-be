@@ -13,6 +13,9 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { S3Service } from './s3.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { applyVesPrices } from './pricing.util';
+import { aplicarBusquedaDeProductos } from './search.util';
+import { aplicarFiltrosDeCatalogo, FiltrosDeCatalogo } from './filters.util';
+import { columnaOrdenableSegura, sentidoOrdenSeguro } from './sort.util';
 
 @Injectable()
 export class ProductsService {
@@ -62,36 +65,67 @@ export class ProductsService {
     return await this.productsRepository.save(product);
   }
 
+  /**
+   * Listado público del catálogo.
+   *
+   * Recibe un objeto y no una lista de argumentos posicionales: con búsqueda,
+   * categoría, destacados, orden, sentido, página, tope y ahora los filtros de
+   * precio y de stock, la firma pasaba de diez posiciones seguidas y bastaba
+   * colar un argumento de menos para que el orden se leyera como el filtro de
+   * al lado sin que nada fallara.
+   */
   async findCatalog(
-    page: number = 1,
-    limit: number = 10,
-    search?: string,
-    categoryUuid?: string,
-    featured?: boolean,
-    sortBy: string = 'createdAt',
-    sortOrder: 'ASC' | 'DESC' = 'DESC',
+    opciones: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      categoryUuid?: string;
+      featured?: boolean;
+      sortBy?: string;
+      sortOrder?: 'ASC' | 'DESC';
+    } & FiltrosDeCatalogo = {},
   ): Promise<{
     data: Product[];
     total: number;
     page: number;
     lastPage: number;
   }> {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      categoryUuid,
+      featured,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC',
+      minPrice,
+      maxPrice,
+      minInventory,
+    } = opciones;
+
+    // El nombre de la columna se interpola en el SQL (un ORDER BY no admite
+    // parámetros), así que sólo pueden pasar las de la lista blanca.
+    const columnaOrden = columnaOrdenableSegura(sortBy);
+    const sentidoOrden = sentidoOrdenSeguro(sortOrder);
+
     // Step 1: paginate IDs only (no joins) — avoids TypeORM leftJoinAndSelect + skip/take bug
     // where LIMIT is applied to joined rows instead of root entities.
     // sortBy must also be in SELECT so the DISTINCT wrapper can reference it when a JOIN is added.
     const idsBuilder = this.productsRepository
       .createQueryBuilder('product')
       .select('product.id')
-      .addSelect(`product.${sortBy}`)
+      .addSelect(`product.${columnaOrden}`)
       .andWhere('product.inventory > 0')
       .andWhere('product.published = true');
 
-    if (search) {
-      idsBuilder.andWhere(
-        '(product.name ILIKE :search OR product.custom_name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
-        { search: `%${search}%` },
-      );
-    }
+    // Cada palabra se exige por separado: ver `aplicarBusquedaDeProductos`.
+    aplicarBusquedaDeProductos(idsBuilder, search);
+
+    // Precio y stock. Van sobre el mismo builder que pagina los ids, no sobre
+    // el que carga las relaciones: si se aplicaran en el segundo, el `total` y
+    // el número de páginas seguirían contando los productos que el filtro deja
+    // fuera, y el paginador enseñaría páginas vacías.
+    aplicarFiltrosDeCatalogo(idsBuilder, { minPrice, maxPrice, minInventory });
 
     if (categoryUuid) {
       idsBuilder
@@ -103,7 +137,7 @@ export class ProductsService {
       idsBuilder.andWhere('product.featured = :featured', { featured });
     }
 
-    idsBuilder.orderBy(`product.${sortBy}`, sortOrder);
+    idsBuilder.orderBy(`product.${columnaOrden}`, sentidoOrden);
 
     const skip = (page - 1) * limit;
     const total = await idsBuilder.getCount();
@@ -123,7 +157,7 @@ export class ProductsService {
       .leftJoinAndSelect('product.images', 'images')
       .leftJoinAndSelect('product.categories', 'categories')
       .where('product.id IN (:...ids)', { ids: productIds })
-      .orderBy(`product.${sortBy}`, sortOrder)
+      .orderBy(`product.${columnaOrden}`, sentidoOrden)
       .getMany();
 
     return {
@@ -289,7 +323,7 @@ export class ProductsService {
   ): Promise<ProductImage> {
     const product = await this.findOne(productUuid);
 
-    const { url, key } = await this.s3Service.uploadFile(file, 'products');
+    const { url, key } = await this.s3Service.uploadPublicFile(file, 'products');
 
     // If this is primary, unset all other images as primary
     if (isPrimary) {
@@ -358,19 +392,20 @@ export class ProductsService {
     page: number;
     lastPage: number;
   }> {
+    // El nombre de la columna se interpola en el SQL (un ORDER BY no admite
+    // parámetros), así que sólo pueden pasar las de la lista blanca.
+    const columnaOrden = columnaOrdenableSegura(sortBy);
+    const sentidoOrden = sentidoOrdenSeguro(sortOrder);
+
     // Step 1: paginate IDs only (no joins) — avoids TypeORM leftJoinAndSelect + skip/take bug.
     // sortBy must also be in SELECT so the DISTINCT wrapper can reference it when a JOIN is added.
     const idsBuilder = this.productsRepository
       .createQueryBuilder('product')
       .select('product.id')
-      .addSelect(`product.${sortBy}`);
+      .addSelect(`product.${columnaOrden}`);
 
-    if (search) {
-      idsBuilder.andWhere(
-        '(product.name ILIKE :search OR product.custom_name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
-        { search: `%${search}%` },
-      );
-    }
+    // Cada palabra se exige por separado: ver `aplicarBusquedaDeProductos`.
+    aplicarBusquedaDeProductos(idsBuilder, search);
 
     if (categoryUuid) {
       idsBuilder
@@ -386,7 +421,7 @@ export class ProductsService {
       idsBuilder.andWhere('product.featured = :featured', { featured });
     }
 
-    idsBuilder.orderBy(`product.${sortBy}`, sortOrder);
+    idsBuilder.orderBy(`product.${columnaOrden}`, sentidoOrden);
 
     const skip = (page - 1) * limit;
     const total = await idsBuilder.getCount();
@@ -406,7 +441,7 @@ export class ProductsService {
       .leftJoinAndSelect('product.images', 'images')
       .leftJoinAndSelect('product.categories', 'categories')
       .where('product.id IN (:...ids)', { ids: productIds })
-      .orderBy(`product.${sortBy}`, sortOrder)
+      .orderBy(`product.${columnaOrden}`, sentidoOrden)
       .getMany();
 
     return {
@@ -442,15 +477,17 @@ export class ProductsService {
   }
 
   async search(query: string): Promise<Product[]> {
-    return await this.productsRepository
+    const builder = this.productsRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.images', 'images')
-      .where('product.inventory > 0')
-      .andWhere(
-        '(product.name ILIKE :query OR product.custom_name ILIKE :query OR product.sku ILIKE :query OR product.barcode ILIKE :query)',
-        { query: `%${query}%` },
-      )
-      .take(20)
+      .where('product.inventory > 0');
+
+    // El buscador rápido del navbar comparte las reglas del listado: si en
+    // /productos "pint azul" encuentra 24 productos, en el desplegable de
+    // sugerencias tiene que encontrar los mismos.
+    aplicarBusquedaDeProductos(builder, query);
+
+    return await builder.take(20)
       .getMany();
   }
 
@@ -532,7 +569,7 @@ export class ProductsService {
     );
 
     // Upload new file to S3
-    const { url, key } = await this.s3Service.uploadFile(file, 'products');
+    const { url, key } = await this.s3Service.uploadPublicFile(file, 'products');
 
     if (existingImage) {
       // Delete old file from S3

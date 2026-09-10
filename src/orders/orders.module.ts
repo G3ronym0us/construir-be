@@ -11,7 +11,7 @@ import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { S3Service } from '../products/s3.service';
-import { EmailService } from '../email/email.service';
+import { EmailModule } from '../email/email.module';
 import { DiscountsModule } from '../discounts/discounts.module';
 import { BanksModule } from '../banks/banks.module';
 import { UsersModule } from '../users/users.module';
@@ -19,6 +19,7 @@ import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
 import { GuestCustomersService } from './guest-customers.service';
 import { GuestCustomersController } from './guest-customers.controller';
 import { OrderPricingService } from './order-pricing.service';
+import { OrdersTasksService } from './orders-tasks.service';
 
 @Module({
   imports: [
@@ -36,14 +37,15 @@ import { OrderPricingService } from './order-pricing.service';
     BanksModule,
     UsersModule,
     ExchangeRatesModule,
+    EmailModule,
   ],
   controllers: [OrdersController, GuestCustomersController],
   providers: [
     OrdersService,
+    OrdersTasksService,
     OrderPricingService,
     GuestCustomersService,
     S3Service,
-    EmailService,
   ],
   exports: [OrdersService, OrderPricingService, GuestCustomersService],
 })

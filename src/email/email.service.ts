@@ -4,10 +4,12 @@ import * as nodemailer from 'nodemailer';
 import * as handlebars from 'handlebars';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Order } from '../orders/order.entity';
+import { Order, DeliveryMethod } from '../orders/order.entity';
 import { PaymentMethod } from '../orders/payment-info.entity';
 import { round2 } from '../products/iva.util';
 import { IVA_RATES } from '../products/enums/iva-type.enum';
+import { EmailPayloadBuilder } from './payload.builder';
+import { formatVes } from './money.util';
 
 @Injectable()
 export class EmailService {
@@ -38,7 +40,10 @@ export class EmailService {
     return adminEmail;
   }
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private readonly payloads: EmailPayloadBuilder,
+  ) {
     const port = this.configService.get('email.port') || 587;
     const isSecure = port === 465; // 465 usa SSL, 587 usa TLS
 
@@ -51,6 +56,34 @@ export class EmailService {
         pass: this.configService.get('email.password'),
       },
     });
+
+    this.registerTemplateHelpers();
+  }
+
+  /**
+   * Registra los parciales y el helper que usan las plantillas.
+   *
+   * Va en el constructor y no en cada envío: `registerPartial` es global de
+   * Handlebars, y hacerlo por correo relee del disco en cada envío sin ninguna
+   * ganancia.
+   *
+   * `concat` es el único helper que las plantillas necesitan — lo usan para
+   * armar textos como `eyebrow="Pedido {{orderNumber}}"`. Handlebars pasa su
+   * propio objeto de opciones como último argumento, por eso se descarta.
+   */
+  private registerTemplateHelpers(): void {
+    const dir = path.join(__dirname, 'templates', 'partials');
+
+    for (const file of fs.readdirSync(dir)) {
+      handlebars.registerPartial(
+        path.basename(file, '.hbs'),
+        fs.readFileSync(path.join(dir, file), 'utf-8'),
+      );
+    }
+
+    handlebars.registerHelper('concat', (...args: unknown[]) =>
+      args.slice(0, -1).join(''),
+    );
   }
 
   private async loadTemplate(templateName: string): Promise<string> {
@@ -60,6 +93,29 @@ export class EmailService {
       `${templateName}.hbs`,
     );
     return fs.readFileSync(templatePath, 'utf-8');
+  }
+
+  /**
+   * Compone el HTML de una plantilla, o `null` si algo falla.
+   *
+   * Un correo es una notificación, no parte de la transacción: varios envíos
+   * ocurren después de escrituras que ya no se pueden deshacer. Una plantilla
+   * que falta o que no compila tiene que quedar en el log, no propagar hacia
+   * una anulación que ya devolvió inventario.
+   */
+  private async render(
+    templateName: string,
+    payload: Record<string, unknown>,
+  ): Promise<string | null> {
+    try {
+      const source = await this.loadTemplate(templateName);
+      return handlebars.compile(source)(payload);
+    } catch (error) {
+      this.logger.error(
+        `No se pudo componer la plantilla "${templateName}": ${error}`,
+      );
+      return null;
+    }
   }
 
   private async sendEmail(
@@ -83,48 +139,69 @@ export class EmailService {
     }
   }
 
-  private getLogoUrl(): string {
-    const frontendUrl =
-      this.configService.get('app.frontendUrl') || 'http://localhost:4000';
-    return `${frontendUrl}/construir-logo.png`;
+  /**
+   * Nombre para saludar al cliente en el cuerpo del correo.
+   *
+   * Prioriza los datos de envío -- son los que el cliente tecleó para ESTE
+   * pedido -- y cae al nombre de la cuenta cuando no hay dirección (retiro en
+   * tienda). 'Cliente' es el último recurso para invitados sin nombre.
+   */
+  private customerName(order: Order): string {
+    return (
+      order.shippingAddress?.firstName || order.user?.firstName || 'Cliente'
+    );
   }
 
   async sendOrderConfirmation(order: Order): Promise<void> {
-    const templateSource = await this.loadTemplate('order-confirmation');
-    const template = handlebars.compile(templateSource);
-
-    const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
-
     const isPickup = order.deliveryMethod === 'pickup';
 
-    // Monto bruto (con IVA) de todos los renglones, sumando cantidad ×
-    // precio unitario. No existe persistido en la orden -- `order.subtotal`
-    // es la BASE ya neta del descuento (ver docs/pricing-iva.md) -- así que
-    // se recalcula acá con los mismos ítems que arma el correo, para que
-    // "Subtotal (con IVA)" coincida exactamente con la suma de los renglones
-    // que el cliente ve arriba.
-    const itemsGrossTotal = round2(
-      order.items.reduce(
-        (sum, item) => sum + item.quantity * Number(item.price),
-        0,
-      ),
-    );
+    // Monto bruto (con IVA) de todos los renglones, en bolívares -- es la que
+    // muestra la plantilla; el dólar quedó sólo como referencia en el total
+    // final. No existe persistido en la orden -- `order.subtotal` es la BASE
+    // ya neta del descuento (ver docs/pricing-iva.md) -- así que se recalcula
+    // acá con los mismos ítems que arma el correo, para que "Subtotal (con
+    // IVA)" coincida exactamente con la suma de los renglones que el cliente
+    // ve arriba.
+    //
+    // `priceVes` es `number | null` -- una orden sin tasa (o con algún
+    // renglón que no la tenía) deja `null` en el ítem. `Number(null)` da `0`,
+    // así que sumar sin más produciría un total "verdadero" de `Bs. 0,00` en
+    // vez de ausente: exactamente lo que `money.util.ts` dice que hay que
+    // evitar. Si falta la tasa en CUALQUIER renglón, el total en bolívares no
+    // se puede afirmar -- no es cero, es desconocido -- así que el resultado
+    // es `null` y `formatVes` deja que la plantilla oculte el bloque.
+    const itemsGrossTotalVes = order.items.some(
+      (item) => item.priceVes === null,
+    )
+      ? null
+      : round2(
+          order.items.reduce(
+            (sum, item) => sum + item.quantity * Number(item.priceVes),
+            0,
+          ),
+        );
 
-    const html = template({
-      logoUrl: this.getLogoUrl(),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+    const subject = `Recibimos tu pedido ${order.orderNumber}`;
+
+    const html = await this.render('order-confirmation', {
+      ...this.payloads.buildCommon(),
+      subject,
+      // Igual que en la plantilla: si no hay tasa, `formatVes` devuelve
+      // `null` y el preheader cae al dólar en vez de dejar un "Bs. " suelto
+      // (`{{preheader}}` va sin condicional en el `<div>` oculto de arriba).
+      preheader: `Estamos verificando tu pago · ${
+        formatVes(order.totalVes) !== null
+          ? `Bs. ${formatVes(order.totalVes)}`
+          : `$${Number(order.total).toFixed(2)}`
+      }`,
+      trackingUrl: this.payloads.trackingUrl(order.orderNumber),
+      customerName: this.customerName(order),
       orderNumber: order.orderNumber,
-      orderDate: new Date(order.createdAt).toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      }),
-      orderStatus: this.translateStatus(order.status),
       items: order.items.map((item) => ({
         productName: item.productName,
         quantity: item.quantity,
         price: Number(item.price).toFixed(2),
+        priceVes: formatVes(item.priceVes),
         // Monto BRUTO del renglón (cantidad × precio unitario), no
         // `item.subtotal`: desde que el checkout desglosa el descuento por
         // línea, `item.subtotal` viene NETO de la porción de descuento que
@@ -135,18 +212,20 @@ export class EmailService {
         // renglón vuelve a sumar a mano: "3 × $3.00 = $9.00", con los $4.27
         // en su propia fila.
         lineAmount: round2(item.quantity * Number(item.price)).toFixed(2),
+        lineAmountVes: formatVes(item.subtotalVes),
       })),
       // "Subtotal (con IVA)" sólo tiene sentido cuando hay descuento: es el
       // punto de partida desde el que se resta el cupón. Sin descuento sería
       // un segundo subtotal idéntico al de siempre, así que el template lo
       // omite (ver condicional `discountAmount` más abajo).
-      itemsGrossTotal: itemsGrossTotal.toFixed(2),
+      itemsGrossTotalVes: formatVes(itemsGrossTotalVes),
       // `order.subtotal` es la BASE imponible, ya neta del descuento (nunca
       // el "subtotal bruto" que sugiere el nombre del campo). Se relabelea acá
       // como "Base imponible" en el template para que no compita con
       // "Subtotal (con IVA)".
-      subtotal: Number(order.subtotal).toFixed(2),
+      subtotalVes: formatVes(order.subtotalVes),
       tax: order.tax > 0 ? Number(order.tax).toFixed(2) : null,
+      taxVes: formatVes(order.taxVes),
       // El rótulo del IVA sólo lleva porcentaje cuando se puede afirmar una
       // única alícuota para todo el pedido: si algún ítem tiene alícuotas
       // mezcladas (o su producto fue borrado y no se puede consultar), un
@@ -154,32 +233,28 @@ export class EmailService {
       // a secas es siempre correcto; el detalle por línea ya lo tiene el
       // panel admin.
       ivaLabel: this.ivaLabel(order),
-      shipping: order.shipping > 0 ? Number(order.shipping).toFixed(2) : null,
       // El descuento no aparecía en ningún lado del comprobante: el cliente
       // no tenía forma de reconciliar el total con lo que veía por renglón.
       discountAmount:
         Number(order.discountAmount) > 0
           ? Number(order.discountAmount).toFixed(2)
           : null,
+      discountAmountVes: formatVes(order.discountAmountVes),
       discountCode: order.discountCode || null,
       total: Number(order.total).toFixed(2),
+      totalVes: formatVes(order.totalVes),
+      exchangeRate: order.exchangeRate ? formatVes(order.exchangeRate) : null,
+      exchangeRateDate: order.exchangeRateDate,
       isPickup,
       shippingAddress: isPickup ? null : order.shippingAddress,
-      store: isPickup
-        ? {
-            name: this.configService.get('app.storeName'),
-            address: this.configService.get('app.storeAddress'),
-            city: this.configService.get('app.storeCity'),
-            phone: this.configService.get('app.storePhone'),
-            hours: this.configService.get('app.storeHours'),
-            mapUrl: this.configService.get('app.storeMapUrl'),
-          }
-        : null,
       paymentMethod: this.translatePaymentMethod(order.paymentInfo.method),
+      paymentReference: order.paymentInfo?.referenceCode ?? null,
+      verificationSla: '24 horas hábiles',
       isZelle: order.paymentInfo.method === PaymentMethod.ZELLE,
-      notes: order.notes,
-      trackingUrl: `${appUrl}/orders/track/${order.orderNumber}`,
+      // `order.notes` no se pasa a propósito: la plantilla rediseñada no
+      // muestra la nota del cliente (el admin la sigue viendo en el panel).
     });
+    if (!html) return;
 
     const recipientEmail = order.user?.email || order.guestEmail;
     if (!recipientEmail) {
@@ -187,28 +262,44 @@ export class EmailService {
       return;
     }
 
-    await this.sendEmail(
-      recipientEmail,
-      `Confirmación de Orden #${order.orderNumber}`,
-      html,
-    );
+    await this.sendEmail(recipientEmail, subject, html);
   }
 
   async sendPaymentConfirmed(order: Order): Promise<void> {
-    const templateSource = await this.loadTemplate('payment-confirmed');
-    const template = handlebars.compile(templateSource);
+    const subject = `Confirmamos tu pago del pedido ${order.orderNumber}`;
 
-    const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
-
-    const html = template({
-      logoUrl: this.getLogoUrl(),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+    const html = await this.render('payment-confirmed', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Tu pedido pasa a preparación',
+      trackingUrl: this.payloads.trackingUrl(order.orderNumber),
+      customerName: this.customerName(order),
       orderNumber: order.orderNumber,
       orderStatus: this.translateStatus(order.status),
+      isPickup: order.deliveryMethod === DeliveryMethod.PICKUP,
       total: Number(order.total).toFixed(2),
-      trackingUrl: `${appUrl}/orders/track/${order.orderNumber}`,
+      totalVes: formatVes(order.totalVes),
+      exchangeRate: formatVes(order.exchangeRate),
+      paymentMethod: this.translatePaymentMethod(order.paymentInfo?.method),
+      paymentReference: order.paymentInfo?.referenceCode ?? null,
+      // No existe un campo `verifiedAt` dedicado, y `paymentInfo.updatedAt`
+      // no sirve de sustituto: este correo se dispara desde dos sitios
+      // (`updateOrderStatus`, cuando el admin verifica el pago a mano, y
+      // `completeOrder`, cuando el ERP factura) y sólo en el primero
+      // `updatedAt` coincide con la verificación. En `completeOrder` no se
+      // toca `paymentInfo` — `updatedAt` quedaría en la fecha del último
+      // cambio del pago (p.ej. cuando se subió el comprobante), y el correo
+      // le mostraría al cliente una verificación que no ocurrió ese día.
+      // Va en `null` a propósito: la plantilla oculta el bloque, que es
+      // preferible a una fecha inventada. Para llenarlo de verdad hace falta
+      // una columna `verified_at` en `payment_info`, escrita en el momento
+      // en que el pago pasa a VERIFIED.
+      verifiedAt: null,
+      // No se calcula ninguna fecha estimada de entrega en el sistema; la
+      // plantilla oculta el bloque cuando llega null.
+      estimatedDelivery: null,
     });
+    if (!html) return;
 
     const recipientEmail = order.user?.email || order.guestEmail;
     if (!recipientEmail) {
@@ -216,28 +307,22 @@ export class EmailService {
       return;
     }
 
-    await this.sendEmail(
-      recipientEmail,
-      `Pago Confirmado - Orden #${order.orderNumber}`,
-      html,
-    );
+    await this.sendEmail(recipientEmail, subject, html);
   }
 
-  async sendOrderShipped(order: Order, trackingNumber?: string): Promise<void> {
-    const templateSource = await this.loadTemplate('order-shipped');
-    const template = handlebars.compile(templateSource);
+  async sendOrderShipped(order: Order): Promise<void> {
+    const subject = `Tu pedido ${order.orderNumber} va en camino`;
 
-    const appUrl = this.configService.get('app.url') || 'http://localhost:3000';
-
-    const html = template({
-      logoUrl: this.getLogoUrl(),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
+    const html = await this.render('order-shipped', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Coordinamos la entrega contigo por WhatsApp',
+      trackingUrl: this.payloads.trackingUrl(order.orderNumber),
+      customerName: this.customerName(order),
       orderNumber: order.orderNumber,
-      trackingNumber,
       shippingAddress: order.shippingAddress,
-      trackingUrl: `${appUrl}/orders/track/${order.orderNumber}`,
     });
+    if (!html) return;
 
     const recipientEmail = order.user?.email || order.guestEmail;
     if (!recipientEmail) {
@@ -245,80 +330,30 @@ export class EmailService {
       return;
     }
 
-    await this.sendEmail(
-      recipientEmail,
-      `Tu Orden ha Sido Enviada - #${order.orderNumber}`,
-      html,
-    );
-  }
-
-  async sendOrderDelivered(order: Order): Promise<void> {
-    const templateSource = await this.loadTemplate('order-delivered');
-    const template = handlebars.compile(templateSource);
-
-    const html = template({
-      logoUrl: this.getLogoUrl(),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
-      orderNumber: order.orderNumber,
-      deliveryDate: new Date().toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      }),
-    });
-
-    const recipientEmail = order.user?.email || order.guestEmail;
-    if (!recipientEmail) {
-      console.error('No recipient email found for order:', order.orderNumber);
-      return;
-    }
-
-    await this.sendEmail(
-      recipientEmail,
-      `Orden Entregada - #${order.orderNumber}`,
-      html,
-    );
-  }
-
-  async sendOrderCanceled(order: Order): Promise<void> {
-    const templateSource = await this.loadTemplate('order-canceled');
-    const template = handlebars.compile(templateSource);
-
-    const html = template({
-      logoUrl: this.getLogoUrl(),
-      customerName:
-        order.shippingAddress?.firstName || order.user?.firstName || 'Cliente',
-      orderNumber: order.orderNumber,
-    });
-
-    const recipientEmail = order.user?.email || order.guestEmail;
-    if (!recipientEmail) {
-      console.error('No recipient email found for order:', order.orderNumber);
-      return;
-    }
-
-    await this.sendEmail(
-      recipientEmail,
-      `Orden Cancelada #${order.orderNumber}`,
-      html,
-    );
+    await this.sendEmail(recipientEmail, subject, html);
   }
 
   async sendAdminNewOrder(order: Order): Promise<void> {
     const adminEmail = this.resolveAdminEmail('pedido nuevo');
     if (!adminEmail) return;
 
-    const templateSource = await this.loadTemplate('admin-new-order');
-    const template = handlebars.compile(templateSource);
-
     const frontendUrl =
       this.configService.get('app.frontendUrl') || 'http://localhost:3001';
     const customerName = order.shippingAddress
       ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
       : order.user?.email || order.guestEmail || 'Cliente invitado';
+    const itemCount = order.items?.length || 0;
 
-    const html = template({
+    const html = await this.render('admin-new-order', {
+      ...this.payloads.buildCommon(),
+      subject: `Pedido nuevo ${order.orderNumber}`,
+      // Mismo motivo que en `sendOrderConfirmation`: sin tasa, cae al dólar
+      // en vez de dejar un "Bs. " suelto en el preheader.
+      preheader: `${itemCount} artículos · ${
+        formatVes(order.totalVes) !== null
+          ? `Bs. ${formatVes(order.totalVes)}`
+          : `$${Number(order.total).toFixed(2)}`
+      }`,
       orderNumber: order.orderNumber,
       orderDate: new Date(order.createdAt).toLocaleDateString('es-ES', {
         year: 'numeric',
@@ -330,47 +365,18 @@ export class EmailService {
       customerName,
       customerEmail: order.user?.email || order.guestEmail || '—',
       total: Number(order.total).toFixed(2),
+      totalVes: formatVes(order.totalVes),
+      exchangeRate: formatVes(order.exchangeRate),
       paymentMethod: this.translatePaymentMethod(order.paymentInfo?.method),
       isZelle: order.paymentInfo?.method === PaymentMethod.ZELLE,
       deliveryMethod:
         order.deliveryMethod === 'pickup' ? 'Retiro en tienda' : 'Delivery',
-      itemCount: order.items?.length || 0,
+      itemCount,
       adminUrl: `${frontendUrl}/admin/dashboard/ordenes/${order.uuid}`,
     });
+    if (!html) return;
 
-    await this.sendEmail(
-      adminEmail,
-      `🛒 Nueva orden #${order.orderNumber}`,
-      html,
-    );
-  }
-
-  async sendAdminOrderCancelled(order: Order): Promise<void> {
-    const adminEmail = this.resolveAdminEmail('pedido anulado');
-    if (!adminEmail) return;
-
-    const templateSource = await this.loadTemplate('admin-order-cancelled');
-    const template = handlebars.compile(templateSource);
-
-    const frontendUrl =
-      this.configService.get('app.frontendUrl') || 'http://localhost:3001';
-    const customerName = order.shippingAddress
-      ? `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`
-      : order.user?.email || order.guestEmail || 'Cliente invitado';
-
-    const html = template({
-      orderNumber: order.orderNumber,
-      customerName,
-      customerEmail: order.user?.email || order.guestEmail || '—',
-      total: Number(order.total).toFixed(2),
-      adminUrl: `${frontendUrl}/admin/dashboard/ordenes/${order.uuid}`,
-    });
-
-    await this.sendEmail(
-      adminEmail,
-      `❌ Orden cancelada #${order.orderNumber}`,
-      html,
-    );
+    await this.sendEmail(adminEmail, `Pedido nuevo ${order.orderNumber}`, html);
   }
 
   async sendEmailVerification(params: {
@@ -379,21 +385,19 @@ export class EmailService {
     verificationUrl: string;
     storeName: string;
   }): Promise<void> {
-    const templateSource = await this.loadTemplate('email-verification');
-    const template = handlebars.compile(templateSource);
+    const subject = `Confirma tu correo electrónico - ${params.storeName}`;
 
-    const html = template({
-      logoUrl: this.getLogoUrl(),
+    const html = await this.render('email-verification', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Confírmalo para activar tu cuenta',
       firstName: params.firstName,
       verificationUrl: params.verificationUrl,
       storeName: params.storeName,
     });
+    if (!html) return;
 
-    await this.sendEmail(
-      params.to,
-      `Confirma tu correo electrónico - ${params.storeName}`,
-      html,
-    );
+    await this.sendEmail(params.to, subject, html);
   }
 
   async sendPasswordReset(params: {
@@ -402,21 +406,22 @@ export class EmailService {
     resetUrl: string;
     storeName: string;
   }): Promise<void> {
-    const templateSource = await this.loadTemplate('password-reset');
-    const template = handlebars.compile(templateSource);
+    const subject = `Restablece tu contraseña - ${params.storeName}`;
 
-    const html = template({
-      logoUrl: this.getLogoUrl(),
+    const html = await this.render('password-reset', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'El enlace vence en 1 hora',
+      // La plantilla lo muestra para que el cliente sepa a qué cuenta
+      // corresponde el enlace, sin depender de `firstName` (opcional).
+      email: params.to,
       firstName: params.firstName,
       resetUrl: params.resetUrl,
       storeName: params.storeName,
     });
+    if (!html) return;
 
-    await this.sendEmail(
-      params.to,
-      `Restablece tu contraseña - ${params.storeName}`,
-      html,
-    );
+    await this.sendEmail(params.to, subject, html);
   }
 
   async sendInvitationEmail(params: {
@@ -424,26 +429,131 @@ export class EmailService {
     inviteUrl: string;
     firstName?: string;
     role: string;
-    expiresAtFormatted: string;
+    expiresAt: Date | string;
+    invitedByName?: string;
     storeName: string;
   }): Promise<void> {
-    const templateSource = await this.loadTemplate('invitation');
-    const template = handlebars.compile(templateSource);
+    const subject = `Invitación para unirte a ${params.storeName}`;
 
-    const html = template({
-      logoUrl: this.getLogoUrl(),
+    const html = await this.render('invitation', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Crea tu contraseña para entrar al panel',
       firstName: params.firstName,
       inviteUrl: params.inviteUrl,
-      role: params.role,
-      expiresAtFormatted: params.expiresAtFormatted,
+      invitedByName: params.invitedByName ?? null,
+      roleLabel: this.roleLabel(params.role),
+      permissions: this.permissionsFor(params.role),
+      expiresAtFormatted: new Date(params.expiresAt).toLocaleDateString(
+        'es-VE',
+        { day: 'numeric', month: 'long', year: 'numeric' },
+      ),
       storeName: params.storeName,
     });
+    if (!html) return;
 
-    await this.sendEmail(
-      params.to,
-      `Invitación para unirte a ${params.storeName}`,
-      html,
-    );
+    await this.sendEmail(params.to, subject, html);
+  }
+
+  /**
+   * Aviso de que el pago no se pudo verificar.
+   *
+   * `reportedAmountVes` -- lo que el cliente dijo haber pagado -- no se
+   * recoge en ninguna parte: al rechazar, el admin sólo puede dejar
+   * `adminNotes`. Va en `null`, igual que `differenceVes` y `reservedUntil`
+   * (tampoco existen en el sistema), y la plantilla omite esos renglones.
+   */
+  async sendPaymentRejected(order: Order): Promise<void> {
+    const recipientEmail = order.user?.email || order.guestEmail;
+    if (!recipientEmail) return;
+
+    const subject = `No pudimos verificar tu pago del pedido ${order.orderNumber}`;
+
+    const html = await this.render('payment-rejected', {
+      ...this.payloads.buildCommon(),
+      subject,
+      preheader: 'Escríbenos y lo revisamos contigo',
+      orderNumber: order.orderNumber,
+      customerName: this.customerName(order),
+      paymentReference: order.paymentInfo?.referenceCode ?? null,
+      totalVes: formatVes(order.totalVes),
+      reportedAmountVes: null,
+      differenceVes: null,
+      reservedUntil: null,
+    });
+    if (!html) return;
+
+    await this.sendEmail(recipientEmail, subject, html);
+  }
+
+  /**
+   * Aviso de que el pedido se anuló solo por no haber llegado el pago.
+   *
+   * Es el único correo de cancelación que existe: las anulaciones a mano las
+   * atiende un vendedor por WhatsApp, pero ésta no la pidió nadie, así que el
+   * cliente se encontraría el pedido cancelado sin explicación ninguna. El
+   * cuerpo dice las tres cosas que necesita saber: que fue por el plazo, que la
+   * mercancía volvió al catálogo y que puede volver a pedirla.
+   *
+   * `releaseHours` llega del plazo con el que corrió la liberación, y no se
+   * relee de la configuración acá: si el dueño lo cambiara entre la
+   * cancelación y el envío, el correo tiene que contar el plazo que de verdad
+   * se le aplicó a ESTE pedido.
+   *
+   * `esperandoDatos` cambia el correo entero, y no es un matiz de redacción.
+   * Un pedido Zelle se libera sin que el cliente haya podido hacer nada: la
+   * tienda no publica esos datos, se los manda un operador por WhatsApp, y la
+   * pantalla del checkout le dijo al cliente que esperara. Decirle a ESE
+   * cliente «no recibimos tu pago» es echarle la culpa de un retraso nuestro.
+   * Cuando la bandera está puesta, el correo lo reconoce y le ofrece retomarlo
+   * por WhatsApp en vez de mandarlo a empezar de cero.
+   */
+  async sendOrderReleased(
+    order: Order,
+    releaseHours: number,
+    esperandoDatos = false,
+  ): Promise<void> {
+    const recipientEmail = order.user?.email || order.guestEmail;
+    if (!recipientEmail) return;
+
+    const comun = this.payloads.buildCommon();
+    const subject = esperandoDatos
+      ? `Liberamos tu pedido ${order.orderNumber} mientras esperabas nuestros datos de pago`
+      : `Liberamos tu pedido ${order.orderNumber} por falta de pago`;
+
+    const html = await this.render('order-released', {
+      ...comun,
+      subject,
+      preheader: esperandoDatos
+        ? 'Escríbenos y lo retomamos: la mercancía volvió al catálogo'
+        : 'La mercancía volvió al catálogo; puedes pedirla de nuevo',
+      orderNumber: order.orderNumber,
+      customerName: this.customerName(order),
+      releaseHours,
+      esperandoDatos,
+      totalVes: formatVes(order.totalVes),
+      catalogUrl: `${this.configService.get('app.frontendUrl')}/productos`,
+    });
+    if (!html) return;
+
+    await this.sendEmail(recipientEmail, subject, html);
+  }
+
+  /** Se envía cuando la cuenta queda utilizable, es decir tras verificar el correo. */
+  async sendWelcome(params: { to: string; firstName: string }): Promise<void> {
+    const comun = this.payloads.buildCommon();
+    const subject = `Tu cuenta en ${comun.store.name} ya está lista`;
+
+    const html = await this.render('welcome', {
+      ...comun,
+      subject,
+      preheader: 'Ya puedes seguir tus pedidos desde tu cuenta',
+      firstName: params.firstName,
+      catalogUrl: `${this.configService.get('app.frontendUrl')}/productos`,
+    });
+    if (!html) return;
+
+    await this.sendEmail(params.to, subject, html);
   }
 
   /**
@@ -487,5 +597,39 @@ export class EmailService {
       transferencia: 'Transferencia Bancaria',
     };
     return methodMap[method] || method;
+  }
+
+  /** Rol en español para el correo de invitación. */
+  private roleLabel(role: string): string {
+    const etiquetas: Record<string, string> = {
+      admin: 'Administrador',
+      order_admin: 'Gestor de pedidos',
+      customer: 'Cliente',
+      user: 'Cliente',
+    };
+    return etiquetas[role] ?? role;
+  }
+
+  /**
+   * Qué puede y qué no puede hacer el rol invitado, para que quien acepta la
+   * invitación sepa antes de entrar. Sólo hay dos niveles reales en el panel
+   * (admin y todo lo demás), así que cualquier rol que no sea `admin` recibe
+   * el set de permisos de gestor de pedidos.
+   */
+  private permissionsFor(role: string): { text: string; denied?: boolean }[] {
+    if (role === 'admin') {
+      return [
+        { text: 'Gestionar productos y categorías' },
+        { text: 'Gestionar pedidos y verificar pagos' },
+        { text: 'Invitar y administrar usuarios' },
+      ];
+    }
+
+    return [
+      { text: 'Ver y gestionar pedidos' },
+      { text: 'Verificar pagos' },
+      { text: 'Gestionar productos', denied: true },
+      { text: 'Administrar usuarios', denied: true },
+    ];
   }
 }

@@ -91,6 +91,13 @@ export class User {
   })
   emailVerificationToken: string | null;
 
+  // No habilita nada por sí sola, pero delata que hay una verificación en
+  // curso: la fecha aparece justo mientras el token está vivo y desaparece
+  // cuando se consume. Quien pregunte por un usuario cada tanto sabe cuándo
+  // acaba de salir un enlace y en qué ventana atacarlo. La pantalla que
+  // legítimamente necesita el plazo se lo pide a `getResetTokenInfo`, que ya
+  // exige tener el token en la mano.
+  @Exclude()
   @Column({
     name: 'email_verification_expires_at',
     type: 'timestamptz',
@@ -110,9 +117,12 @@ export class User {
   })
   passwordResetToken: string | null;
 
-  // A diferencia del token, la fecha de expiración no habilita nada por sí
-  // sola -- sin el token no sirve para tomar la cuenta -- así que no se
-  // excluye de la serialización.
+  // No habilita nada por sí sola --sin el token no sirve para tomar la
+  // cuenta-- pero delata que hay una recuperación en curso: por el mismo
+  // motivo que su gemela de arriba, se excluye. Quien de verdad necesita el
+  // plazo es la pantalla de nueva contraseña, y esa lo obtiene de
+  // `getResetTokenInfo`, que sólo responde a quien ya trae el token.
+  @Exclude()
   @Column({
     name: 'password_reset_expires_at',
     type: 'timestamptz',

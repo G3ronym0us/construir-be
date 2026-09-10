@@ -676,3 +676,47 @@ cinco cuentas de la base** no tenían cédula.
 
 En navegador, con sesión de una cuenta sin cédula: la pantalla de
 identificación aparece. Suite completa en verde en ambos repos.
+
+---
+
+## Plantillas de correo · estado tras el rediseño
+
+Adoptado el handoff de `email-templates/`. Cinco cosas quedan pendientes de
+producto, anotadas para que no se pierdan:
+
+- **`order-ready-for-pickup.hbs` y `order-shipped.hbs` no tienen disparador.**
+  No existe un estado «liste para retirar» ni uno «enviado»: el ciclo lo mueve
+  el ERP entre `on-hold`, `pending`, `completed` y `cancelled`. Las plantillas
+  están incorporadas y sus pruebas de compilación corren, así que no se van a
+  romper en silencio, pero nadie las envía.
+- **`reportedAmountVes` no se recoge.** Al rechazar un pago el admin sólo puede
+  dejar `adminNotes`, no el monto que el cliente dijo haber pagado. Ese renglón
+  de `payment-rejected` está envuelto en un condicional y no se muestra.
+- **Las cancelaciones ya no se notifican por correo.** Las atiende un vendedor
+  por WhatsApp. El admin tampoco recibe aviso de las anulaciones que dispara el
+  ERP: si eso hace falta, hay que reponerlo a propósito.
+- **`PaymentInfo` no tiene columna `verified_at`.** El correo de pago
+  confirmado muestra una fila «Verificado» con la fecha, pero ese dato no
+  existe. Se intentó usar `updatedAt` del registro de pago como sustituto y no
+  sirve: `sendPaymentConfirmed` se llama también desde `completeOrder`, que no
+  toca `paymentInfo`, así que ahí sería la fecha en que se subió el
+  comprobante y no la de verificación. Hoy va en `null` y la fila se oculta.
+  Para llenarla haría falta una columna `verified_at` escrita en la transición
+  a verificado.
+- **Se tocaron siete plantillas del handoff**, con autorización, por dos
+  motivos distintos:
+  - **Cuatro** para condicionar campos opcionales que salían como rótulos
+    huérfanos (`Bs. ` y `BCV ` vacíos, y una fila «Verificado» sin valor):
+    `payment-rejected.hbs` (el monto reportado), `order-confirmation.hbs`,
+    `payment-confirmed.hbs` y `admin-new-order.hbs`.
+  - **Tres** para resolver el escapado de URLs con token (Handlebars escapa el
+    `=` del query string a `&#x3D;`, lo que rompe el enlace para clientes de
+    correo que no decodifican entidades). Se usó triple llave (`{{{...}}}`) en
+    lugar de doble (`{{...}}`): `email-verification.hbs` (variable
+    `verificationUrl`), `invitation.hbs` (`inviteUrl`) y `password-reset.hbs`
+    (`resetUrl`).
+
+  En ambos casos hay que avisarle a quien diseñó para que lo incorpore al
+  handoff, porque si mandan versiones nuevas de esas plantillas los arreglos
+  se pierden: los campos condicionales volverían a mostrar rótulos vacíos, y
+  los enlaces de token quedarían rotos.

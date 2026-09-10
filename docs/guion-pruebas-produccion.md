@@ -25,6 +25,15 @@ grep ADMIN_NOTIFICATION_EMAIL .env
 Si no está, los avisos de pedido nuevo y de pedido anulado **no se envían** y no
 queda error: sólo un `warn` en el log. Nadie se entera de que entran pedidos.
 
+**2.b Las plantillas nuevas necesitan dos variables más:**
+
+```bash
+grep -E "STORE_WHATSAPP_URL|STORE_RIF" .env
+```
+
+Sin ellas los correos salen sin el enlace de contacto y sin el RIF, ocultando
+esos bloques. No fallan, pero pierden información que el cliente espera.
+
 **3. Órdenes viejas que el ERP no debe tomar.** Antes de encender el *polling*:
 
 ```sql
@@ -110,6 +119,17 @@ Abrir `/seguimiento/<número de orden>`.
 
 **No debe aparecer:** cédula, teléfono, correo, dirección, referencia del pago,
 enlace al comprobante, notas internas ni la referencia del ERP.
+
+### A8 · Los correos
+
+Abrir en el móvil los que llegaron: confirmación del pedido y aviso al admin.
+
+**Debe pasar:** los montos se ven con Bs. de protagonista y el USD debajo, la
+tasa aparece con su fecha, los renglones se ven como filas y no apilados, y el
+enlace de seguimiento abre el pedido.
+
+Conviene mirarlos en Outlook además del cliente habitual: es el que rompía la
+maquetación anterior, y la razón de todo el rediseño.
 
 ---
 

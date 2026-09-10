@@ -8,10 +8,12 @@ import {
   IsNotEmpty,
   MinLength,
   IsArray,
+  ArrayMaxSize,
   IsInt,
   IsPositive,
   Min,
   IsNumber,
+  MaxLength,
   ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -19,14 +21,32 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentMethod } from '../payment-info.entity';
 import { DeliveryMethod } from '../order.entity';
 import { IdentificationType } from '../guest-customer.entity';
+import {
+  EsNumeroCedulaVE,
+  EsTelefonoMovilVE,
+  NormalizaNumeroCedulaVE,
+  NormalizaTelefonoMovilVE,
+} from '../../common/validation/venezuela.decorators';
 
 export class CustomerInfoDto {
   @IsEnum(IdentificationType)
   @IsNotEmpty()
   identificationType: IdentificationType;
 
+  /**
+   * Misma regla que el registro: el checkout también puede crear la cuenta
+   * (`createAccount`), y ese camino no pasa por `CreateUserDto`. Sin validar
+   * acá, la cédula entraba con cualquier forma por la puerta de al lado.
+   *
+   * Sólo se exige forma de cédula cuando el tipo es V o E: un RIF (J, G) o un
+   * pasaporte (P) tienen otras reglas y siguen aceptándose como antes.
+   */
   @IsString()
   @IsNotEmpty()
+  // El ancho real de la columna: pasarse devolvía un 500 en vez de un 400.
+  @MaxLength(50)
+  @EsNumeroCedulaVE('identificationType')
+  @NormalizaNumeroCedulaVE()
   identificationNumber: string;
 
   @IsString()
@@ -41,8 +61,11 @@ export class CustomerInfoDto {
   @IsNotEmpty()
   email: string;
 
+  /** Sólo móviles: es por donde el despachador coordina la entrega. */
   @IsString()
   @IsNotEmpty()
+  @EsTelefonoMovilVE()
+  @NormalizaTelefonoMovilVE()
   phone: string;
 }
 
@@ -67,8 +90,20 @@ export class ShippingAddressDto {
   @IsOptional()
   country?: string;
 
+  /**
+   * Referencias para llegar: "casa azul, timbre 2", "al lado de la panadería".
+   *
+   * Va acotado porque en la práctica aquí no se escriben sólo referencias: se
+   * escriben SECRETOS DE ACCESO —"el portón está abierto", el código del
+   * edificio— y PATRONES DE PRESENCIA —"sólo por las mañanas"—. Saber la calle
+   * de alguien no te da su código ni te dice cuándo no hay nadie en la casa,
+   * así que este campo puede ser más peligroso que la dirección misma pese a
+   * parecer un detalle. El tope no lo protege, pero limita cuánto se puede
+   * acumular ahí y evita que el campo se use como saco sin fondo.
+   */
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   additionalInfo?: string;
 
   @IsNumber()
@@ -174,7 +209,24 @@ export class CreateOrderDto {
   expectedExchangeRate?: number;
 
   // Items del carrito (solo para usuarios guest sin autenticación)
+  /**
+   * Tope de renglones. Antes no había ninguno y lo acotaba de hecho el límite
+   * de cuerpo de Express: por encima de unos 1300 renglones devolvía 413. Eso
+   * no es un límite, es un accidente — depende de lo largo que sea un uuid y
+   * se mueve solo si alguien toca la configuración del body-parser.
+   *
+   * 100 es holgado para una ferretería: es el número de PRODUCTOS DISTINTOS en
+   * un pedido, no de unidades (las unidades van en `quantity`, que no tiene
+   * tope acá porque lo topa el inventario). Una obra que compra de todo no
+   * llega a cien líneas distintas.
+   *
+   * Importa porque cada renglón es una consulta de producto y una escritura, y
+   * esta ruta es pública: sin tope, un solo cuerpo de 1300 renglones costaba
+   * 1300 consultas y no lo frenaba ningún límite de tasa, que cuenta
+   * peticiones, no trabajo por petición.
+   */
   @IsArray()
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => GuestCartItemDto)
   @IsOptional()

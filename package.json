@@ -29,6 +29,7 @@
     "check-missing-images": "ts-node -r tsconfig-paths/register scripts/check-missing-images.ts",
     "delete-missing-images": "ts-node -r tsconfig-paths/register scripts/delete-missing-images.ts",
     "migrate-images-s3": "ts-node -r tsconfig-paths/register scripts/migrate-images-to-s3.ts",
+    "analitica:limpiar-rastro": "ts-node -r tsconfig-paths/register src/scripts/limpiar-rastro-analitica.ts",
     "init-exchange-rate": "ts-node -r tsconfig-paths/register src/scripts/init-exchange-rate.ts",
     "export-postman": "ts-node -r tsconfig-paths/register src/scripts/export-postman-collection.ts",
     "reset-admin-password": "ts-node -r tsconfig-paths/register scripts/reset-admin-password.ts"

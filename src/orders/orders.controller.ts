@@ -17,7 +17,13 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
+import { randomUUID } from 'crypto';
 import { Response } from 'express';
+import {
+  detectReceiptFileType,
+  MAX_RECEIPT_BYTES,
+} from './receipt-file';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { OrderAdminGuard } from '../auth/guards/order-admin.guard';
@@ -43,12 +49,52 @@ export class OrdersController {
    * Crear una nueva orden (con o sin autenticación)
    * Si el usuario está autenticado, usa su carrito del backend
    * Si no está autenticado (guest), crea orden con email del shippingAddress
+   *
+   * La respuesta NO devuelve la ficha del invitado. Esta ruta no exige sesión y
+   * la ficha viajaba entera por la relación eager: identificadores internos,
+   * fechas y —lo que de verdad importaba— la nota del domicilio y las
+   * coordenadas GPS guardadas. Era un canal de fuga por sí solo: bastaba pedir
+   * con una cédula ajena para que la respuesta del propio POST devolviera el
+   * domicilio de esa persona, sin necesidad siquiera de consultar el buscador
+   * después.
+   *
+   * No se pierde nada con quitarla: quien acaba de hacer el pedido conoce sus
+   * datos, los acaba de escribir, y el checkout sólo usa el `uuid` de la
+   * respuesta para subir el comprobante y redirigir.
+   *
+   * La ficha se anula SOBRE la entidad, no se saca con `const { guestCustomer,
+   * ...resto } = orden`. El spread devolvía un `Object` pelado, y el
+   * serializador global decide qué recortar por la clase del valor que recibe:
+   * sin clase se caían todos los decoradores de `Order` —en concreto el
+   * `@Expose()` de `totalItems`, que es un getter del prototipo y ni siquiera
+   * sobrevive al spread—. Anular el campo conserva la clase y deja intacta la
+   * única razón por la que se desarmaba el objeto.
    */
   @Post()
   @UseGuards(OptionalJwtAuthGuard)
+  // 5 pedidos por minuto y por cliente. Ésta es la ruta cara de todo el
+  // proyecto y hasta ahora no tenía ningún límite: sin sesión, sin coste y sin
+  // techo, cada llamada **crea un pedido, descuenta inventario real y dispara
+  // dos correos** —uno al cliente y otro al administrador—, y la dirección del
+  // primero la elige quien llama. Medido antes de este límite: 70 llamadas
+  // seguidas dieron 70 pedidos, 71 unidades menos de inventario y 142 correos
+  // salidos con el dominio de la tienda.
+  //
+  // 5 no estorba a nadie: un cliente hace UN pedido por compra. El margen es
+  // para el que reintenta —se equivocó en la referencia del pago, se le fue la
+  // conexión al confirmar, le rebotó por la tasa (409) y vuelve a probar—, y
+  // cinco intentos en el mismo minuto ya cubre de sobra ese día malo.
+  //
+  // Y no se puede subir "por si acaso": el número ES el techo del bombardeo de
+  // correo (5 pedidos = 10 correos por minuto y por origen) y el de la
+  // sangría de inventario. Cada unidad que se sube multiplica las dos cosas.
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   async createOrder(@Request() req, @Body() createOrderDto: CreateOrderDto) {
     const userId = req.user?.userId || null;
-    return this.ordersService.createOrder(createOrderDto, userId);
+    const orden = await this.ordersService.createOrder(createOrderDto, userId);
+
+    orden.guestCustomer = null;
+    return orden;
   }
 
   /**
@@ -66,16 +112,58 @@ export class OrdersController {
   @Post('quote')
   @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
+  // 30 por minuto. El checkout recotiza en cada cambio del formulario —método
+  // de entrega, cantidad, cupón—, así que el límite tiene que aguantar a
+  // alguien toqueteando la pantalla; 30 es más de lo que da la mano en un
+  // minuto y muy poco para un bucle.
+  //
+  // Lo que se está acotando acá es la ENUMERACIÓN DE CUPONES: esta ruta acepta
+  // un `discountCode` y responde distinto según exista o no. El mensaje ya se
+  // unificó en `DiscountsService.validateDiscount`, así que la respuesta ya no
+  // dice cuál de los dos es; el límite es la segunda mitad, la que impide
+  // probar el diccionario entero. Es el mismo par de medidas que se aplicó al
+  // buscador de invitados, en el endpoint de al lado.
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
   async quoteOrder(@Request() req, @Body() quoteOrderDto: QuoteOrderDto) {
     const userId = req.user?.userId || null;
     return this.ordersService.quoteOrder(quoteOrderDto, userId);
   }
 
   /**
-   * Subir comprobante de pago
+   * Subir el comprobante de pago de una orden.
+   *
+   * Sigue sin pedir sesión y tiene que seguir así: el checkout de invitado es
+   * el caso normal, y quien paga sin cuenta no tiene con qué autenticarse. Pero
+   * antes eso era barra libre — cualquiera que acertara un uuid escribía en el
+   * bucket de producción sin límite de tasa, sin límite de tamaño y con el tipo
+   * de archivo validado por el `Content-Type` que él mismo mandaba. Lo que
+   * ahora lo acota:
+   *
+   * - 5 subidas por minuto y por cliente. Ojo: el "y por cliente" es nuevo. El
+   *   `@UseGuards(ThrottlerGuard)` que había acá usaba el guard de serie, que
+   *   cuenta por `req.ip`, y sin `trust proxy` eso es la IP del proxy para todo
+   *   el mundo: las 5 subidas por minuto se las repartía la tienda entera, y el
+   *   sexto cliente del minuto no podía pagar. Ahora el guard es el global
+   *   (`VisitanteThrottlerGuard`, en `app.module.ts`), que identifica al
+   *   visitante de verdad, y acá sólo queda el `@Throttle` que baja el techo;
+   * - la orden tiene que existir, no estar cancelada y no tener el pago ya
+   *   verificado (`assertReceiptUploadAllowed`), y eso se comprueba ANTES de
+   *   escribir en S3, para no dejar basura en el bucket de un intento inválido;
+   * - 5 MB de tope en multer, que antes no había ninguno;
+   * - el tipo sale de los bytes del fichero, no de lo que diga el cliente, y la
+   *   extensión de la clave sale de ahí y no de `originalname` — con el que se
+   *   podía dejar un `.html` servido desde el dominio del bucket.
+   *
+   * El comprobante va por `uploadPrivateFile`, así que no queda ninguna URL
+   * pública ni en S3 ni en la respuesta.
    */
   @Post(':uuid/receipt')
-  @UseInterceptors(FileInterceptor('receipt'))
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @UseInterceptors(
+    FileInterceptor('receipt', {
+      limits: { fileSize: MAX_RECEIPT_BYTES, files: 1 },
+    }),
+  )
   async uploadReceipt(
     @Param('uuid') uuid: string,
     @UploadedFile() file: Express.Multer.File,
@@ -84,30 +172,74 @@ export class OrdersController {
       throw new BadRequestException('Receipt file is required');
     }
 
-    // Validar tipo de archivo
-    const allowedMimeTypes = [
-      'image/jpeg',
-      'image/jpg',
-      'image/png',
-      'image/webp',
-      'application/pdf',
-    ];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
+    const fileType = detectReceiptFileType(file.buffer);
+    if (!fileType) {
       throw new BadRequestException(
-        'Only image files (JPEG, PNG, WebP) and PDF are allowed',
+        'El comprobante debe ser una imagen JPEG, PNG o WebP, o un PDF',
       );
     }
 
-    // Subir a S3
-    const folder = 'receipts';
-    const result = await this.s3Service.uploadFile(file, folder);
+    await this.ordersService.assertReceiptUploadAllowed(uuid);
 
-    // Actualizar la orden con el comprobante
-    return this.ordersService.uploadPaymentReceipt(
-      uuid,
-      result.url,
-      result.key,
+    const { key } = await this.s3Service.uploadPrivateFile(
+      file,
+      'receipts',
+      `receipts/${randomUUID()}.${fileType.extension}`,
+      fileType.mimeType,
     );
+
+    const { order, previousKey } = await this.ordersService.uploadPaymentReceipt(
+      uuid,
+      key,
+    );
+
+    // Al reemplazar un comprobante rechazado, el anterior no tiene por qué
+    // quedarse en el bucket: son datos personales que ya no hacen falta.
+    if (previousKey && previousKey !== key) {
+      await this.s3Service.deleteFile(previousKey).catch(() => undefined);
+    }
+
+    return order;
+  }
+
+  /**
+   * Enlace temporal para ver o descargar el comprobante de una orden.
+   *
+   * Reemplaza a la URL pública del bucket que antes viajaba dentro de la orden.
+   * Quién puede pedirlo lo decide `getReceiptKeyForViewer`: admin, order_admin
+   * o el cliente registrado dueño de la orden.
+   */
+  @Get(':uuid/receipt')
+  @UseGuards(JwtAuthGuard)
+  async getReceipt(
+    @Request() req,
+    @Param('uuid') uuid: string,
+    @Query('download') download?: string,
+  ) {
+    const isAdmin =
+      req.user?.role === UserRole.ADMIN ||
+      req.user?.role === UserRole.ORDER_ADMIN;
+
+    const { order, receiptKey } =
+      await this.ordersService.getReceiptKeyForViewer(uuid, {
+        userId: req.user?.userId,
+        isAdmin,
+      });
+
+    const wantsDownload = download === '1' || download === 'true';
+    const extension = receiptKey.split('.').pop() ?? 'jpg';
+
+    const { url, expiresIn } = await this.s3Service.getSignedDownloadUrl(
+      receiptKey,
+      {
+        disposition: wantsDownload ? 'attachment' : 'inline',
+        filename: wantsDownload
+          ? `comprobante-${order.orderNumber}.${extension}`
+          : undefined,
+      },
+    );
+
+    return { url, expiresIn };
   }
 
   /**

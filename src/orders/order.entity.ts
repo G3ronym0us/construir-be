@@ -10,6 +10,7 @@ import {
   JoinColumn,
   Generated,
 } from 'typeorm';
+import { Expose } from 'class-transformer';
 import { User } from '../users/user.entity';
 import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
@@ -142,6 +143,20 @@ export class Order {
   })
   exchangeRate: number | null;
 
+  /**
+   * Fecha de la tasa con la que se facturó, no la del pedido.
+   *
+   * La tasa publicada del BCV puede ser de días o meses antes: en la base
+   * local la más reciente era del 2026-04-19 mientras los pedidos eran de
+   * julio. Los correos muestran "BCV 481,22 · 19 abr", así que usar
+   * `createdAt` como sustituto le mostraría al cliente una fecha falsa.
+   *
+   * Nula en los pedidos anteriores a la migración: la tasa vigente entonces no
+   * se puede reconstruir con certeza, así que el correo omite la fecha.
+   */
+  @Column({ name: 'exchange_rate_date', type: 'date', nullable: true })
+  exchangeRateDate: string | null;
+
   @Column({
     name: 'subtotal_ves',
     type: 'decimal',
@@ -214,6 +229,24 @@ export class Order {
   updatedAt: Date;
 
   // Computed properties
+
+  /**
+   * Unidades del pedido, sumando las cantidades de cada renglón.
+   *
+   * `@Expose()` NO es decorativo: es lo único que hace que este getter viaje en
+   * la respuesta. `ClassSerializerInterceptor` arma el JSON con
+   * `instanceToPlain`, que recorre las propiedades PROPIAS del objeto — y un
+   * getter vive en el prototipo, así que sin `@Expose()` se cae del JSON en
+   * silencio, sin error ni aviso.
+   *
+   * Es exactamente el fallo que ya se había corregido en `Cart` (ver
+   * `cart.serialization.spec.ts`) y que aquí quedó pendiente. Consecuencia:
+   * `GET /orders` y `GET /orders/:uuid` respondían sin `totalItems`, y en
+   * "Mis pedidos" el cliente leía **"undefined productos"** debajo de cada
+   * compra suya. El listado del panel no lo sufría porque `toAdminOrderRow`
+   * copia el getter a mano en JavaScript, donde sí funciona.
+   */
+  @Expose()
   get totalItems(): number {
     return this.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
   }

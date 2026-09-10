@@ -23,18 +23,13 @@ describe('OrdersService.cancelOrder', () => {
   let service: OrdersService;
   let orderRepo: { findOne: jest.Mock; save: jest.Mock };
   let productRepo: { increment: jest.Mock };
-  let emailService: {
-    sendOrderCanceled: jest.Mock;
-    sendAdminOrderCancelled: jest.Mock;
-  };
+  // Las cancelaciones ya no se notifican por correo, así que el servicio no
+  // necesita ningún método mockeado.
+  const emailService = {};
 
   beforeEach(async () => {
     orderRepo = { findOne: jest.fn(), save: jest.fn() };
     productRepo = { increment: jest.fn().mockResolvedValue(undefined) };
-    emailService = {
-      sendOrderCanceled: jest.fn().mockResolvedValue(undefined),
-      sendAdminOrderCancelled: jest.fn().mockResolvedValue(undefined),
-    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -132,7 +127,11 @@ describe('OrdersService.cancelOrder', () => {
     );
   });
 
-  it('calls sendOrderCanceled with the full order after cancelling', async () => {
+  // Las cancelaciones ya no se notifican por correo. La prueba importa porque
+  // este método devuelve inventario y guarda la orden ANTES de donde estaba el
+  // envío: si quedara una llamada a una plantilla borrada, `readFileSync`
+  // reventaría sobre una anulación que ya se aplicó.
+  it('cancela sin intentar enviar ningún correo', async () => {
     const order = makeOrder({ status: OrderStatus.ON_HOLD });
     const savedOrder = { ...order, status: OrderStatus.CANCELLED };
 
@@ -141,10 +140,9 @@ describe('OrdersService.cancelOrder', () => {
       .mockResolvedValueOnce(savedOrder);
     orderRepo.save.mockResolvedValue(savedOrder);
 
-    await service.cancelOrder('order-uuid-100');
+    await expect(service.cancelOrder('order-uuid-100')).resolves.not.toThrow();
 
-    expect(emailService.sendOrderCanceled).toHaveBeenCalledTimes(1);
-    expect(emailService.sendOrderCanceled).toHaveBeenCalledWith(savedOrder);
+    expect(productRepo.increment).toHaveBeenCalledTimes(2);
   });
 
   it('throws BadRequestException when status is CANCELLED (already cancelled)', async () => {

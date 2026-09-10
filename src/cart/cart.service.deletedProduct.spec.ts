@@ -32,7 +32,7 @@ describe('CartService — producto borrado en el carrito', () => {
     create: jest.Mock;
     save: jest.Mock;
   };
-  let cartItemRepository: { create: jest.Mock; save: jest.Mock };
+  let cartItemRepository: { create: jest.Mock; save: jest.Mock; remove: jest.Mock };
   let productRepository: { findOne: jest.Mock };
 
   const productoVivo = (over: Partial<Product> = {}): Product =>
@@ -72,7 +72,7 @@ describe('CartService — producto borrado en el carrito', () => {
 
   beforeEach(async () => {
     cartRepository = { findOne: jest.fn(), create: jest.fn(), save: jest.fn() };
-    cartItemRepository = { create: jest.fn(), save: jest.fn() };
+    cartItemRepository = { create: jest.fn(), save: jest.fn(), remove: jest.fn() };
     productRepository = { findOne: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -131,6 +131,72 @@ describe('CartService — producto borrado en el carrito', () => {
       // guarda del huérfano no puede haber roto el camino normal.
       expect(cartItemRepository.create).not.toHaveBeenCalled();
       expect(renglonVivo.quantity).toBe(3);
+    });
+  });
+
+  describe('getCart', () => {
+    it('no le muestra al cliente los renglones sin producto', async () => {
+      const renglonVivo = {
+        uuid: 'cart-item-vivo',
+        quantity: 1,
+        price: 11.6,
+        product: productoVivo(),
+      } as unknown as CartItem;
+
+      cartRepository.findOne.mockResolvedValue(
+        carritoCon([renglonHuerfano(), renglonVivo]),
+      );
+
+      const carrito = await service.getCart(42);
+
+      // Ese `product: null` viajaba en el JSON y tumbaba el render de TODO el
+      // catálogo en el frontend (`item.product.uuid` en la tarjeta de
+      // producto): el cliente con sesión iniciada se quedaba sin botones para
+      // agregar nada, sin error visible y sin relación aparente con el
+      // producto borrado.
+      expect(carrito.items).toEqual([renglonVivo]);
+    });
+
+    it('vuelve a mostrar el renglón si el admin restaura el producto', async () => {
+      // Se filtra, no se borra: el mismo renglón con su producto de vuelta
+      // reaparece con la cantidad intacta.
+      const revivido = {
+        uuid: 'cart-item-huerfano',
+        quantity: 3,
+        price: 9,
+        product: productoVivo(),
+      } as unknown as CartItem;
+
+      cartRepository.findOne.mockResolvedValue(carritoCon([revivido]));
+
+      const carrito = await service.getCart(42);
+
+      expect(carrito.items).toHaveLength(1);
+      expect(carrito.items[0].quantity).toBe(3);
+    });
+  });
+
+  describe('clearCart', () => {
+    it('vacía también los renglones huérfanos, sin dejar filas invisibles', async () => {
+      const huerfano = renglonHuerfano();
+      const renglonVivo = {
+        uuid: 'cart-item-vivo',
+        quantity: 1,
+        price: 11.6,
+        product: productoVivo(),
+      } as unknown as CartItem;
+
+      cartRepository.findOne.mockResolvedValue(
+        carritoCon([huerfano, renglonVivo]),
+      );
+      cartItemRepository.remove.mockResolvedValue(undefined);
+
+      await service.clearCart(42);
+
+      expect(cartItemRepository.remove).toHaveBeenCalledWith([
+        huerfano,
+        renglonVivo,
+      ]);
     });
   });
 

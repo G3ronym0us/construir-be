@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
@@ -10,7 +11,11 @@ import { Repository } from 'typeorm';
 import { Order, OrderStatus, DeliveryMethod } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
-import { PaymentInfo, PaymentMethod, PaymentStatus } from './payment-info.entity';
+import {
+  PaymentInfo,
+  PaymentMethod,
+  PaymentStatus,
+} from './payment-info.entity';
 import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User, UserRole } from '../users/user.entity';
@@ -25,11 +30,9 @@ import { UsersService } from '../users/users.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { OrderPricingService } from './order-pricing.service';
 import { QuoteOrderDto } from './dto/quote-order.dto';
-import {
-  OrderTrackingDto,
-  toOrderTrackingDto,
-} from './dto/order-tracking.dto';
+import { OrderTrackingDto, toOrderTrackingDto } from './dto/order-tracking.dto';
 import { round2 } from '../products/iva.util';
+import { HorarioComercial, plazoHabilAgotado } from './horario-habil';
 import * as bcrypt from 'bcrypt';
 
 export type QuoteIssue =
@@ -110,6 +113,81 @@ export interface AdminOrderRow {
   isGuest: boolean;
 }
 
+/**
+ * Ventas de un mes calendario.
+ *
+ * Cuenta lo MISMO que `verifiedRevenue`: sólo órdenes con el pago verificado y
+ * que no estén canceladas. La tienda cobra por adelantado, así que un pedido
+ * con el comprobante sin revisar todavía no es dinero; y una orden cancelada
+ * no lo es aunque en su día se le verificara el pago. Las rechazadas quedan
+ * fuera solas, porque nunca llegan a `verified`.
+ *
+ * El mes se decide por `createdAt` (cuándo se hizo el pedido) y no por cuándo
+ * el admin revisó el comprobante: si no, verificar hoy un pago de agosto
+ * movería una venta de agosto a septiembre.
+ */
+export interface MonthlySalesStats {
+  /** Mes en formato YYYY-MM. */
+  month: string;
+  verifiedOrders: number;
+  verifiedRevenue: number;
+  /** Nulo si ninguna orden verificada del mes tiene monto en Bs. fijado. */
+  verifiedRevenueVes: number | null;
+  averageTicket: number;
+  averageTicketVes: number | null;
+}
+
+/**
+ * El tramo del mes anterior contra el que se compara el mes en curso.
+ *
+ * `daysCompared` NO es siempre el mismo número de días que lleva el mes
+ * actual. El 31 de marzo llevan 31 días corridos, pero febrero sólo tiene 28,
+ * así que el tramo se recorta y se comparan 31 días contra 28. Ese número
+ * tiene que viajar hasta la pantalla: si el rótulo lo dedujera de los días del
+ * mes en curso escribiría "los primeros 31 días de febrero", el mismo "31 de
+ * febrero" que el cálculo se cuida de no inventar. Y lo calcula quien recorta
+ * el tramo, aquí, en vez de repetir la regla en el frontend — repetirla en dos
+ * sitios es exactamente como nació el fallo que este bloque vino a arreglar.
+ */
+export interface PreviousMonthToDateStats extends MonthlySalesStats {
+  /** Días del mes anterior efectivamente comparados. */
+  daysCompared: number;
+}
+
+/**
+ * El mes en curso —lo que va de él— con su variación contra el mes anterior.
+ *
+ * Los importes son los del mes hasta HOY, así que el día 9 son nueve días. La
+ * variación, en cambio, NO se calcula contra el mes anterior entero: se
+ * calcula contra su mismo tramo (del 1 al 9 de agosto). Comparar nueve días
+ * contra treinta y uno daría una caída aplastante los primeros días del mes y
+ * una subida eufórica el último, sin que la venta hubiera cambiado; el dueño
+ * miraría el panel el día 2 y creería que se hundió el negocio.
+ *
+ * Las variaciones van en USD y en número de pedidos, nunca en bolívares: los
+ * montos en Bs. son el USD multiplicado por la tasa BCV del día, así que un
+ * "+40% en Bs." puede ser sólo la devaluación y no una venta más. El dueño
+ * necesita saber si vendió más, no si el bolívar valía menos.
+ *
+ * Cada variación es `null` —no 0— cuando el tramo anterior fue cero: no hay
+ * porcentaje que calcular contra una base vacía, y pintar "0% vs mes anterior"
+ * diría "vendiste lo mismo", que es falso.
+ *
+ * Queda un sesgo que no se puede quitar filtrando por `createdAt`: como los
+ * comprobantes se revisan con retraso, el tramo del mes anterior sigue
+ * CRECIENDO hacia atrás cada vez que el admin verifica un pago viejo. Es el
+ * precio correcto de fechar la venta cuando se hizo el pedido y no cuando se
+ * revisó el papel; lo que no puede pasar es que el panel calle que compara
+ * tramos parciales, y por eso `daysElapsed` viaja hasta la pantalla.
+ */
+export interface CurrentMonthSalesStats extends MonthlySalesStats {
+  /** Días del mes ya transcurridos, hoy incluido. El día 9 vale 9. */
+  daysElapsed: number;
+  percentageChangeRevenue: number | null;
+  percentageChangeOrders: number | null;
+  percentageChangeAverageTicket: number | null;
+}
+
 /** Cabecera del listado de órdenes: KPIs y conteos de los chips por estado. */
 export interface AdminOrderStats {
   totalOrders: number;
@@ -126,10 +204,77 @@ export interface AdminOrderStats {
   averageTicketVes: number | null;
   /** Tasa BCV vigente hoy, no la fijada en ninguna orden. */
   exchangeRate: number | null;
+  /** Bloque "Ventas e Ingresos del Mes" del panel. */
+  currentMonth: CurrentMonthSalesStats;
+  /** El mes anterior COMPLETO: con lo que cerró. */
+  previousMonth: MonthlySalesStats;
+  /**
+   * El mismo tramo del mes anterior que lleva recorrido el actual —recortado
+   * si el mes anterior es más corto—, que es contra lo que se calculan las
+   * variaciones de `currentMonth`.
+   */
+  previousMonthToDate: PreviousMonthToDateStats;
+}
+
+/**
+ * Resume en un bloque mensual las órdenes ya filtradas de ese mes.
+ *
+ * `verifiedRevenueVes` suma sólo las órdenes que tienen monto en Bs. fijado
+ * (las anteriores a que se guardara la tasa lo tienen nulo) y el promedio en
+ * Bs. divide entre ESAS, no entre todas: dividir el subtotal en Bs. entre el
+ * número completo de órdenes daría un ticket promedio artificialmente bajo.
+ *
+ * CUIDADO al leer las dos cifras de una misma tarjeta como si fueran la misma
+ * venta en dos monedas. Cuando hay órdenes viejas sin `totalVes`, el importe
+ * en USD cubre TODAS y el de Bs. sólo las que tienen tasa fijada, así que
+ * dividir uno entre otro no da ninguna tasa real: con 81.000 Bs. sobre 203,33
+ * USD sale 398 y con 27.000 sobre 50,83 sale 531, y ninguna de las dos es la
+ * del BCV. Los Bs. no se recalculan a la tasa de hoy a propósito —cada orden
+ * lleva congelada la del día en que se hizo, que es lo que de verdad cobró la
+ * tienda—, así que el desfase se irá solo cuando caduquen las órdenes previas
+ * a la tasa fijada. No "arreglarlo" convirtiendo el USD al vuelo.
+ */
+export function summarizeMonthlySales(
+  orders: Order[],
+  monthStart: Date,
+): MonthlySalesStats {
+  const withVes = orders.filter((order) => order.totalVes !== null);
+  const verifiedRevenue = round2(
+    orders.reduce((sum, order) => sum + Number(order.total), 0),
+  );
+  const verifiedRevenueVes = withVes.length
+    ? round2(withVes.reduce((sum, order) => sum + Number(order.totalVes), 0))
+    : null;
+
+  return {
+    month: `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`,
+    verifiedOrders: orders.length,
+    verifiedRevenue,
+    verifiedRevenueVes,
+    averageTicket: orders.length ? round2(verifiedRevenue / orders.length) : 0,
+    averageTicketVes:
+      verifiedRevenueVes !== null
+        ? round2(verifiedRevenueVes / withVes.length)
+        : null,
+  };
+}
+
+/**
+ * Variación porcentual contra el mes anterior, o `null` si no hay contra qué
+ * comparar. Ver `CurrentMonthSalesStats` para por qué no es 0.
+ */
+export function percentageChange(
+  current: number,
+  previous: number,
+): number | null {
+  if (previous === 0) return null;
+  return round2(((current - previous) / previous) * 100);
 }
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
@@ -747,6 +892,10 @@ export class OrdersService {
         const guestCustomer = await this.guestCustomersService.createOrUpdate(
           createOrderDto.customerInfo,
           createOrderDto.shippingAddress,
+          // El método va explícito porque es lo que decide si esa dirección se
+          // mira: el DTO sólo la valida cuando es `delivery`, y arriba tampoco
+          // se crea el registro de envío para un `pickup`.
+          createOrderDto.deliveryMethod,
         );
         guestCustomerId = guestCustomer.id;
       }
@@ -854,6 +1003,7 @@ export class OrdersService {
       order.discountAmount = pricing.discount;
       order.total = pricing.total;
       order.exchangeRate = pricing.exchangeRate;
+      order.exchangeRateDate = pricing.rateDate;
       order.subtotalVes = pricing.subtotalVes;
       order.taxVes = pricing.taxVes;
       order.discountAmountVes = pricing.discountVes;
@@ -947,10 +1097,34 @@ export class OrdersService {
         await this.discountsService.incrementUsage(pricing.discountUuid);
       }
 
-      // 11. Enviar email de confirmación
+      // 11. Avisar por correo. **Que un fallo de acá no tumbe la compra.**
+      //
+      // Es la última línea de un método que ya guardó el pedido, creó sus
+      // renglones, reservó inventario real, vació el carrito, quizá dio de alta
+      // una cuenta y consumió un uso del cupón. Nada de eso está en una
+      // transacción: si esta parte lanza, el cliente recibe un 500 y da por
+      // fallada una compra que SÍ existe y que ya le apartó la mercancía. Va a
+      // volver a intentarlo, y el inventario se reserva otra vez.
+      //
+      // Ojo con el `finally` de más abajo: para cuando se llega acá
+      // `reservaConfirmada` ya es true, así que un fallo de correo NO devuelve
+      // el stock — y hace bien, el pedido existe. Precisamente por eso el correo
+      // no puede propagar: un 500 dejaría al cliente reintentando sobre
+      // mercancía que ya es suya.
+      //
+      // Un correo es un aviso, no parte de la compra. `EmailService` ya traga
+      // los fallos de SMTP y los de plantilla por su cuenta (está medido: con el
+      // servidor de correo caído `POST /orders` sigue devolviendo 201), pero eso
+      // es una garantía de la otra clase, que puede perderse en cualquier cambio
+      // de allá; lo que no puede perderse es que este método no reviente después
+      // de haber escrito. Por eso el `catch` va acá, en el sitio que sabe lo que
+      // hay en juego, y no se confía en el de más abajo.
+      //
+      // Es el mismo criterio que ya se aplica al alta de cuenta
+      // (`UsersService.create`, que manda el correo de verificación con
+      // `.catch()` y no propaga), y el mismo que documenta `EmailService.render`.
       const finalOrder = await this.findOneByUuid(order.uuid);
-      await this.emailService.sendOrderConfirmation(finalOrder);
-      await this.emailService.sendAdminNewOrder(finalOrder);
+      await this.avisaPorCorreo(finalOrder);
 
       // 12. Retornar la orden completa
       return finalOrder;
@@ -967,28 +1141,140 @@ export class OrdersService {
   }
 
   /**
-   * Sube el comprobante de pago
+   * Manda la confirmación al cliente y el aviso al administrador, y se traga
+   * lo que falle.
+   *
+   * Los dos van por separado a propósito: si el del cliente fallara, el
+   * administrador tiene que enterarse igual de que hay un pedido nuevo que
+   * cobrar. Con un solo `try` alrededor de los dos, el primer fallo se llevaba
+   * el segundo por delante.
+   *
+   * El fallo queda en el log y en ningún otro sitio, así que conviene saber
+   * qué significa verlo: el pedido está creado y el inventario descontado, pero
+   * el cliente no tiene su comprobante — hay que avisarlo a mano.
+   */
+  private async avisaPorCorreo(order: Order): Promise<void> {
+    try {
+      await this.emailService.sendOrderConfirmation(order);
+    } catch (error) {
+      this.logger.error(
+        `Pedido ${order.orderNumber} creado, pero falló su correo de ` +
+          `confirmación al cliente: ${error}`,
+      );
+    }
+
+    try {
+      await this.emailService.sendAdminNewOrder(order);
+    } catch (error) {
+      this.logger.error(
+        `Pedido ${order.orderNumber} creado, pero falló el aviso al ` +
+          `administrador: ${error}`,
+      );
+    }
+  }
+
+  /**
+   * Comprueba que una orden admite que le suban un comprobante, antes de
+   * aceptar el fichero.
+   *
+   * La subida no lleva sesión —el checkout de invitado no la tiene— y el uuid
+   * del pedido es todo el secreto que hay, así que el resto de condiciones
+   * hacen de filtro: sin ellas, cualquiera que acertara un uuid podía escribir
+   * en el bucket de producción, y podía además tapar un comprobante ya
+   * verificado con el de otro pago.
+   *
+   * Se deja pasar `REJECTED` a propósito: el flujo normal cuando el admin
+   * rechaza un pago es que el cliente mande otra captura.
+   */
+  async assertReceiptUploadAllowed(orderUuid: string): Promise<Order> {
+    const order = await this.orderRepository.findOne({
+      where: { uuid: orderUuid },
+      relations: ['paymentInfo'],
+    });
+
+    if (!order || !order.paymentInfo) {
+      throw new NotFoundException(`Order with ID ${orderUuid} not found`);
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException(
+        'No se puede adjuntar un comprobante a una orden cancelada',
+      );
+    }
+
+    if (order.paymentInfo.status === PaymentStatus.VERIFIED) {
+      throw new BadRequestException(
+        'El pago de esta orden ya fue verificado; el comprobante no se puede sustituir',
+      );
+    }
+
+    return order;
+  }
+
+  /**
+   * Guarda el comprobante de pago recién subido.
+   *
+   * Sólo se guarda la `key`: la URL directa ya no se escribe nunca más, porque
+   * era pública y quedaba en la base para siempre. `receiptUrl` se pone a null
+   * también al reemplazar, para no dejar viva la de un comprobante anterior.
    */
   async uploadPaymentReceipt(
     orderUuid: string,
-    receiptUrl: string,
     receiptKey: string,
-  ): Promise<Order> {
+  ): Promise<{ order: Order; previousKey: string | null }> {
+    const order = await this.assertReceiptUploadAllowed(orderUuid);
+
+    const previousKey = order.paymentInfo.receiptKey ?? null;
+
+    order.paymentInfo.receiptUrl = null;
+    order.paymentInfo.receiptKey = receiptKey;
+    order.paymentInfo.status = PaymentStatus.PENDING;
+
+    await this.paymentInfoRepository.save(order.paymentInfo);
+    const saved = await this.orderRepository.save(order);
+
+    return { order: saved, previousKey };
+  }
+
+  /**
+   * Devuelve la orden y la clave de su comprobante a quien tiene derecho a
+   * verlo.
+   *
+   * Lo ven los administradores y los `order_admin` —son quienes verifican el
+   * pago— y el cliente registrado dueño de la orden. Al invitado no: no tiene
+   * sesión, y lo único que podría presentar es el número de orden, que va en un
+   * correo, se reenvía por WhatsApp y es correlativo. Por eso mismo
+   * `trackByOrderNumber` ya recorta los datos del pago, y devolver el
+   * comprobante por ese camino reabriría lo que aquel cierre tapó. El invitado
+   * tampoco lo necesita: la captura la mandó él y la tiene en su teléfono.
+   */
+  async getReceiptKeyForViewer(
+    orderUuid: string,
+    viewer: { userId?: number; isAdmin: boolean },
+  ): Promise<{ order: Order; receiptKey: string }> {
     const order = await this.orderRepository.findOne({
       where: { uuid: orderUuid },
       relations: ['paymentInfo'],
     });
 
     if (!order) {
-      throw new NotFoundException(`Order with ID ${orderUuid} not found`);
+      throw new NotFoundException(`Order with UUID ${orderUuid} not found`);
     }
 
-    order.paymentInfo.receiptUrl = receiptUrl;
-    order.paymentInfo.receiptKey = receiptKey;
-    order.paymentInfo.status = PaymentStatus.PENDING;
+    // 401 y no 403, que es lo que semánticamente correspondería: es el mismo
+    // error que ya devuelven `findOneByUuid` y `cancelOrder` para «esta orden no
+    // es tuya». Cambiarlo sólo aquí dejaría al frontend distinguiendo dos
+    // códigos para el mismo rechazo. Si se corrige, hay que corregir los tres.
+    if (!viewer.isAdmin && order.userId !== viewer.userId) {
+      throw new UnauthorizedException('Access denied to this order');
+    }
 
-    await this.paymentInfoRepository.save(order.paymentInfo);
-    return this.orderRepository.save(order);
+    const receiptKey = order.paymentInfo?.receiptKey;
+    if (!receiptKey) {
+      throw new NotFoundException('Esta orden no tiene comprobante de pago');
+    }
+
+    return { order, receiptKey };
   }
 
   /**
@@ -1033,6 +1319,15 @@ export class OrdersService {
       order.paymentInfo.status === PaymentStatus.VERIFIED
     ) {
       await this.emailService.sendPaymentConfirmed(updatedOrder);
+    }
+
+    // Simétrico al aviso de pago verificado: hasta ahora el rechazo no
+    // notificaba nada y el cliente se quedaba esperando sin saber por qué.
+    if (
+      previousPaymentStatus !== PaymentStatus.REJECTED &&
+      order.paymentInfo.status === PaymentStatus.REJECTED
+    ) {
+      await this.emailService.sendPaymentRejected(updatedOrder);
     }
 
     return updatedOrder;
@@ -1160,17 +1455,313 @@ export class OrdersService {
 
     order.status = OrderStatus.CANCELLED;
     const cancelledOrder = await this.orderRepository.save(order);
-    const fullOrder = await this.findOneByUuid(cancelledOrder.uuid);
-    await this.emailService.sendOrderCanceled(fullOrder);
-    await this.emailService.sendAdminOrderCancelled(fullOrder);
+    // Las cancelaciones no se notifican por correo: las atiende un vendedor por
+    // WhatsApp, que es lo que el cliente necesita cuando su pedido se cae.
     return cancelledOrder;
+  }
+
+  /**
+   * Métodos de pago en los que **la tienda le debe algo al cliente ANTES de que
+   * pueda pagar**.
+   *
+   * Zelle funciona así por decisión del dueño: los datos de la cuenta no se
+   * publican nunca porque cambian, y un operador se los manda al cliente por
+   * WhatsApp después de recibir el pedido. El checkout lo dice con todas las
+   * letras —«Un vendedor de Construir se comunicará contigo para suministrarte
+   * los datos de pago Zelle»— y `ZelleForm.tsx` no tiene un solo campo: no
+   * pide referencia, ni emisor, ni comprobante. En el código del checkout se
+   * ve literal, `paymentDetails = {}` para Zelle.
+   *
+   * La consecuencia es que un pedido Zelle recién creado llega con
+   * `payment_info` ENTERO en blanco, y para `CAMPOS_EVIDENCIA_DE_PAGO` es
+   * indistinguible de un pedido basura. Sin esta lista, el cron cancelaba a las
+   * tres horas hábiles a un cliente que estaba haciendo exactamente lo que la
+   * pantalla le mandó hacer: esperar. Y esperaba A LA TIENDA, que es el mismo
+   * principio por el que no se toca un comprobante pendiente de revisar.
+   *
+   * Es una lista y no un `=== ZELLE` para que dar de alta un cuarto método sea
+   * una decisión consciente: quien lo añada tiene que preguntarse si su
+   * pantalla le pide datos al cliente o se los promete.
+   *
+   * Comprobado uno por uno en `checkout/page.tsx` cómo llega cada método:
+   * - `pagomovil` — el checkout exige teléfono, cédula, banco, referencia Y
+   *   comprobante antes de dejar confirmar. Nunca llega vacío.
+   * - `transferencia` — exige titular, banco, referencia Y comprobante. Nunca
+   *   llega vacío.
+   * - `zelle` — manda `{}`. Siempre llega vacío. Es el único.
+   */
+  private static readonly METODOS_QUE_ESPERAN_A_LA_TIENDA: readonly PaymentMethod[] =
+    [PaymentMethod.ZELLE];
+
+  /**
+   * ¿Este pedido está esperando que la tienda le mande los datos para pagar?
+   *
+   * Ojo con lo que NO significa: no es «este pedido no se cancela nunca». Es
+   * «a este pedido no se le puede exigir un comprobante todavía», y por eso se
+   * le aplica el plazo largo en vez del corto. Si Zelle no caducara jamás,
+   * bastaría con mandar `paymentMethod: "zelle"` —que es justo lo que manda la
+   * tienda de verdad, sin ningún dato— para apartar inventario para siempre, y
+   * el agujero que esta rama vino a cerrar quedaría abierto con una palabra.
+   */
+  private esperaDatosDeLaTienda(order: Order): boolean {
+    const metodo = order.paymentInfo?.method;
+    return (
+      metodo !== undefined &&
+      OrdersService.METODOS_QUE_ESPERAN_A_LA_TIENDA.includes(metodo)
+    );
+  }
+
+  /**
+   * Campos de `payment_info` que significan «yo ya pagué, están ustedes
+   * revisando».
+   *
+   * **De esta lista depende que la liberación automática no haga daño**, así
+   * que está en un solo sitio, enumerada a mano y no derivada de las columnas
+   * de la entidad: una columna nueva no debe entrar acá sin que alguien decida
+   * si es evidencia de pago o no.
+   *
+   * Están TODOS los campos de `PaymentDetailsDto` porque todos son cosas que el
+   * cliente teclea en el paso de pago del checkout y ninguno se rellena solo:
+   *
+   * - `receiptKey` / `receiptUrl` — el comprobante en imagen. Las dos cuentan:
+   *   las subidas de ahora escriben la clave de S3, y las anteriores a la
+   *   migración dejaron la URL pública con la clave nula. Mirar sólo
+   *   `receiptKey` daría por «sin pagar» a todos los pedidos viejos.
+   * - `referenceCode` y `referenceNumber` — el número de referencia del pago
+   *   móvil y el de la transferencia. Es literalmente el dato con el que la
+   *   tienda busca el movimiento en el banco.
+   * - `senderName` y `senderBank` — quién y desde qué banco envió el Zelle.
+   * - `accountName` — el titular de la cuenta desde la que se transfirió.
+   * - `phoneNumber` y `cedula` — el teléfono y la cédula DEL PAGADOR. No son
+   *   los del comprador: los datos de contacto viven en `customerInfo`, van a
+   *   `guest_customers` y a la dirección de envío, y no tocan esta tabla. Acá
+   *   sólo llegan si el cliente los escribió en el paso de pago, que es lo que
+   *   hace falta para identificar un pago móvil.
+   * - `bankId` / `transferBankId` — el banco emisor que el cliente eligió.
+   * - `notes` — texto libre del cliente en el paso de pago; suele ser
+   *   «transferí desde otra cuenta», «pago en dos partes». Ante la duda, entra.
+   *
+   * **Lo que deliberadamente NO cuenta.** `method` está siempre puesto: es un
+   * enum obligatorio del DTO y no dice nada sobre si alguien pagó — si contara,
+   * no se cancelaría jamás ningún pedido. Y `status` tampoco sirve como señal
+   * de «no pagó»: nace en `pending` y sigue en `pending` hasta que un humano lo
+   * revisa, así que en esta base TODOS los pagos aportados están en `pending`.
+   * Filtrar por `status = 'pending'` para decidir a quién cancelar sería,
+   * literalmente, cancelar a los que sí pagaron. Sí se usa en la otra
+   * dirección: un pago ya `verified` no se toca nunca.
+   *
+   * La regla de fondo es la asimetría del daño: el ataque que esto viene a
+   * frenar crea pedidos VACÍOS —lo confirman los tres `on-hold` de la base con
+   * las once columnas en blanco—, no rellena datos de pago. Contar de más
+   * deja unas unidades apartadas de sobra, un rato; contar de menos anula la
+   * compra de alguien que pagó.
+   */
+  private static readonly CAMPOS_EVIDENCIA_DE_PAGO = [
+    'receiptKey',
+    'receiptUrl',
+    'referenceCode',
+    'referenceNumber',
+    'senderName',
+    'senderBank',
+    'accountName',
+    'phoneNumber',
+    'cedula',
+    'bankId',
+    'transferBankId',
+    'notes',
+  ] as const satisfies readonly (keyof PaymentInfo)[];
+
+  /**
+   * ¿El cliente aportó algo que signifique que ya pagó y espera confirmación?
+   *
+   * Una cadena vacía cuenta como ausencia: la base guarda `''` y no `NULL` en
+   * varias de estas columnas cuando el checkout manda el campo en blanco (se ve
+   * en los pedidos 31, 32 y 37, con las once columnas a `''`). Tratar `''` como
+   * evidencia dejaría el cron sin cancelar absolutamente nada, que es el otro
+   * modo de fallo: silencioso y con cara de funcionar.
+   */
+  private tieneEvidenciaDePago(order: Order): boolean {
+    const pago = order.paymentInfo;
+    if (!pago) {
+      // Sin fila de pago no hay forma de saber si aportó algo. Ante la duda,
+      // no se cancela.
+      return true;
+    }
+
+    // Un pago ya verificado por la tienda no se anula por esta vía ni aunque
+    // las columnas de detalle estén vacías: alguien lo dio por bueno a mano.
+    if (pago.status === PaymentStatus.VERIFIED) return true;
+
+    return OrdersService.CAMPOS_EVIDENCIA_DE_PAGO.some((campo) => {
+      const valor = pago[campo];
+      if (valor === null || valor === undefined) return false;
+      return typeof valor === 'string' ? valor.trim() !== '' : true;
+    });
+  }
+
+  /**
+   * Devuelve al catálogo el inventario que apartaron los pedidos que nunca se
+   * pagaron.
+   *
+   * Un pedido descuenta stock al crearse y queda `on-hold` esperando el pago.
+   * Si no llega nunca, esas unidades quedaban apartadas para siempre y el
+   * catálogo se podía agotar entero sin gastar un céntimo, porque `POST
+   * /orders` es público. El límite de tasa acota el ritmo; esto cierra la fuga.
+   *
+   * **La regla que no se puede romper: sólo se anula el pedido en el que el
+   * cliente NO aportó NADA sobre su pago.** Ni comprobante en imagen, ni
+   * referencia, ni emisor, ni banco. Ver `CAMPOS_EVIDENCIA_DE_PAGO` para la
+   * lista y el porqué de cada campo. Un pedido con cualquiera de esos datos es
+   * alguien esperando a la tienda, y anulárselo por la demora de la propia
+   * tienda es el peor daño que este cron podría hacer, así que el filtro va
+   * dos veces: en la consulta que elige candidatos y otra vez sobre la fila
+   * recién releída, por si el cliente aportó algo entre una cosa y la otra.
+   *
+   * El plazo se cuenta en horas **hábiles** (ver `horario-habil.ts`): el reloj
+   * se detiene con la tienda cerrada. La consulta prefiltra por horas seguidas
+   * —que es lo único que sabe hacer SQL acá— y eso es correcto porque el
+   * tiempo hábil nunca supera al tiempo corrido: lo que la consulta descarta
+   * tampoco habría vencido en horas hábiles. El reloj hábil decide después,
+   * sobre cada candidato.
+   *
+   * **Hay dos plazos, y cuál se aplica depende del método de pago.** Los
+   * pedidos Zelle llegan con `payment_info` vacío por diseño —la tienda le
+   * manda los datos al cliente por WhatsApp después— así que su cuenta atrás no
+   * mide «cuánto tarda en pagar» sino «cuánto tarda la tienda en escribirle más
+   * lo que él tarde en ir al banco». Ver `METODOS_QUE_ESPERAN_A_LA_TIENDA`.
+   *
+   * Cancela reutilizando `cancelOrder`, que es quien sabe devolver el
+   * inventario; acá no hay una segunda ruta de cancelación que pueda
+   * desincronizarse con ella.
+   */
+  async liberarPedidosSinPagar(
+    horas: number,
+    horasEsperandoDatos: number,
+    horario: HorarioComercial,
+    zona: string,
+  ): Promise<{ liberados: number; omitidos: number; fallidos: number }> {
+    const ahora = new Date();
+    // El prefiltro usa el MENOR de los dos plazos. Con el corto se dejaría
+    // fuera de la consulta a los Zelle, que es lo que se quiere evitar: mejor
+    // traer de más y que decida el reloj hábil, candidato por candidato.
+    const plazoMasCorto = Math.min(horas, horasEsperandoDatos);
+    const limite = new Date(ahora.getTime() - plazoMasCorto * 60 * 60 * 1000);
+
+    // `innerJoinAndSelect` y no la relación eager: con QueryBuilder las
+    // relaciones eager no se cargan solas, y sin `paymentInfo` en la fila el
+    // segundo filtro de evidencia no tendría qué mirar.
+    const candidatos = await this.orderRepository
+      .createQueryBuilder('order')
+      .innerJoinAndSelect('order.paymentInfo', 'pago')
+      .where('order.status = :onHold', { onHold: OrderStatus.ON_HOLD })
+      .andWhere('order.createdAt < :limite', { limite })
+      .andWhere(
+        // Un solo `andWhere` con las doce columnas: en SQL "no aportó nada" es
+        // la conjunción entera, y partirla en doce `andWhere` sueltos invita a
+        // que alguien borre uno sin notar que abre un agujero.
+        OrdersService.CAMPOS_EVIDENCIA_DE_PAGO.map(
+          // `''` cuenta como vacío igual que `NULL`: el checkout guarda cadena
+          // vacía cuando el campo se manda en blanco.
+          (campo) => `COALESCE(CAST(pago.${campo} AS TEXT), '') = ''`,
+        ).join(' AND '),
+      )
+      .andWhere('pago.status != :verificado', {
+        verificado: PaymentStatus.VERIFIED,
+      })
+      .getMany();
+
+    let liberados = 0;
+    let omitidos = 0;
+    let fallidos = 0;
+
+    for (const candidato of candidatos) {
+      try {
+        // Segunda lectura, fresca: entre la consulta de arriba y esta línea
+        // pueden pasar segundos, y en esos segundos el cliente pudo subir su
+        // comprobante o un vendedor pudo mover el pedido de estado.
+        const order = await this.findOneByUuid(candidato.uuid);
+
+        if (this.tieneEvidenciaDePago(order)) {
+          this.logger.log(
+            `Pedido ${order.orderNumber} NO se libera: el cliente aportó ` +
+              'datos de pago y está esperando confirmación.',
+          );
+          omitidos++;
+          continue;
+        }
+
+        if (order.status !== OrderStatus.ON_HOLD) {
+          omitidos++;
+          continue;
+        }
+
+        // Cada pedido con su plazo. El largo es para los métodos en los que
+        // el cliente todavía no ha podido pagar porque espera nuestros datos:
+        // exigirle un comprobante en tres horas sería exigirle lo imposible.
+        const esperandoDatos = this.esperaDatosDeLaTienda(order);
+        const plazo = esperandoDatos ? horasEsperandoDatos : horas;
+
+        // El reloj hábil, sobre la hora en que el cliente hizo el pedido.
+        if (!plazoHabilAgotado(order.createdAt, ahora, plazo, horario, zona)) {
+          omitidos++;
+          continue;
+        }
+
+        const cancelado = await this.cancelOrder(order.uuid);
+        liberados++;
+        this.logger.log(
+          `Pedido ${cancelado.orderNumber} liberado tras ${plazo} h hábiles ` +
+            (esperandoDatos
+              ? 'esperando que la tienda le mandara los datos de pago'
+              : 'sin datos de pago') +
+            `; ${cancelado.items.length} renglones devueltos al inventario.`,
+        );
+
+        // El correo va DESPUÉS de liberar y con su propio try: el stock ya
+        // está devuelto y el pedido anulado cuando esto corre. Si el SMTP se
+        // cae, el fallo queda en el log y la liberación se mantiene — igual
+        // que en `createOrder`. Lo contrario dejaría el pedido anulado, el
+        // stock devuelto y el cron abortado a medio recorrido por un correo.
+        await this.avisaLiberacion(cancelado, plazo, esperandoDatos);
+      } catch (error) {
+        fallidos++;
+        this.logger.error(
+          `No se pudo liberar el pedido ${candidato.orderNumber}: ${error}`,
+        );
+      }
+    }
+
+    return { liberados, omitidos, fallidos };
+  }
+
+  /**
+   * Avisa al cliente de que su pedido se liberó, y se traga lo que falle.
+   *
+   * El fallo queda en el log y en ningún otro sitio; saber leerlo importa: el
+   * pedido está anulado y el inventario devuelto, pero el cliente no se enteró
+   * y va a encontrarse un pedido cancelado sin explicación.
+   */
+  private async avisaLiberacion(
+    order: Order,
+    horas: number,
+    esperandoDatos: boolean,
+  ): Promise<void> {
+    try {
+      await this.emailService.sendOrderReleased(order, horas, esperandoDatos);
+    } catch (error) {
+      this.logger.error(
+        `Pedido ${order.orderNumber} liberado, pero falló su correo de ` +
+          `aviso al cliente: ${error}`,
+      );
+    }
   }
 
   /**
    * Obtiene estadísticas del dashboard de admin
    */
   async getAdminStats(): Promise<AdminOrderStats> {
-    const startOfToday = new Date();
+    const now = new Date();
+    const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(
       startOfToday.getFullYear(),
@@ -1208,22 +1799,27 @@ export class OrdersService {
     // que lleva el chip del listado y tiene que cuadrar con las filas que ese
     // mismo chip muestra al pulsarlo (`?paymentStatus=pending`), que sí las
     // trae. Un pago sin verificar de una orden cancelada también da trabajo.
-    const [todayOrders, monthOrders, pendingPayment, verifiedOrdersList, currentRate] =
-      await Promise.all([
-        this.orderRepository
-          .createQueryBuilder('order')
-          .where('order.createdAt >= :startOfToday', { startOfToday })
-          .getCount(),
-        this.orderRepository
-          .createQueryBuilder('order')
-          .where('order.createdAt >= :startOfMonth', { startOfMonth })
-          .getCount(),
-        this.ordersByPaymentStatus(PaymentStatus.PENDING),
-        this.ordersByPaymentStatus(PaymentStatus.VERIFIED, {
-          excludeCancelled: true,
-        }),
-        this.exchangeRatesService.findLatest(),
-      ]);
+    const [
+      todayOrders,
+      monthOrders,
+      pendingPayment,
+      verifiedOrdersList,
+      currentRate,
+    ] = await Promise.all([
+      this.orderRepository
+        .createQueryBuilder('order')
+        .where('order.createdAt >= :startOfToday', { startOfToday })
+        .getCount(),
+      this.orderRepository
+        .createQueryBuilder('order')
+        .where('order.createdAt >= :startOfMonth', { startOfMonth })
+        .getCount(),
+      this.ordersByPaymentStatus(PaymentStatus.PENDING),
+      this.ordersByPaymentStatus(PaymentStatus.VERIFIED, {
+        excludeCancelled: true,
+      }),
+      this.exchangeRatesService.findLatest(),
+    ]);
 
     const verifiedOrders = verifiedOrdersList.length;
     const verifiedRevenue = round2(
@@ -1231,10 +1827,89 @@ export class OrdersService {
     );
     // `totalVes` es nulo en las órdenes anteriores a la tasa fijada; si ninguna
     // la tiene no hay monto en Bs. que mostrar y la tarjeta cae al USD.
-    const withVes = verifiedOrdersList.filter((order) => order.totalVes !== null);
+    const withVes = verifiedOrdersList.filter(
+      (order) => order.totalVes !== null,
+    );
     const verifiedRevenueVes = withVes.length
       ? round2(withVes.reduce((sum, order) => sum + Number(order.totalVes), 0))
       : null;
+
+    // Los dos meses del bloque "Ventas e Ingresos del Mes" salen de la MISMA
+    // lista de órdenes verificadas que el KPI de arriba, filtrada por fecha, y
+    // no de una consulta aparte: así el "ingreso del mes" y el "ingreso
+    // verificado" no pueden contar cosas distintas, que es como el panel
+    // acabaría enseñando dos cifras de ventas que no cuadran entre sí.
+    const startOfPreviousMonth = new Date(
+      startOfMonth.getFullYear(),
+      startOfMonth.getMonth() - 1,
+      1,
+    );
+    const currentMonthOrders = verifiedOrdersList.filter(
+      (order) => order.createdAt >= startOfMonth,
+    );
+    const previousMonthOrders = verifiedOrdersList.filter(
+      (order) =>
+        order.createdAt >= startOfPreviousMonth &&
+        order.createdAt < startOfMonth,
+    );
+
+    // El corte del tramo comparable: el mismo trecho de mes que lleva
+    // recorrido el actual, trasladado al anterior. Se traslada por duración y
+    // no por día del mes para no tener que inventarse un "31 de febrero".
+    //
+    // Cuando el mes anterior es más corto que ese trecho —el 30 de marzo son
+    // 29 días y febrero tiene 28— el corte cae ya dentro del mes en curso. No
+    // hace falta taparlo: se filtra sobre `previousMonthOrders`, que ya está
+    // acotado a `< startOfMonth`, así que el tramo nunca puede pasar de ser
+    // el mes anterior entero. Filtrar aquí sobre la lista completa sí sería
+    // un fallo: metería ventas de marzo en la comparación de marzo.
+    const elapsed = now.getTime() - startOfMonth.getTime();
+    const previousMonthCutoff = new Date(
+      startOfPreviousMonth.getTime() + elapsed,
+    );
+    const previousMonthToDateOrders = previousMonthOrders.filter(
+      (order) => order.createdAt < previousMonthCutoff,
+    );
+
+    const currentMonthStats = summarizeMonthlySales(
+      currentMonthOrders,
+      startOfMonth,
+    );
+    const previousMonth = summarizeMonthlySales(
+      previousMonthOrders,
+      startOfPreviousMonth,
+    );
+    // Cuántos días del mes anterior se han comparado DE VERDAD. Cuando el mes
+    // anterior es más corto que el trecho recorrido, el tramo se queda en el
+    // mes entero: el 31 de marzo son 28 días de febrero, no 31. Ver
+    // `PreviousMonthToDateStats`.
+    const daysInPreviousMonth = new Date(
+      startOfMonth.getFullYear(),
+      startOfMonth.getMonth(),
+      0,
+    ).getDate();
+    const previousMonthToDate: PreviousMonthToDateStats = {
+      ...summarizeMonthlySales(previousMonthToDateOrders, startOfPreviousMonth),
+      daysCompared: Math.min(now.getDate(), daysInPreviousMonth),
+    };
+    // Contra el TRAMO del mes anterior, no contra el mes anterior entero: ver
+    // `CurrentMonthSalesStats`.
+    const currentMonth: CurrentMonthSalesStats = {
+      ...currentMonthStats,
+      daysElapsed: now.getDate(),
+      percentageChangeRevenue: percentageChange(
+        currentMonthStats.verifiedRevenue,
+        previousMonthToDate.verifiedRevenue,
+      ),
+      percentageChangeOrders: percentageChange(
+        currentMonthStats.verifiedOrders,
+        previousMonthToDate.verifiedOrders,
+      ),
+      percentageChangeAverageTicket: percentageChange(
+        currentMonthStats.averageTicket,
+        previousMonthToDate.averageTicket,
+      ),
+    };
 
     return {
       totalOrders,
@@ -1252,12 +1927,17 @@ export class OrdersService {
       verifiedOrders,
       verifiedRevenue,
       verifiedRevenueVes,
-      averageTicket: verifiedOrders ? round2(verifiedRevenue / verifiedOrders) : 0,
+      averageTicket: verifiedOrders
+        ? round2(verifiedRevenue / verifiedOrders)
+        : 0,
       averageTicketVes:
         verifiedRevenueVes !== null
           ? round2(verifiedRevenueVes / withVes.length)
           : null,
       exchangeRate: currentRate ? Number(currentRate.rate) : null,
+      currentMonth,
+      previousMonth,
+      previousMonthToDate,
     };
   }
 
@@ -1278,207 +1958,6 @@ export class OrdersService {
     }
 
     return query.getMany();
-  }
-
-  /**
-   * Obtiene estadísticas del dashboard con comparación mensual
-   */
-  async getDashboardStats(month?: string): Promise<any> {
-    // Determinar el mes actual o el especificado
-    const targetDate = month ? new Date(month + '-01') : new Date();
-    const startOfMonth = new Date(
-      targetDate.getFullYear(),
-      targetDate.getMonth(),
-      1,
-    );
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const endOfMonth = new Date(
-      targetDate.getFullYear(),
-      targetDate.getMonth() + 1,
-      0,
-    );
-    endOfMonth.setHours(23, 59, 59, 999);
-
-    // Mes anterior
-    const startOfPrevMonth = new Date(
-      targetDate.getFullYear(),
-      targetDate.getMonth() - 1,
-      1,
-    );
-    startOfPrevMonth.setHours(0, 0, 0, 0);
-
-    const endOfPrevMonth = new Date(
-      targetDate.getFullYear(),
-      targetDate.getMonth(),
-      0,
-    );
-    endOfPrevMonth.setHours(23, 59, 59, 999);
-
-    // Obtener órdenes confirmadas del mes actual
-    const currentMonthOrders = await this.orderRepository
-      .createQueryBuilder('order')
-      .where('order.createdAt >= :start', { start: startOfMonth })
-      .andWhere('order.createdAt <= :end', { end: endOfMonth })
-      .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
-      .getMany();
-
-    // Obtener órdenes confirmadas del mes anterior
-    const prevMonthOrders = await this.orderRepository
-      .createQueryBuilder('order')
-      .where('order.createdAt >= :start', { start: startOfPrevMonth })
-      .andWhere('order.createdAt <= :end', { end: endOfPrevMonth })
-      .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
-      .getMany();
-
-    // Calcular totales del mes actual
-    const currentRevenue = currentMonthOrders.reduce(
-      (sum, order) => sum + Number(order.total),
-      0,
-    );
-    const currentRevenueVes = currentMonthOrders.reduce(
-      (sum, order) => sum + (order.totalVes ? Number(order.totalVes) : 0),
-      0,
-    );
-    const currentSalesCount = currentMonthOrders.length;
-
-    // Calcular totales del mes anterior
-    const prevRevenue = prevMonthOrders.reduce(
-      (sum, order) => sum + Number(order.total),
-      0,
-    );
-    const prevRevenueVes = prevMonthOrders.reduce(
-      (sum, order) => sum + (order.totalVes ? Number(order.totalVes) : 0),
-      0,
-    );
-    const prevSalesCount = prevMonthOrders.length;
-
-    // Calcular porcentajes de cambio
-    const revenueChangePercent =
-      prevRevenue > 0
-        ? Number(
-            (((currentRevenue - prevRevenue) / prevRevenue) * 100).toFixed(2),
-          )
-        : 0;
-
-    const salesChangePercent =
-      prevSalesCount > 0
-        ? Number(
-            (
-              ((currentSalesCount - prevSalesCount) / prevSalesCount) *
-              100
-            ).toFixed(2),
-          )
-        : 0;
-
-    // Formatear período
-    const formatPeriod = (date: Date) => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      return `${year}-${month}`;
-    };
-
-    return {
-      currentMonth: {
-        revenueUSD: Number(currentRevenue.toFixed(2)),
-        revenueVES: Number(currentRevenueVes.toFixed(2)),
-        salesCount: currentSalesCount,
-        period: formatPeriod(targetDate),
-      },
-      previousMonth: {
-        revenueUSD: Number(prevRevenue.toFixed(2)),
-        revenueVES: Number(prevRevenueVes.toFixed(2)),
-        salesCount: prevSalesCount,
-        period: formatPeriod(startOfPrevMonth),
-      },
-      comparison: {
-        revenueChangePercent,
-        salesChangePercent,
-      },
-    };
-  }
-
-  /**
-   * Obtiene productos más y menos vendidos
-   */
-  async getTopProducts(month?: string, limit: number = 10): Promise<any> {
-    // Determinar el mes
-    const targetDate = month ? new Date(month + '-01') : new Date();
-    const startOfMonth = new Date(
-      targetDate.getFullYear(),
-      targetDate.getMonth(),
-      1,
-    );
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const endOfMonth = new Date(
-      targetDate.getFullYear(),
-      targetDate.getMonth() + 1,
-      0,
-    );
-    endOfMonth.setHours(23, 59, 59, 999);
-
-    // Productos más vendidos
-    const topSelling = await this.orderItemRepository
-      .createQueryBuilder('item')
-      .select('item.product.uuid', 'productUuid')
-      .addSelect('item.productName', 'productName')
-      .addSelect('SUM(item.quantity)', 'totalQuantity')
-      .addSelect('SUM(item.subtotal)', 'totalRevenue')
-      .addSelect('COUNT(DISTINCT item.orderId)', 'orderCount')
-      .innerJoin('item.order', 'order')
-      .innerJoin('item.product', 'product')
-      .where('order.createdAt >= :start', { start: startOfMonth })
-      .andWhere('order.createdAt <= :end', { end: endOfMonth })
-      .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
-      .groupBy('item.productId')
-      .addGroupBy('item.productName')
-      .orderBy('totalQuantity', 'DESC')
-      .limit(limit)
-      .getRawMany();
-
-    // Productos menos vendidos
-    const leastSelling = await this.orderItemRepository
-      .createQueryBuilder('item')
-      .select('product.uuid', 'productUuid')
-      .addSelect('item.productName', 'productName')
-      .addSelect('SUM(item.quantity)', 'totalQuantity')
-      .addSelect('SUM(item.subtotal)', 'totalRevenue')
-      .addSelect('COUNT(DISTINCT item.orderId)', 'orderCount')
-      .innerJoin('item.order', 'order')
-      .innerJoin('item.product', 'product')
-      .where('order.createdAt >= :start', { start: startOfMonth })
-      .andWhere('order.createdAt <= :end', { end: endOfMonth })
-      .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
-      .groupBy('item.productId')
-      .addGroupBy('item.productName')
-      .orderBy('totalQuantity', 'ASC')
-      .limit(limit)
-      .getRawMany();
-
-    const formatPeriod = (date: Date) => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      return `${year}-${month}`;
-    };
-
-    return {
-      topSelling: topSelling.map((p) => ({
-        productUuid: p.productUuid,
-        productName: p.productName,
-        totalQuantity: parseInt(p.totalQuantity),
-        totalRevenue: Number(Number(p.totalRevenue).toFixed(2)),
-        orderCount: parseInt(p.orderCount),
-      })),
-      leastSelling: leastSelling.map((p) => ({
-        productUuid: p.productUuid,
-        productName: p.productName,
-        totalQuantity: parseInt(p.totalQuantity),
-        totalRevenue: Number(Number(p.totalRevenue).toFixed(2)),
-        orderCount: parseInt(p.orderCount),
-      })),
-      period: formatPeriod(targetDate),
-    };
   }
 
   /**
@@ -1597,7 +2076,10 @@ export class OrdersService {
   }): Promise<{ orders: AdminOrderRow[]; total: number }> {
     const { orders, total } = await this.filterOrders(filters);
 
-    return { orders: orders.map((order) => this.toAdminOrderRow(order)), total };
+    return {
+      orders: orders.map((order) => this.toAdminOrderRow(order)),
+      total,
+    };
   }
 
   /**
@@ -1618,7 +2100,8 @@ export class OrdersService {
     const identification = (
       type?: string | null,
       number?: string | null,
-    ): string | null => (number ? `${type ?? ''}-${number}`.replace(/^-/, '') : null);
+    ): string | null =>
+      number ? `${type ?? ''}-${number}`.replace(/^-/, '') : null;
 
     return {
       uuid: order.uuid,
@@ -1637,20 +2120,29 @@ export class OrdersService {
         order.paymentInfo?.referenceCode ??
         order.paymentInfo?.referenceNumber ??
         null,
-      hasReceipt: Boolean(order.paymentInfo?.receiptUrl),
+      hasReceipt: Boolean(
+        order.paymentInfo?.receiptKey || order.paymentInfo?.receiptUrl,
+      ),
       customerName:
         fullName(guest?.firstName, guest?.lastName) ??
         fullName(user?.firstName, user?.lastName) ??
         fullName(address?.firstName, address?.lastName),
       customerIdentification:
-        identification(guest?.identificationType, guest?.identificationNumber) ??
+        identification(
+          guest?.identificationType,
+          guest?.identificationNumber,
+        ) ??
         identification(user?.identificationType, user?.identificationNumber) ??
         identification(
           address?.identificationType,
           address?.identificationNumber,
         ),
       customerEmail:
-        guest?.email ?? user?.email ?? address?.email ?? order.guestEmail ?? null,
+        guest?.email ??
+        user?.email ??
+        address?.email ??
+        order.guestEmail ??
+        null,
       isGuest: !order.userId,
     };
   }
@@ -1785,9 +2277,8 @@ export class OrdersService {
     order.dateCompleted = dateCompleted;
 
     const cancelledOrder = await this.orderRepository.save(order);
-    const fullOrder = await this.findOneByUuid(cancelledOrder.uuid);
-    await this.emailService.sendOrderCanceled(fullOrder);
-    await this.emailService.sendAdminOrderCancelled(fullOrder);
+    // Las cancelaciones no se notifican por correo: las atiende un vendedor por
+    // WhatsApp, que es lo que el cliente necesita cuando su pedido se cae.
     return cancelledOrder;
   }
 
