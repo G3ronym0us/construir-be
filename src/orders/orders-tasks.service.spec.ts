@@ -21,11 +21,13 @@ describe('OrdersTasksService — liberación de pedidos sin pagar', () => {
   let ordersService: { liberarPedidosSinPagar: jest.Mock };
   let horasConfiguradas: number | null | undefined;
   let horarioConfigurado: string | undefined;
+  let horasEsperandoDatos: number | null | undefined;
   let avisos: string[];
 
   beforeEach(async () => {
     avisos = [];
     horarioConfigurado = '1-5:08:00-17:00;6:08:00-12:00';
+    horasEsperandoDatos = 18;
     ordersService = {
       liberarPedidosSinPagar: jest
         .fn()
@@ -42,6 +44,8 @@ describe('OrdersTasksService — liberación de pedidos sin pagar', () => {
             get: jest.fn((clave: string) => {
               if (clave === 'orders.unpaidReleaseHours')
                 return horasConfiguradas;
+              if (clave === 'orders.unpaidReleaseHoursAwaitingDetails')
+                return horasEsperandoDatos;
               if (clave === 'orders.businessHours') return horarioConfigurado;
               if (clave === 'app.storeTimezone') return 'America/Caracas';
               return undefined;
@@ -72,6 +76,7 @@ describe('OrdersTasksService — liberación de pedidos sin pagar', () => {
 
     expect(ordersService.liberarPedidosSinPagar).toHaveBeenCalledWith(
       3,
+      18,
       parseHorarioComercial('1-5:08:00-17:00;6:08:00-12:00'),
       'America/Caracas',
     );
@@ -84,6 +89,7 @@ describe('OrdersTasksService — liberación de pedidos sin pagar', () => {
 
     expect(ordersService.liberarPedidosSinPagar).toHaveBeenCalledWith(
       12,
+      18,
       expect.any(Map),
       'America/Caracas',
     );
@@ -136,6 +142,49 @@ describe('OrdersTasksService — liberación de pedidos sin pagar', () => {
   });
 
   /**
+   * El plazo largo de Zelle se valida igual que el corto, y con la misma
+   * consecuencia: si no se entiende, NO SE LIBERA NADA — tampoco los pedidos de
+   * los otros métodos. Media pasada aplicada es más difícil de razonar que
+   * ninguna, y la dirección segura es no cancelar.
+   */
+  describe('el plazo de los que esperan datos también se valida', () => {
+    it('con null no llama a la liberación y avisa por log', async () => {
+      horasConfiguradas = 3;
+      horasEsperandoDatos = null;
+
+      await tasks.handleUnpaidOrderRelease();
+
+      expect(ordersService.liberarPedidosSinPagar).not.toHaveBeenCalled();
+      expect(avisos.join(' ')).toContain(
+        'ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS',
+      );
+    });
+
+    it('detiene la pasada entera, no sólo los Zelle', async () => {
+      horasConfiguradas = 3;
+      horasEsperandoDatos = undefined;
+
+      await tasks.handleUnpaidOrderRelease();
+
+      expect(ordersService.liberarPedidosSinPagar).not.toHaveBeenCalled();
+    });
+
+    it('pasa el plazo largo del entorno, no uno fijo en el código', async () => {
+      horasConfiguradas = 3;
+      horasEsperandoDatos = 40;
+
+      await tasks.handleUnpaidOrderRelease();
+
+      expect(ordersService.liberarPedidosSinPagar).toHaveBeenCalledWith(
+        3,
+        40,
+        expect.any(Map),
+        'America/Caracas',
+      );
+    });
+  });
+
+  /**
    * La zona del reloj es la de la tienda, no la del servidor. Un despliegue en
    * UTC contaría las franjas cuatro horas corridas.
    */
@@ -146,6 +195,7 @@ describe('OrdersTasksService — liberación de pedidos sin pagar', () => {
 
     expect(ordersService.liberarPedidosSinPagar).toHaveBeenCalledWith(
       3,
+      18,
       expect.any(Map),
       'America/Caracas',
     );
@@ -231,5 +281,55 @@ describe('ordersConfig — ORDERS_UNPAID_RELEASE_HOURS', () => {
     expect(parseHorarioComercial(ordersConfig().businessHours)).toBeNull();
 
     delete process.env.ORDERS_BUSINESS_HOURS;
+  });
+
+  /**
+   * El plazo largo, con la misma tabla de dedazos. Su defecto son 18 horas
+   * hábiles: dos días de atención, que es lo que hace falta para que un
+   * operador escriba y el cliente llegue al banco.
+   */
+  describe('ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS', () => {
+    const originalLargo =
+      process.env.ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS;
+
+    afterEach(() => {
+      if (originalLargo === undefined)
+        delete process.env.ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS;
+      else
+        process.env.ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS =
+          originalLargo;
+    });
+
+    const leerLargo = (valor: string | undefined): number | null => {
+      if (valor === undefined)
+        delete process.env.ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS;
+      else process.env.ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS = valor;
+      return ordersConfig().unpaidReleaseHoursAwaitingDetails;
+    };
+
+    it('sin configurar usa el defecto de 18 horas hábiles', () => {
+      expect(leerLargo(undefined)).toBe(18);
+    });
+
+    it('es más largo que el plazo normal por defecto', () => {
+      delete process.env.ORDERS_UNPAID_RELEASE_HOURS;
+      const config = ordersConfig();
+      expect(config.unpaidReleaseHoursAwaitingDetails).toBeGreaterThan(
+        config.unpaidReleaseHours as number,
+      );
+    });
+
+    it.each([
+      '18e9',
+      '18_000',
+      '18 horas',
+      '18.5',
+      '-18',
+      '0',
+      '',
+      'dieciocho',
+    ])('"%s" no se entiende: null, y no el defecto', (valor) => {
+      expect(leerLargo(valor)).toBeNull();
+    });
   });
 });

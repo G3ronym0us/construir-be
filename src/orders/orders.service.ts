@@ -11,7 +11,11 @@ import { Repository } from 'typeorm';
 import { Order, OrderStatus, DeliveryMethod } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { ShippingAddress } from './shipping-address.entity';
-import { PaymentInfo, PaymentMethod, PaymentStatus } from './payment-info.entity';
+import {
+  PaymentInfo,
+  PaymentMethod,
+  PaymentStatus,
+} from './payment-info.entity';
 import { Cart } from '../cart/cart.entity';
 import { Product } from '../products/product.entity';
 import { User, UserRole } from '../users/user.entity';
@@ -26,10 +30,7 @@ import { UsersService } from '../users/users.service';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
 import { OrderPricingService } from './order-pricing.service';
 import { QuoteOrderDto } from './dto/quote-order.dto';
-import {
-  OrderTrackingDto,
-  toOrderTrackingDto,
-} from './dto/order-tracking.dto';
+import { OrderTrackingDto, toOrderTrackingDto } from './dto/order-tracking.dto';
 import { round2 } from '../products/iva.util';
 import { HorarioComercial, plazoHabilAgotado } from './horario-habil';
 import * as bcrypt from 'bcrypt';
@@ -1312,6 +1313,57 @@ export class OrdersService {
   }
 
   /**
+   * Métodos de pago en los que **la tienda le debe algo al cliente ANTES de que
+   * pueda pagar**.
+   *
+   * Zelle funciona así por decisión del dueño: los datos de la cuenta no se
+   * publican nunca porque cambian, y un operador se los manda al cliente por
+   * WhatsApp después de recibir el pedido. El checkout lo dice con todas las
+   * letras —«Un vendedor de Construir se comunicará contigo para suministrarte
+   * los datos de pago Zelle»— y `ZelleForm.tsx` no tiene un solo campo: no
+   * pide referencia, ni emisor, ni comprobante. En el código del checkout se
+   * ve literal, `paymentDetails = {}` para Zelle.
+   *
+   * La consecuencia es que un pedido Zelle recién creado llega con
+   * `payment_info` ENTERO en blanco, y para `CAMPOS_EVIDENCIA_DE_PAGO` es
+   * indistinguible de un pedido basura. Sin esta lista, el cron cancelaba a las
+   * tres horas hábiles a un cliente que estaba haciendo exactamente lo que la
+   * pantalla le mandó hacer: esperar. Y esperaba A LA TIENDA, que es el mismo
+   * principio por el que no se toca un comprobante pendiente de revisar.
+   *
+   * Es una lista y no un `=== ZELLE` para que dar de alta un cuarto método sea
+   * una decisión consciente: quien lo añada tiene que preguntarse si su
+   * pantalla le pide datos al cliente o se los promete.
+   *
+   * Comprobado uno por uno en `checkout/page.tsx` cómo llega cada método:
+   * - `pagomovil` — el checkout exige teléfono, cédula, banco, referencia Y
+   *   comprobante antes de dejar confirmar. Nunca llega vacío.
+   * - `transferencia` — exige titular, banco, referencia Y comprobante. Nunca
+   *   llega vacío.
+   * - `zelle` — manda `{}`. Siempre llega vacío. Es el único.
+   */
+  private static readonly METODOS_QUE_ESPERAN_A_LA_TIENDA: readonly PaymentMethod[] =
+    [PaymentMethod.ZELLE];
+
+  /**
+   * ¿Este pedido está esperando que la tienda le mande los datos para pagar?
+   *
+   * Ojo con lo que NO significa: no es «este pedido no se cancela nunca». Es
+   * «a este pedido no se le puede exigir un comprobante todavía», y por eso se
+   * le aplica el plazo largo en vez del corto. Si Zelle no caducara jamás,
+   * bastaría con mandar `paymentMethod: "zelle"` —que es justo lo que manda la
+   * tienda de verdad, sin ningún dato— para apartar inventario para siempre, y
+   * el agujero que esta rama vino a cerrar quedaría abierto con una palabra.
+   */
+  private esperaDatosDeLaTienda(order: Order): boolean {
+    const metodo = order.paymentInfo?.method;
+    return (
+      metodo !== undefined &&
+      OrdersService.METODOS_QUE_ESPERAN_A_LA_TIENDA.includes(metodo)
+    );
+  }
+
+  /**
    * Campos de `payment_info` que significan «yo ya pagué, están ustedes
    * revisando».
    *
@@ -1424,17 +1476,28 @@ export class OrdersService {
    * tampoco habría vencido en horas hábiles. El reloj hábil decide después,
    * sobre cada candidato.
    *
+   * **Hay dos plazos, y cuál se aplica depende del método de pago.** Los
+   * pedidos Zelle llegan con `payment_info` vacío por diseño —la tienda le
+   * manda los datos al cliente por WhatsApp después— así que su cuenta atrás no
+   * mide «cuánto tarda en pagar» sino «cuánto tarda la tienda en escribirle más
+   * lo que él tarde en ir al banco». Ver `METODOS_QUE_ESPERAN_A_LA_TIENDA`.
+   *
    * Cancela reutilizando `cancelOrder`, que es quien sabe devolver el
    * inventario; acá no hay una segunda ruta de cancelación que pueda
    * desincronizarse con ella.
    */
   async liberarPedidosSinPagar(
     horas: number,
+    horasEsperandoDatos: number,
     horario: HorarioComercial,
     zona: string,
   ): Promise<{ liberados: number; omitidos: number; fallidos: number }> {
     const ahora = new Date();
-    const limite = new Date(ahora.getTime() - horas * 60 * 60 * 1000);
+    // El prefiltro usa el MENOR de los dos plazos. Con el corto se dejaría
+    // fuera de la consulta a los Zelle, que es lo que se quiere evitar: mejor
+    // traer de más y que decida el reloj hábil, candidato por candidato.
+    const plazoMasCorto = Math.min(horas, horasEsperandoDatos);
+    const limite = new Date(ahora.getTime() - plazoMasCorto * 60 * 60 * 1000);
 
     // `innerJoinAndSelect` y no la relación eager: con QueryBuilder las
     // relaciones eager no se cargan solas, y sin `paymentInfo` en la fila el
@@ -1484,8 +1547,14 @@ export class OrdersService {
           continue;
         }
 
+        // Cada pedido con su plazo. El largo es para los métodos en los que
+        // el cliente todavía no ha podido pagar porque espera nuestros datos:
+        // exigirle un comprobante en tres horas sería exigirle lo imposible.
+        const esperandoDatos = this.esperaDatosDeLaTienda(order);
+        const plazo = esperandoDatos ? horasEsperandoDatos : horas;
+
         // El reloj hábil, sobre la hora en que el cliente hizo el pedido.
-        if (!plazoHabilAgotado(order.createdAt, ahora, horas, horario, zona)) {
+        if (!plazoHabilAgotado(order.createdAt, ahora, plazo, horario, zona)) {
           omitidos++;
           continue;
         }
@@ -1493,9 +1562,11 @@ export class OrdersService {
         const cancelado = await this.cancelOrder(order.uuid);
         liberados++;
         this.logger.log(
-          `Pedido ${cancelado.orderNumber} liberado tras ${horas} h hábiles ` +
-            `sin datos de pago; ${cancelado.items.length} renglones devueltos ` +
-            'al inventario.',
+          `Pedido ${cancelado.orderNumber} liberado tras ${plazo} h hábiles ` +
+            (esperandoDatos
+              ? 'esperando que la tienda le mandara los datos de pago'
+              : 'sin datos de pago') +
+            `; ${cancelado.items.length} renglones devueltos al inventario.`,
         );
 
         // El correo va DESPUÉS de liberar y con su propio try: el stock ya
@@ -1503,7 +1574,7 @@ export class OrdersService {
         // cae, el fallo queda en el log y la liberación se mantiene — igual
         // que en `createOrder`. Lo contrario dejaría el pedido anulado, el
         // stock devuelto y el cron abortado a medio recorrido por un correo.
-        await this.avisaLiberacion(cancelado, horas);
+        await this.avisaLiberacion(cancelado, plazo, esperandoDatos);
       } catch (error) {
         fallidos++;
         this.logger.error(
@@ -1522,9 +1593,13 @@ export class OrdersService {
    * pedido está anulado y el inventario devuelto, pero el cliente no se enteró
    * y va a encontrarse un pedido cancelado sin explicación.
    */
-  private async avisaLiberacion(order: Order, horas: number): Promise<void> {
+  private async avisaLiberacion(
+    order: Order,
+    horas: number,
+    esperandoDatos: boolean,
+  ): Promise<void> {
     try {
-      await this.emailService.sendOrderReleased(order, horas);
+      await this.emailService.sendOrderReleased(order, horas, esperandoDatos);
     } catch (error) {
       this.logger.error(
         `Pedido ${order.orderNumber} liberado, pero falló su correo de ` +
@@ -1576,22 +1651,27 @@ export class OrdersService {
     // que lleva el chip del listado y tiene que cuadrar con las filas que ese
     // mismo chip muestra al pulsarlo (`?paymentStatus=pending`), que sí las
     // trae. Un pago sin verificar de una orden cancelada también da trabajo.
-    const [todayOrders, monthOrders, pendingPayment, verifiedOrdersList, currentRate] =
-      await Promise.all([
-        this.orderRepository
-          .createQueryBuilder('order')
-          .where('order.createdAt >= :startOfToday', { startOfToday })
-          .getCount(),
-        this.orderRepository
-          .createQueryBuilder('order')
-          .where('order.createdAt >= :startOfMonth', { startOfMonth })
-          .getCount(),
-        this.ordersByPaymentStatus(PaymentStatus.PENDING),
-        this.ordersByPaymentStatus(PaymentStatus.VERIFIED, {
-          excludeCancelled: true,
-        }),
-        this.exchangeRatesService.findLatest(),
-      ]);
+    const [
+      todayOrders,
+      monthOrders,
+      pendingPayment,
+      verifiedOrdersList,
+      currentRate,
+    ] = await Promise.all([
+      this.orderRepository
+        .createQueryBuilder('order')
+        .where('order.createdAt >= :startOfToday', { startOfToday })
+        .getCount(),
+      this.orderRepository
+        .createQueryBuilder('order')
+        .where('order.createdAt >= :startOfMonth', { startOfMonth })
+        .getCount(),
+      this.ordersByPaymentStatus(PaymentStatus.PENDING),
+      this.ordersByPaymentStatus(PaymentStatus.VERIFIED, {
+        excludeCancelled: true,
+      }),
+      this.exchangeRatesService.findLatest(),
+    ]);
 
     const verifiedOrders = verifiedOrdersList.length;
     const verifiedRevenue = round2(
@@ -1599,7 +1679,9 @@ export class OrdersService {
     );
     // `totalVes` es nulo en las órdenes anteriores a la tasa fijada; si ninguna
     // la tiene no hay monto en Bs. que mostrar y la tarjeta cae al USD.
-    const withVes = verifiedOrdersList.filter((order) => order.totalVes !== null);
+    const withVes = verifiedOrdersList.filter(
+      (order) => order.totalVes !== null,
+    );
     const verifiedRevenueVes = withVes.length
       ? round2(withVes.reduce((sum, order) => sum + Number(order.totalVes), 0))
       : null;
@@ -1697,7 +1779,9 @@ export class OrdersService {
       verifiedOrders,
       verifiedRevenue,
       verifiedRevenueVes,
-      averageTicket: verifiedOrders ? round2(verifiedRevenue / verifiedOrders) : 0,
+      averageTicket: verifiedOrders
+        ? round2(verifiedRevenue / verifiedOrders)
+        : 0,
       averageTicketVes:
         verifiedRevenueVes !== null
           ? round2(verifiedRevenueVes / withVes.length)
@@ -1844,7 +1928,10 @@ export class OrdersService {
   }): Promise<{ orders: AdminOrderRow[]; total: number }> {
     const { orders, total } = await this.filterOrders(filters);
 
-    return { orders: orders.map((order) => this.toAdminOrderRow(order)), total };
+    return {
+      orders: orders.map((order) => this.toAdminOrderRow(order)),
+      total,
+    };
   }
 
   /**
@@ -1865,7 +1952,8 @@ export class OrdersService {
     const identification = (
       type?: string | null,
       number?: string | null,
-    ): string | null => (number ? `${type ?? ''}-${number}`.replace(/^-/, '') : null);
+    ): string | null =>
+      number ? `${type ?? ''}-${number}`.replace(/^-/, '') : null;
 
     return {
       uuid: order.uuid,
@@ -1892,14 +1980,21 @@ export class OrdersService {
         fullName(user?.firstName, user?.lastName) ??
         fullName(address?.firstName, address?.lastName),
       customerIdentification:
-        identification(guest?.identificationType, guest?.identificationNumber) ??
+        identification(
+          guest?.identificationType,
+          guest?.identificationNumber,
+        ) ??
         identification(user?.identificationType, user?.identificationNumber) ??
         identification(
           address?.identificationType,
           address?.identificationNumber,
         ),
       customerEmail:
-        guest?.email ?? user?.email ?? address?.email ?? order.guestEmail ?? null,
+        guest?.email ??
+        user?.email ??
+        address?.email ??
+        order.guestEmail ??
+        null,
       isGuest: !order.userId,
     };
   }

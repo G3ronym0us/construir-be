@@ -288,4 +288,63 @@ describe('EmailService — payload de las plantillas', () => {
 
     expect(enviados).toHaveLength(0);
   });
+
+  /**
+   * El correo del cliente Zelle. Es el que no puede acusarle de no haber
+   * pagado: la tienda no publica esos datos, se los manda un operador por
+   * WhatsApp, y la pantalla del checkout le dijo que esperara. Si acaba
+   * cancelándose, el texto tiene que reconocer de quién era la pelota.
+   */
+  describe('sendOrderReleased cuando el cliente esperaba nuestros datos', () => {
+    const zelle = () =>
+      makeOrder({
+        paymentInfo: {
+          method: PaymentMethod.ZELLE,
+          status: PaymentStatus.PENDING,
+        },
+      } as unknown as Partial<Order>);
+
+    it('no le dice al cliente que no pagó', async () => {
+      await service.sendOrderReleased(zelle(), 18, true);
+
+      const { html, subject } = enviados[0];
+      noQuedanHuecos(html);
+      // Ni en el asunto ni en la franja superior aparece la acusación.
+      expect(subject).not.toContain('por falta de pago');
+      expect(html).not.toContain('sin recibir el pago');
+      expect(html).not.toContain('no recibimos ni el comprobante');
+    });
+
+    it('reconoce que estaba esperando datos nuestros', async () => {
+      await service.sendOrderReleased(zelle(), 18, true);
+
+      const { html, subject } = enviados[0];
+      expect(subject).toContain('esperabas nuestros datos');
+      expect(html).toContain('Zelle');
+      expect(html).toContain('la demora es nuestra');
+      // Y le ofrece retomarlo, no rehacerlo a ciegas.
+      expect(html).toContain('Retomar mi pedido por WhatsApp');
+    });
+
+    /**
+     * El contraste: sin la bandera, el correo de siempre. Sin esto, una
+     * plantilla que dijera lo de Zelle a todo el mundo pasaría lo de arriba.
+     */
+    it('sin la bandera manda el texto normal de falta de pago', async () => {
+      await service.sendOrderReleased(makeOrder(), 3, false);
+
+      const { html, subject } = enviados[0];
+      expect(subject).toContain('por falta de pago');
+      expect(html).toContain('no recibimos ni el comprobante');
+      expect(html).not.toContain('la demora es nuestra');
+      expect(html).toContain('Volver al catálogo');
+    });
+
+    /** Y por omisión se comporta como el correo normal. */
+    it('la bandera es opcional y por defecto es el texto normal', async () => {
+      await service.sendOrderReleased(makeOrder(), 3);
+
+      expect(enviados[0].subject).toContain('por falta de pago');
+    });
+  });
 });
