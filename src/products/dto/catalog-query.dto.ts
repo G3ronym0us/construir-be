@@ -5,6 +5,7 @@ import {
   IsBooleanString,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -58,6 +59,36 @@ export class CatalogQueryDto {
   @IsBooleanString({ message: 'featured debe ser true o false' })
   featured?: string;
 
+  /**
+   * Precio mínimo en USD con IVA. Ver `FiltrosDeCatalogo` para por qué el
+   * rango viaja en dólares y no en bolívares.
+   *
+   * `Number('')` da 0, así que un `?minPrice=` vacío — lo que produce un
+   * formulario al que se le borra el campo — se trata como "sin filtro" en vez
+   * de como "desde 0", que dejaría el parámetro pegado en la URL para siempre
+   * sin filtrar nada.
+   */
+  @IsOptional()
+  @Transform(({ value }) => precioOpcional(value))
+  @IsNumber({}, { message: 'minPrice debe ser un número' })
+  @Min(0, { message: 'minPrice no puede ser negativo' })
+  @Max(1_000_000, { message: 'minPrice se sale del catálogo' })
+  minPrice?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => precioOpcional(value))
+  @IsNumber({}, { message: 'maxPrice debe ser un número' })
+  @Min(0, { message: 'maxPrice no puede ser negativo' })
+  @Max(1_000_000, { message: 'maxPrice se sale del catálogo' })
+  maxPrice?: number;
+
+  /** Unidades mínimas en inventario. Ver `FiltrosDeCatalogo`. */
+  @IsOptional()
+  @Transform(({ value }) => precioOpcional(value))
+  @IsInt({ message: 'minInventory debe ser un número entero' })
+  @Min(0, { message: 'minInventory no puede ser negativo' })
+  minInventory?: number;
+
   @IsOptional()
   @IsIn(COLUMNAS_ORDENABLES as unknown as string[], {
     message: `sortBy debe ser uno de: ${COLUMNAS_ORDENABLES.join(', ')}`,
@@ -98,4 +129,18 @@ export function validarCatalogQuery(
   }
 
   return dto;
+}
+
+/**
+ * Convierte a número los parámetros numéricos opcionales de la URL.
+ *
+ * `undefined` y la cadena vacía significan "no vino el filtro", no "cero":
+ * `Number('')` es 0 y con eso un `?minPrice=` vacío se habría interpretado
+ * como "desde 0". Lo que no es un número (`?minPrice=abc`) se deja pasar tal
+ * cual para que el validador lo rechace con un 400 explicando qué está mal.
+ */
+function precioOpcional(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return undefined;
+  const numero = Number(value);
+  return Number.isNaN(numero) ? value : numero;
 }

@@ -43,15 +43,19 @@ export class ProductsController {
   ) {
     const query = validarCatalogQuery(queryCruda);
 
-    return this.productsService.findCatalog(
-      query.page ?? 1,
-      query.limit ?? 10,
-      query.search,
-      query.categoryUuid,
-      query.featured !== undefined ? query.featured === 'true' : undefined,
-      query.sortBy || 'createdAt',
-      query.sortOrder || 'DESC',
-    );
+    return this.productsService.findCatalog({
+      page: query.page ?? 1,
+      limit: query.limit ?? 10,
+      search: query.search,
+      categoryUuid: query.categoryUuid,
+      featured:
+        query.featured !== undefined ? query.featured === 'true' : undefined,
+      sortBy: query.sortBy || 'createdAt',
+      sortOrder: query.sortOrder || 'DESC',
+      minPrice: query.minPrice,
+      maxPrice: query.maxPrice,
+      minInventory: query.minInventory,
+    });
   }
 
   @Get('admin/paginated')
