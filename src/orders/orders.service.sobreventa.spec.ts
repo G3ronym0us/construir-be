@@ -38,6 +38,8 @@ describe('OrdersService — sobreventa por renglón repetido', () => {
   };
   /** Cuántas filas dice haber tocado cada reserva, en orden de llamada. */
   let reservas: number[];
+  /** El `where` con el que se armó cada UPDATE de reserva, en orden. */
+  let condicionesDeReserva: string[];
   let cartRepository: { findOne: jest.Mock };
   let pricingService: { price: jest.Mock };
 
@@ -59,14 +61,21 @@ describe('OrdersService — sobreventa por renglón repetido', () => {
 
   beforeEach(async () => {
     reservas = [];
+    condicionesDeReserva = [];
     productRepository = {
       findOne: jest.fn(),
       increment: jest.fn(),
       createQueryBuilder: jest.fn(() => {
         const qb: Record<string, jest.Mock> = {};
-        for (const m of ['update', 'set', 'where', 'setParameter']) {
+        for (const m of ['update', 'set', 'setParameter']) {
           qb[m] = jest.fn(() => qb);
         }
+        // La condición del UPDATE se anota tal cual: es LA garantía de
+        // atomicidad y hay una prueba abajo que la exige literalmente.
+        qb.where = jest.fn((condicion: string) => {
+          condicionesDeReserva.push(condicion);
+          return qb;
+        });
         qb.execute = jest.fn(() =>
           Promise.resolve({ affected: reservas.shift() ?? 1 }),
         );
@@ -312,6 +321,47 @@ describe('OrdersService — sobreventa por renglón repetido', () => {
    * sobre un stock de 4 se aceptaban los cuatro y dejaban el inventario
    * en −12.
    */
+  /**
+   * El renglón repetido no llega sólo por el DTO del invitado: el carrito del
+   * servidor puede traer el mismo producto en dos filas, y esa es la ruta del
+   * cliente con sesión. `agruparPorProducto` se aplica a los dos caminos de
+   * `resolveOrderItems`, pero sólo el del DTO estaba cubierto: quitar la
+   * llamada de la rama del carrito dejaba la suite entera en verde
+   * (comprobado). Sin esto, la sobreventa vuelve para el usuario registrado y
+   * nada avisa.
+   */
+  describe('el carrito del usuario con sesión', () => {
+    it('suma las filas repetidas del carrito antes de validar', async () => {
+      const p = producto();
+      productRepository.findOne.mockResolvedValue(p);
+      cartRepository.findOne.mockResolvedValue({
+        id: 1,
+        userId: 7,
+        items: [
+          { uuid: 'ci-1', quantity: 2, product: p },
+          { uuid: 'ci-2', quantity: 3, product: p },
+        ],
+      });
+      pricingService.price.mockResolvedValue(pricingVacio());
+
+      // 2 + 3 = 5 sobre un inventario de 4: sin agrupar, cada fila pasaba su
+      // comprobación por separado («2 ≤ 4» y «3 ≤ 4») y se vendían 5 de 4.
+      await expect(
+        service.createOrder(
+          {
+            deliveryMethod: 'pickup',
+            paymentMethod: 'pagomovil',
+            paymentDetails: { referenceCode: '000111' },
+          } as never,
+          7,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      // Y no llegó a tocar el stock: el rechazo es anterior a toda escritura.
+      expect(productRepository.createQueryBuilder).not.toHaveBeenCalled();
+    });
+  });
+
   describe('la reserva atómica', () => {
     const pedidoSimple = () =>
       ({
@@ -389,6 +439,29 @@ describe('OrdersService — sobreventa por renglón repetido', () => {
         'inventory',
         2,
       );
+    });
+
+    /**
+     * La atomicidad entera vive en esa condición del UPDATE, y en ningún otro
+     * sitio: sin ella el `SET inventory = inventory - :cantidad` sigue
+     * corriendo, sigue devolviendo `affected: 1` y todas las demás pruebas de
+     * este fichero siguen en verde — mientras el inventario se va a negativo
+     * en producción. Comprobado borrándola a propósito: la suite no se
+     * inmutaba. Por eso se exige aquí la cadena literal.
+     *
+     * Si hay que cambiar la forma del `where`, esta prueba tiene que cambiar
+     * con él A PROPÓSITO. Que duela es justamente lo que se busca.
+     */
+    it('el UPDATE lleva la condición que impide bajar de cero', async () => {
+      productRepository.findOne.mockResolvedValue(producto());
+      pricingService.price.mockResolvedValue(pricingVacio());
+      reservas = [1];
+
+      await expect(service.createOrder(pedidoSimple())).rejects.toThrow();
+
+      expect(condicionesDeReserva).toEqual([
+        'uuid = :uuid AND inventory >= :cantidad',
+      ]);
     });
 
     it('devuelve el inventario si el pedido revienta después de reservar', async () => {
