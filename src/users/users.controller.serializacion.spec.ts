@@ -39,10 +39,16 @@ import { User, UserRole } from './user.entity';
  *    sabotea exactamente eso.
  */
 describe('serialización del controlador de usuarios', () => {
+  // Las dos fechas no son credenciales: sin su token no abren nada. Están en
+  // la lista porque delatan que hay un enlace vivo —aparecen mientras el token
+  // sirve y desaparecen al consumirse—, y quien consulte a un usuario cada
+  // tanto sabría en qué ventana atacarlo. Ver `user.entity.ts`.
   const SECRETOS = [
     'password',
     'emailVerificationToken',
     'passwordResetToken',
+    'emailVerificationExpiresAt',
+    'passwordResetExpiresAt',
   ] as const;
 
   /**
@@ -194,7 +200,9 @@ describe('serialización del controlador de usuarios', () => {
 
     expect(secretosEnLaRespuesta(desarmado)).toEqual([
       '.emailVerificationToken',
+      '.emailVerificationExpiresAt',
       '.passwordResetToken',
+      '.passwordResetExpiresAt',
     ]);
   });
 });
