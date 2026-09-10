@@ -61,6 +61,14 @@ export class OrdersController {
    * No se pierde nada con quitarla: quien acaba de hacer el pedido conoce sus
    * datos, los acaba de escribir, y el checkout sólo usa el `uuid` de la
    * respuesta para subir el comprobante y redirigir.
+   *
+   * La ficha se anula SOBRE la entidad, no se saca con `const { guestCustomer,
+   * ...resto } = orden`. El spread devolvía un `Object` pelado, y el
+   * serializador global decide qué recortar por la clase del valor que recibe:
+   * sin clase se caían todos los decoradores de `Order` —en concreto el
+   * `@Expose()` de `totalItems`, que es un getter del prototipo y ni siquiera
+   * sobrevive al spread—. Anular el campo conserva la clase y deja intacta la
+   * única razón por la que se desarmaba el objeto.
    */
   @Post()
   @UseGuards(OptionalJwtAuthGuard)
@@ -85,9 +93,8 @@ export class OrdersController {
     const userId = req.user?.userId || null;
     const orden = await this.ordersService.createOrder(createOrderDto, userId);
 
-    const { guestCustomer: _fichaDelInvitado, ...sinLaFicha } = orden;
-    void _fichaDelInvitado;
-    return sinLaFicha;
+    orden.guestCustomer = null;
+    return orden;
   }
 
   /**
