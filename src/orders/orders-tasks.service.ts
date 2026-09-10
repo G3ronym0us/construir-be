@@ -26,6 +26,19 @@ import { parseHorarioComercial } from './horario-habil';
  * la tienda cerrada, y la promesa al cliente es verificar el pago en menos de
  * dos horas hábiles.
  *
+ * **Dos plazos, según el método de pago.** Un pedido Zelle llega con
+ * `payment_info` completamente vacío porque la tienda no publica esos datos: un
+ * operador se los manda al cliente por WhatsApp y el cliente paga después. Ese
+ * cliente está esperando A LA TIENDA, igual que uno con el comprobante sin
+ * revisar, así que no se le puede aplicar el plazo de «no mandaste el
+ * comprobante»: se le aplica `ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS`,
+ * que es más largo porque incluye lo que tarde la tienda en escribirle.
+ *
+ * No se les exime del todo a propósito: mandar `paymentMethod: "zelle"` es
+ * gratis y es exactamente lo que manda la tienda de verdad, sin ningún dato, de
+ * modo que un Zelle que no caducara nunca sería una palabra clave para apartar
+ * inventario para siempre.
+ *
  * **Los festivos venezolanos no se tienen en cuenta**, porque no existen en
  * ninguna parte de este proyecto y no se van a inventar acá. La consecuencia
  * concreta: un 24 de junio el reloj corre como si la tienda estuviera abierta,
@@ -66,6 +79,24 @@ export class OrdersTasksService {
       return;
     }
 
+    // El plazo largo, para los métodos en los que el cliente no puede pagar
+    // hasta que la tienda le escriba (hoy sólo Zelle). Se valida igual, y un
+    // valor ilegible **detiene la pasada entera**, no sólo los Zelle: si no se
+    // entiende una de las dos cuentas atrás, no se cancela nada. Es la
+    // dirección segura y evita que una pasada se aplique a medias.
+    const horasEsperandoDatos = this.configService.get<number | null>(
+      'orders.unpaidReleaseHoursAwaitingDetails',
+    );
+
+    if (horasEsperandoDatos === null || horasEsperandoDatos === undefined) {
+      this.logger.warn(
+        'ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS no es un entero ' +
+          'positivo de horas; no se libera ningún pedido. Es el plazo de los ' +
+          'pedidos Zelle, que esperan a que la tienda les mande los datos.',
+      );
+      return;
+    }
+
     // Y lo mismo con el horario, por el mismo motivo y con más filo: un horario
     // a medias no deja el reloj parado, lo deja corriendo cuando no debe. Si no
     // se entiende entero, no se cancela nada.
@@ -90,17 +121,24 @@ export class OrdersTasksService {
 
     try {
       const { liberados, omitidos, fallidos } =
-        await this.ordersService.liberarPedidosSinPagar(horas, horario, zona);
+        await this.ordersService.liberarPedidosSinPagar(
+          horas,
+          horasEsperandoDatos,
+          horario,
+          zona,
+        );
 
       if (liberados === 0 && omitidos === 0 && fallidos === 0) {
         this.logger.debug(
-          `Sin pedidos que liberar (plazo de ${horas} h hábiles sin datos de pago)`,
+          `Sin pedidos que liberar (${horas} h hábiles sin datos de pago, ` +
+            `${horasEsperandoDatos} h para los que esperan datos de la tienda)`,
         );
         return;
       }
 
       this.logger.log(
-        `Liberación de pedidos sin pagar (${horas} h hábiles): ${liberados} ` +
+        `Liberación de pedidos sin pagar (${horas} h hábiles, ` +
+          `${horasEsperandoDatos} h los que esperan datos): ${liberados} ` +
           `anulados con su inventario devuelto, ${omitidos} respetados por ` +
           'haber aportado datos de pago, no tener el plazo agotado o haber ' +
           `cambiado de estado, ${fallidos} con error.`,

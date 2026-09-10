@@ -75,7 +75,9 @@ describe('OrdersService.liberarPedidosSinPagar', () => {
   const pagoVacio = (extra: Partial<PaymentInfo> = {}): PaymentInfo =>
     ({
       id: 1,
-      method: PaymentMethod.ZELLE,
+      // PAGOMÓVIL y no Zelle: un pedido Zelle vacío es un cliente esperando
+      // datos de la tienda, no un pedido basura, y tiene su propio plazo.
+      method: PaymentMethod.PAGOMOVIL,
       status: PaymentStatus.PENDING,
       senderName: '',
       senderBank: '',
@@ -117,9 +119,18 @@ describe('OrdersService.liberarPedidosSinPagar', () => {
   /** Lunes al mediodía: tres horas hábiles después de las 9:00. */
   const AL_MEDIODIA = caracas('2026-07-27T12:00');
 
-  const liberar = (horas = 3, ahora: Date = AL_MEDIODIA) => {
+  const liberar = (
+    horas = 3,
+    ahora: Date = AL_MEDIODIA,
+    horasEsperandoDatos = 18,
+  ) => {
     jest.useFakeTimers().setSystemTime(ahora);
-    const promesa = service.liberarPedidosSinPagar(horas, HORARIO, ZONA);
+    const promesa = service.liberarPedidosSinPagar(
+      horas,
+      horasEsperandoDatos,
+      HORARIO,
+      ZONA,
+    );
     jest.useRealTimers();
     return promesa;
   };
@@ -354,6 +365,7 @@ describe('OrdersService.liberarPedidosSinPagar', () => {
       expect(emailService.sendOrderReleased).toHaveBeenCalledWith(
         expect.objectContaining({ status: OrderStatus.CANCELLED }),
         3,
+        false,
       );
     });
   });
@@ -450,6 +462,37 @@ describe('OrdersService.liberarPedidosSinPagar', () => {
 
       expect(limite).toEqual(new Date(ahora.getTime() - 3 * 60 * 60 * 1000));
     });
+
+    /**
+     * Y con el plazo de Zelle más corto que el normal —configuración rara pero
+     * legal— el prefiltro tiene que usar ESE, o los Zelle no llegarían nunca a
+     * la consulta. Sin el `Math.min`, un candidato queda fuera en SQL y ninguna
+     * guarda posterior puede recuperarlo.
+     */
+    it('el prefiltro usa el menor de los dos plazos', async () => {
+      let limite: Date | undefined;
+
+      const repo = service as unknown as {
+        orderRepository: { createQueryBuilder: jest.Mock };
+      };
+      repo.orderRepository.createQueryBuilder = jest.fn((): QbFalso => {
+        const qb: QbFalso = {
+          innerJoinAndSelect: jest.fn(() => qb),
+          where: jest.fn(() => qb),
+          andWhere: jest.fn((_c: string, params?: { limite?: Date }) => {
+            if (params?.limite) limite = params.limite;
+            return qb;
+          }),
+          getMany: jest.fn(() => Promise.resolve([])),
+        };
+        return qb;
+      });
+
+      const ahora = caracas('2026-07-27T12:00');
+      await liberar(5, ahora, 2);
+
+      expect(limite).toEqual(new Date(ahora.getTime() - 2 * 60 * 60 * 1000));
+    });
   });
 
   describe('un correo caído no impide la liberación', () => {
@@ -492,6 +535,117 @@ describe('OrdersService.liberarPedidosSinPagar', () => {
     await liberar();
 
     expect(emailService.sendOrderReleased).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * **La regresión de Zelle.** Se descubrió hablando con el dueño, no leyendo
+   * código, así que queda clavada acá.
+   *
+   * Zelle no publica datos de cuenta: un operador se los manda al cliente por
+   * WhatsApp después del pedido. `ZelleForm.tsx` no tiene ni un campo y el
+   * checkout manda `paymentDetails = {}`, así que el pedido llega con
+   * `payment_info` ENTERO en blanco — idéntico, campo por campo, a un pedido
+   * basura. Con el plazo normal, el cron le cancelaba a las tres horas hábiles
+   * a un cliente que estaba haciendo exactamente lo que la pantalla le dijo:
+   * esperar. Y esperando A LA TIENDA, que es el mismo principio por el que no
+   * se toca un comprobante pendiente de revisar.
+   */
+  describe('Zelle: el cliente espera datos de la tienda, no al revés', () => {
+    const zelleVacio = () => pagoVacio({ method: PaymentMethod.ZELLE });
+
+    it('NO se cancela un Zelle vacío con el plazo normal agotado', async () => {
+      // Lunes 09:00, y son las 12:00: tres horas hábiles cumplidas de sobra
+      // para el plazo corto. Un pagomóvil idéntico sí caería acá.
+      enLaBase = [pedido('40', zelleVacio())];
+
+      const resultado = await liberar(3, AL_MEDIODIA, 18);
+
+      expect(resultado.liberados).toBe(0);
+      expect(resultado.omitidos).toBe(1);
+      expect(enLaBase[0].status).toBe(OrderStatus.ON_HOLD);
+      expect(productRepo.increment).not.toHaveBeenCalled();
+      expect(emailService.sendOrderReleased).not.toHaveBeenCalled();
+    });
+
+    /**
+     * El contraste que hace que la prueba de arriba signifique algo: el MISMO
+     * `payment_info` vacío, en el mismo instante, con lo único distinto siendo
+     * el método. Si alguien "arregla" esto haciendo que no se cancele nada,
+     * esta prueba se cae.
+     */
+    it('el mismo pedido vacío con pagomóvil sí se cancela', async () => {
+      enLaBase = [
+        pedido('40', zelleVacio()),
+        pedido('41', pagoVacio({ method: PaymentMethod.PAGOMOVIL })),
+      ];
+
+      const resultado = await liberar(3, AL_MEDIODIA, 18);
+
+      expect(resultado).toEqual({ liberados: 1, omitidos: 1, fallidos: 0 });
+      expect(enLaBase[0].status).toBe(OrderStatus.ON_HOLD);
+      expect(enLaBase[1].status).toBe(OrderStatus.CANCELLED);
+    });
+
+    /**
+     * Pero Zelle NO es inmortal, y esto es lo que impide que el arreglo
+     * reabra el agujero: mandar `paymentMethod: "zelle"` sin ningún dato es
+     * gratis —es justo lo que manda la tienda de verdad—, así que si nunca
+     * caducara bastaría una palabra para apartar inventario para siempre.
+     */
+    it('sí se cancela cuando se agota SU plazo, el largo', async () => {
+      enLaBase = [pedido('40', zelleVacio())];
+
+      // Lunes 09:00 + 18 h hábiles = miércoles a las 12:00 (9h el lunes desde
+      // las 9 son 8, +9 el martes = 17, +1 el miércoles = 18).
+      const resultado = await liberar(3, caracas('2026-07-29T09:00'), 18);
+
+      expect(resultado.liberados).toBe(1);
+      expect(enLaBase[0].status).toBe(OrderStatus.CANCELLED);
+      expect(productRepo.increment).toHaveBeenCalledTimes(2);
+    });
+
+    it('no se cancela un minuto antes de agotar su plazo largo', async () => {
+      enLaBase = [pedido('40', zelleVacio())];
+
+      const resultado = await liberar(3, caracas('2026-07-29T08:59'), 18);
+
+      expect(resultado.liberados).toBe(0);
+      expect(enLaBase[0].status).toBe(OrderStatus.ON_HOLD);
+    });
+
+    /**
+     * El correo no puede decirle a un cliente Zelle que no pagó: estaba
+     * esperando datos NUESTROS. La bandera va hasta `EmailService`.
+     */
+    it('el aviso reconoce que el cliente esperaba nuestros datos', async () => {
+      enLaBase = [pedido('40', zelleVacio())];
+
+      await liberar(3, caracas('2026-07-29T09:00'), 18);
+
+      expect(emailService.sendOrderReleased).toHaveBeenCalledWith(
+        expect.objectContaining({ status: OrderStatus.CANCELLED }),
+        18,
+        true,
+      );
+    });
+
+    /** Y un Zelle que YA aportó su pago sigue protegido por la regla de siempre. */
+    it('un Zelle con comprobante no se cancela ni pasado el plazo largo', async () => {
+      enLaBase = [
+        pedido(
+          '40',
+          pagoVacio({
+            method: PaymentMethod.ZELLE,
+            receiptKey: 'comprobantes/zelle.jpg',
+          }),
+        ),
+      ];
+
+      const resultado = await liberar(3, caracas('2026-08-30T09:00'), 18);
+
+      expect(resultado.liberados).toBe(0);
+      expect(enLaBase[0].status).toBe(OrderStatus.ON_HOLD);
+    });
   });
 
   /**

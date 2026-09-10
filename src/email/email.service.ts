@@ -499,21 +499,38 @@ export class EmailService {
    * relee de la configuración acá: si el dueño lo cambiara entre la
    * cancelación y el envío, el correo tiene que contar el plazo que de verdad
    * se le aplicó a ESTE pedido.
+   *
+   * `esperandoDatos` cambia el correo entero, y no es un matiz de redacción.
+   * Un pedido Zelle se libera sin que el cliente haya podido hacer nada: la
+   * tienda no publica esos datos, se los manda un operador por WhatsApp, y la
+   * pantalla del checkout le dijo al cliente que esperara. Decirle a ESE
+   * cliente «no recibimos tu pago» es echarle la culpa de un retraso nuestro.
+   * Cuando la bandera está puesta, el correo lo reconoce y le ofrece retomarlo
+   * por WhatsApp en vez de mandarlo a empezar de cero.
    */
-  async sendOrderReleased(order: Order, releaseHours: number): Promise<void> {
+  async sendOrderReleased(
+    order: Order,
+    releaseHours: number,
+    esperandoDatos = false,
+  ): Promise<void> {
     const recipientEmail = order.user?.email || order.guestEmail;
     if (!recipientEmail) return;
 
     const comun = this.payloads.buildCommon();
-    const subject = `Liberamos tu pedido ${order.orderNumber} por falta de pago`;
+    const subject = esperandoDatos
+      ? `Liberamos tu pedido ${order.orderNumber} mientras esperabas nuestros datos de pago`
+      : `Liberamos tu pedido ${order.orderNumber} por falta de pago`;
 
     const html = await this.render('order-released', {
       ...comun,
       subject,
-      preheader: 'La mercancía volvió al catálogo; puedes pedirla de nuevo',
+      preheader: esperandoDatos
+        ? 'Escríbenos y lo retomamos: la mercancía volvió al catálogo'
+        : 'La mercancía volvió al catálogo; puedes pedirla de nuevo',
       orderNumber: order.orderNumber,
       customerName: this.customerName(order),
       releaseHours,
+      esperandoDatos,
       totalVes: formatVes(order.totalVes),
       catalogUrl: `${this.configService.get('app.frontendUrl')}/productos`,
     });

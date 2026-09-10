@@ -77,6 +77,15 @@ export interface OrdersConfig {
   unpaidReleaseHours: number | null;
 
   /**
+   * Plazo, también en horas hábiles, para los pedidos cuyo método de pago
+   * obliga al cliente a esperar datos de la tienda antes de poder pagar (hoy
+   * sólo Zelle). Es más largo porque la cuenta atrás incluye el tiempo que
+   * tarda la tienda en escribirle. `null` con el mismo criterio que el otro:
+   * si no se entiende, no se cancela nada.
+   */
+  unpaidReleaseHoursAwaitingDetails: number | null;
+
+  /**
    * Horario de atención con el que corre ese reloj, en crudo tal como está en
    * el entorno. Lo interpreta `parseHorarioComercial`, que devuelve `null` si
    * no se entiende entero — y entonces tampoco se cancela nada.
@@ -247,6 +256,18 @@ export const ordersConfig = registerAs(
       process.env.ORDERS_UNPAID_RELEASE_HOURS === undefined
         ? 3
         : enteroPositivoDelEntorno(process.env.ORDERS_UNPAID_RELEASE_HOURS),
+
+    // El plazo largo, para los métodos en los que el cliente espera datos de la
+    // tienda para poder pagar. El defecto de 18 horas hábiles son dos días de
+    // atención: cubre que un operador le escriba y que el cliente llegue al
+    // banco, incluso si el pedido entra un viernes por la tarde. Mismo trato
+    // que el corto ante un valor ilegible: null, y no se cancela nada.
+    unpaidReleaseHoursAwaitingDetails:
+      process.env.ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS === undefined
+        ? 18
+        : enteroPositivoDelEntorno(
+            process.env.ORDERS_UNPAID_RELEASE_HOURS_AWAITING_DETAILS,
+          ),
 
     // El horario del reloj hábil. Se pasa en crudo: quien lo interpreta es
     // `parseHorarioComercial`, que es también quien decide que un horario a
