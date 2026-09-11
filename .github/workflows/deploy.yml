@@ -15,6 +15,14 @@ on:
           - deploy
           - restart
 
+# Dos despliegues a la vez se pisan: el segundo construye mientras el primero
+# está cambiando el contenedor, y el que gana la carrera es el azar. Se hacen
+# en fila. `cancel-in-progress: false` a propósito: cancelar uno a medias
+# puede dejar migraciones aplicadas sin su código.
+concurrency:
+  group: despliegue-produccion
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy to Server
@@ -32,31 +40,46 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
+          # Que el script pare en el primer fallo. Sin esto, la acción sólo
+          # mira el código de salida del ÚLTIMO comando: una migración que
+          # revienta imprimía su error, el script seguía, y el despliegue se
+          # reportaba en verde. Va junto con el `set -e` de abajo porque son
+          # dos capas distintas —la de la acción y la del shell— y basta con
+          # que una de las dos se pierda en un refactor para volver al fallo
+          # mudo.
+          script_stop: true
           script: |
+            set -euo pipefail
+
             cd ~/construir-be
 
-            echo "📥 Pulling latest changes..."
-            git pull origin main
-
-            # NO se tumba el servicio antes de construir. El orden anterior
-            # hacía `down` primero, así que un build fallido dejaba la tienda
-            # caída — y el build falla por cosas ajenas al código, como el disco
-            # lleno. Se construye con el servicio en pie y se cambia al final,
-            # que además baja el corte a unos segundos.
-            echo "🧹 Cleaning up dangling images..."
-            docker image prune -f
+            echo "📥 Trayendo los cambios..."
+            # `--ff-only`: si el repo del servidor tiene cambios locales o
+            # divergió, esto FALLA en vez de fusionar solo o quedarse callado
+            # desplegando el código viejo. Un servidor con parches a mano es un
+            # problema que hay que ver, no que resolver a ciegas.
+            git pull --ff-only origin main
 
             echo "🧹 Liberando espacio antes de construir..."
             # El build de Docker muere con ENOSPC y deja el servicio caído.
             # Ya pasó: el disco llegó al 95% con cinco proyectos en la misma
             # máquina. Se limpia ANTES, no después de romper nada.
+            #
+            # `|| true` en las limpiezas: que no haya nada que borrar no es un
+            # fallo, y con `set -e` tumbaría el despliegue sin motivo.
+            docker image prune -f || true
             docker builder prune -f || true
             df -h / | tail -1
 
-            echo "🔨 Building new image..."
+            # NO se tumba el servicio antes de construir. El orden anterior
+            # hacía `down` primero, así que un build fallido dejaba la tienda
+            # caída — y el build falla por cosas ajenas al código, como el
+            # disco lleno. Se construye con el servicio en pie y se cambia al
+            # final, que además baja el corte a unos segundos.
+            echo "🔨 Construyendo la imagen nueva..."
             docker compose build app
 
-            echo "🗄️ Running database migrations..."
+            echo "🗄️ Corriendo migraciones..."
             docker compose run --rm app node -e "
               const { AppDataSource } = require('./dist/src/database/data-source');
               AppDataSource.initialize()
@@ -74,10 +97,37 @@ jobs:
             # necesidad.
             docker compose up -d --no-deps app
 
-            echo "⏳ Waiting for application to start..."
-            sleep 5
+            echo "🩺 Esperando a que la aplicación responda..."
+            # Antes acá había un `sleep 5` y un volcado de log, y el despliegue
+            # se daba por bueno sin preguntarle nada a la aplicación. Eso
+            # importa más desde que `bootstrap()` se NIEGA A ARRANCAR ante
+            # configuraciones peligrosas (ver `main.ts`): el modo de fallo
+            # normal pasó a ser "el contenedor no levanta", que es justo el que
+            # el `sleep` no veía. El servicio escucha en el 3001 del anfitrión.
+            listo=""
+            for intento in $(seq 1 30); do
+              if curl -fsS -o /dev/null --max-time 5 http://localhost:3001/; then
+                listo="si"
+                echo "✅ Responde al intento $intento."
+                break
+              fi
+              sleep 2
+            done
 
-            echo "✅ Deployment completed!"
+            if [ -z "$listo" ]; then
+              echo "❌ La aplicación no respondió en 60 segundos."
+              echo "--- Últimas 80 líneas del log ---"
+              docker logs --tail=80 construir-be || true
+              echo "--- Estado del contenedor ---"
+              docker ps -a --filter name=construir-be --format '{{.Names}} {{.Status}}'
+              # OJO: las migraciones YA SE APLICARON. Volver a la imagen
+              # anterior restauraría el servicio pero la base quedaría por
+              # delante del código, así que no se hace solo: se falla ruidoso y
+              # decide una persona.
+              exit 1
+            fi
+
+            echo "✅ Despliegue completado."
             docker logs --tail=20 construir-be
 
       - name: Notify deployment status
@@ -87,6 +137,7 @@ jobs:
             echo "✅ Deployment successful!"
           else
             echo "❌ Deployment failed!"
+            exit 1
           fi
 
   restart:
@@ -102,7 +153,10 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
           script: |
+            set -euo pipefail
+
             cd ~/construir-be
 
             echo "🔄 Recreando el contenedor..."
@@ -111,8 +165,25 @@ jobs:
             # mudo — el servicio arranca bien, con la configuración vieja.
             docker compose up -d --force-recreate --no-deps app
 
-            echo "⏳ Waiting for application to start..."
-            sleep 5
+            echo "🩺 Esperando a que la aplicación responda..."
+            # Un reinicio es justo cuando se acaba de tocar el `.env`, y una
+            # variable mal puesta hace que `bootstrap()` no levante. Sin esta
+            # comprobación, el reinicio que tumba la tienda se reporta en verde.
+            listo=""
+            for intento in $(seq 1 30); do
+              if curl -fsS -o /dev/null --max-time 5 http://localhost:3001/; then
+                listo="si"
+                echo "✅ Responde al intento $intento."
+                break
+              fi
+              sleep 2
+            done
 
-            echo "✅ Restart completed!"
+            if [ -z "$listo" ]; then
+              echo "❌ La aplicación no respondió en 60 segundos."
+              docker logs --tail=80 construir-be || true
+              exit 1
+            fi
+
+            echo "✅ Reinicio completado."
             docker logs --tail=20 construir-be
