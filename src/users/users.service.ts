@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   ConflictException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { User } from './user.entity';
+import { leFaltaVerificarElCorreo } from './verificacion-de-correo';
 import { CreateUserDto } from './dto/create-user.dto';
 import { CreateUserAdminDto } from './dto/create-user-admin.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -34,6 +36,8 @@ function maskEmail(email: string): string {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(User)
     private usersRepository: Repository<User>,
@@ -454,10 +458,40 @@ export class UsersService {
     };
   }
 
+  /**
+   * Manda el enlace de recuperación, si procede.
+   *
+   * Devuelve `void` pase lo que pase, y el endpoint responde éxito siempre:
+   * distinguir "te lo mandé" de "esa cuenta no existe" convierte esta puerta
+   * en un oráculo de correos registrados. El precio de esa decisión correcta
+   * es que un fallo aquí es INVISIBLE desde fuera, así que cada salida
+   * temprana deja rastro en el log del servidor — sin eso, el 11-09-2026 un
+   * administrador pidió recuperar su contraseña, el sistema no envió nada y
+   * no había forma de saber por qué.
+   */
   async requestPasswordReset(email: string): Promise<void> {
     const user = await this.usersRepository.findOne({ where: { email } });
 
-    if (!user || !user.isActive || !user.emailVerified) {
+    if (!user) {
+      this.logger.debug('Recuperación pedida para un correo sin cuenta.');
+      return;
+    }
+
+    if (!user.isActive) {
+      this.logger.debug(
+        `Recuperación pedida para la cuenta ${user.uuid}, que está desactivada.`,
+      );
+      return;
+    }
+
+    // `leFaltaVerificarElCorreo` y no `!user.emailVerified`: la condición a
+    // secas dejaba fuera a los administradores, que NUNCA verifican su correo
+    // porque los da de alta otro administrador y no reciben enlace. Podían
+    // entrar al panel pero no recuperar su contraseña jamás.
+    if (leFaltaVerificarElCorreo(user)) {
+      this.logger.debug(
+        `Recuperación pedida para la cuenta ${user.uuid}, que aún no verifica su correo.`,
+      );
       return;
     }
 

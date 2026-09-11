@@ -4,6 +4,7 @@ import { UsersService } from '../users/users.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/login.dto';
 import { AuthErrorCode } from './auth-error-code.enum';
+import { leFaltaVerificarElCorreo } from '../users/verificacion-de-correo';
 
 @Injectable()
 export class AuthService {
@@ -30,11 +31,9 @@ export class AuthService {
       );
     }
 
-    // Check if email is verified (only required for customer/user roles)
-    if (
-      !user.emailVerified &&
-      (user.role === 'customer' || user.role === 'user')
-    ) {
+    // La regla vive en `leFaltaVerificarElCorreo` y no acá: estaba duplicada
+    // con la recuperación de contraseña y las dos copias se separaron.
+    if (leFaltaVerificarElCorreo(user)) {
       throw this.rechazo(
         AuthErrorCode.EMAIL_NOT_VERIFIED,
         'Email not verified',
