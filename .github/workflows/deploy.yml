@@ -40,14 +40,18 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          # Que el script pare en el primer fallo. Sin esto, la acción sólo
-          # mira el código de salida del ÚLTIMO comando: una migración que
-          # revienta imprimía su error, el script seguía, y el despliegue se
-          # reportaba en verde. Va junto con el `set -e` de abajo porque son
-          # dos capas distintas —la de la acción y la del shell— y basta con
-          # que una de las dos se pierda en un refactor para volver al fallo
-          # mudo.
-          script_stop: true
+          # NO se usa `script_stop: true`. Parece la opción obvia para que el
+          # script pare en el primer fallo, y rompe el despliegue: la acción no
+          # la aplica como bandera pasiva, sino PARTIENDO EL SCRIPT POR LÍNEAS
+          # e inyectando entre cada una un guardián de shell
+          # (`DRONE_SSH_PREV_COMMAND_EXIT_CODE=0 ; if [ 0 -ne 0 ]; ...`). Con
+          # un comando de varias líneas —el `node -e` de las migraciones— el
+          # guardián aterriza DENTRO del argumento entrecomillado y node muere
+          # con `SyntaxError: Unexpected token '['`. Pasó el 11-09-2026.
+          #
+          # Quien pare el script es `set -euo pipefail`, que hace el mismo
+          # trabajo sin trocear nada: la acción manda todo el script a UN solo
+          # shell, así que el `set -e` gobierna de principio a fin.
           script: |
             set -euo pipefail
 
@@ -80,16 +84,11 @@ jobs:
             docker compose build app
 
             echo "🗄️ Corriendo migraciones..."
-            docker compose run --rm app node -e "
-              const { AppDataSource } = require('./dist/src/database/data-source');
-              AppDataSource.initialize()
-                .then(ds => ds.runMigrations())
-                .then(migrations => {
-                  console.log('Migrations run:', migrations.length ? migrations.map(m => m.name).join(', ') : 'none pending');
-                  process.exit(0);
-                })
-                .catch(e => { console.error('Migration failed:', e); process.exit(1); });
-            "
+            # En UNA línea a propósito. Repartido en varias, cualquier capa que
+            # procese el script línea a línea se mete dentro de las comillas y
+            # lo que revienta no es el despliegue sino node, con un error de
+            # sintaxis que no se parece en nada a la causa.
+            docker compose run --rm app node -e "const { AppDataSource } = require('./dist/src/database/data-source'); AppDataSource.initialize().then(ds => ds.runMigrations()).then(ms => { console.log('Migraciones aplicadas:', ms.length ? ms.map(m => m.name).join(', ') : 'ninguna pendiente'); process.exit(0); }).catch(e => { console.error('Fallo la migracion:', e); process.exit(1); });"
 
             echo "🚀 Cambiando al contenedor nuevo..."
             # `up -d` recrea sólo lo que cambió. Con `--no-deps` no se toca la
@@ -153,7 +152,6 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          script_stop: true
           script: |
             set -euo pipefail
 
