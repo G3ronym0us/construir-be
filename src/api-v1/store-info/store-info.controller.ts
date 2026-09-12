@@ -34,8 +34,21 @@ export class StoreInfoV1Controller {
       city: this.configService.get<string>('app.storeCity') ?? '',
       phone: this.configService.get<string>('app.storePhone') ?? '',
       email: this.configService.get<string>('app.storeEmail') ?? '',
+      whatsapp: this.whatsapp(),
       hours: this.configService.get<string>('app.storeHours') ?? '',
       mapUrl: this.configService.get<string>('app.storeMapUrl') ?? '',
     };
+  }
+
+  /**
+   * El número sale de STORE_WHATSAPP_URL, la misma variable que usan los
+   * correos, para que la web y las plantillas no puedan apuntar a chats
+   * distintos. El storefront tenía su propia copia en el build y llegó a
+   * producción con otro número. Se sirve sólo el número porque la web arma el
+   * enlace con su mensaje precargado.
+   */
+  private whatsapp(): string {
+    const url = this.configService.get<string>('app.storeWhatsappUrl') ?? '';
+    return /wa\.me\/(\d+)/.exec(url)?.[1] ?? '';
   }
 }

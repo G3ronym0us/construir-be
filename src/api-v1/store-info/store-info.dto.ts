@@ -20,6 +20,13 @@ export class StoreInfoResponseDto {
   })
   email: string;
 
+  @ApiProperty({
+    example: '584141925544',
+    description:
+      'Número de WhatsApp de la tienda (58 + 10 dígitos), sacado de STORE_WHATSAPP_URL. Cadena vacía si no se configuró',
+  })
+  whatsapp: string;
+
   @ApiProperty({ example: 'Lunes a Viernes: 8am - 6pm, Sábados: 9am - 2pm' })
   hours: string;
 
